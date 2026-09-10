@@ -127,7 +127,7 @@ function main() {
     console.error(`\n${failed} delegation vector(s) failed`);
     process.exit(1);
   }
-  console.log(`\nAll ${vectors.length} delegation vector(s) passed`);
+  console.log(`\nAll ${vectors.length} delegation vector(s) passed (diagnostic only; scoped report: pnpm test:vectors:delegation)`);
 }
 
 main();

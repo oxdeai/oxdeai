@@ -340,7 +340,7 @@ func main() {
 	if canFailed > 0 {
 		fmt.Fprintf(os.Stderr, "\n%d canonicalization vector(s) failed\n", canFailed)
 	} else {
-		fmt.Printf("\nAll %d canonicalization vector(s) passed\n", len(vectors))
+		fmt.Printf("\nAll %d canonicalization vector(s) passed (diagnostic only; scoped report: pnpm test:vectors:go)\n", len(vectors))
 	}
 
 	// ── 2. Profile C state-hash semantics (modes 001–005) ────────────────────
@@ -348,7 +348,7 @@ func main() {
 	if profCFailed > 0 {
 		fmt.Fprintf(os.Stderr, "\n%d Profile C vector(s) failed\n", profCFailed)
 	} else {
-		fmt.Printf("\nAll %d Profile C vector(s) passed\n", profCPassed)
+		fmt.Printf("\nAll %d Profile C vector(s) passed (diagnostic only; scoped report: pnpm test:vectors:go)\n", profCPassed)
 	}
 
 	// ── 3. SignedKRLV1 verification (9 vectors) ───────────────────────────────
@@ -356,7 +356,7 @@ func main() {
 	if krlFailed > 0 {
 		fmt.Fprintf(os.Stderr, "\n%d SignedKRL vector(s) failed\n", krlFailed)
 	} else {
-		fmt.Printf("\nAll %d SignedKRL vector(s) passed\n", krlPassed)
+		fmt.Printf("\nAll %d SignedKRL vector(s) passed (diagnostic only; scoped report: pnpm test:vectors:go)\n", krlPassed)
 	}
 
 	// ── Final exit code ───────────────────────────────────────────────────────

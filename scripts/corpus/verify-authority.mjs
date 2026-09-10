@@ -1,3 +1,4 @@
+import { evidenceScope } from "../../packages/conformance/src/evidenceScope.mjs";
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync, realpathSync } from 'node:fs';
 import { resolve, relative } from 'node:path';
@@ -61,8 +62,12 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     assert.ok(process.argv.slice(2).every(a => a === '--json'), 'usage: verify-authority.mjs [--json]');
     const manifest = JSON.parse(readFileSync(resolve(ROOT, MANIFEST), 'utf8'));
     const rows = verifyAuthority(manifest);check();
-    if (process.argv.includes('--json')) console.log(JSON.stringify({ result: 'PASS', scope: 'structural-only', inventory: rows }, null, 2));
+    const scoped = evidenceScope({ kind: 'structural-only', consumer: 'scripts/corpus/verify-authority.mjs', runtime: 'JavaScript' });
+    if (process.argv.includes('--json')) console.log(JSON.stringify({ result: 'PASS', scope: 'structural-only', inventory: rows, evidenceScope: scoped }, null, 2));
     else console.log(`Corpus authority: PASS (${rows.length} logical corpora; Profile-C projection exact)`);
-    if (!process.argv.includes('--json')) console.log('Authority/reference consistency is not runtime execution proof or whole-protocol conformance.');
+    if (!process.argv.includes('--json')) {
+      console.log('Authority/reference consistency is not runtime execution proof or whole-protocol conformance.');
+      console.log(JSON.stringify({ evidenceScope: scoped }));
+    }
   } catch (e) { console.error(`Corpus authority: FAIL: ${e.message}`);process.exitCode = 1; }
 }

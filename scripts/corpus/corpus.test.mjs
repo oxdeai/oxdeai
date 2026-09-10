@@ -1,3 +1,4 @@
+import { repositoryMetadata } from "../../packages/conformance/src/evidenceScope.mjs";
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, writeFileSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs';
@@ -100,10 +101,11 @@ test('existing Profile-C signed payloads do not exercise disputed escaping',()=>
 test('real projection CLI returns non-zero for a changed secondary in an isolated tree', () => {
   const root=mkdtempSync(resolve(tmpdir(),'oxdeai-projection-cli-'));
   try {
-    for(const path of [AUTHORITY, SECONDARY, 'scripts/corpus/profile-c.mjs']) {
+    for(const path of [AUTHORITY, SECONDARY, 'scripts/corpus/profile-c.mjs', 'packages/conformance/src/evidenceScope.mjs']) {
       mkdirSync(dirname(resolve(root,path)),{recursive:true});
       writeFileSync(resolve(root,path),readFileSync(resolve(ROOT,path)));
     }
+    writeFileSync(resolve(root, 'packages/conformance/evidence-metadata.json'), JSON.stringify(repositoryMetadata(ROOT)));
     const run=()=>spawnSync(process.execPath,[resolve(root,'scripts/corpus/profile-c.mjs'),'--check'],{encoding:'utf8'});
     let child=run();assert.ifError(child.error);assert.equal(child.status,0,child.stderr);
     const changed=project(source);changed.vectors[1].expected.reason='independent edit';

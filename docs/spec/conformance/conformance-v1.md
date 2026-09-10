@@ -698,3 +698,20 @@ No valid authorization
 ```
 
 Conformance evidence for an earlier stage of the chain MUST NOT be interpreted as proof that later stages are enforced unless those stages are themselves exercised by the applicable conformance surface.
+## Scoped conformance evidence
+
+Repository conformance reports MUST bind PASS/FAIL to an explicit machine-readable
+`evidenceScope`, as defined in [the evidence-scope contract](../../conformance/evidence-scope.md).
+A PASS applies only to the declared consumers, runtimes and exercised cases.
+`coveredClaims` identifies only the explicitly mapped evidence supports statements;
+it MUST NOT imply all obligations or evidence levels of a claim were demonstrated.
+`excludedClaims` MUST be derived from the registered claim inventory minus the
+claims supported by that selected evidence. Unmapped or ambiguous evidence MUST
+NOT silently acquire coverage. Exclusion alone is not a test failure.
+
+Corpus provenance bounds authority: reproducing reference-generated expected
+values MUST NOT be presented as independent normative derivation. Structural
+validation MUST NOT imply semantic proof. Evidence scope MUST NOT imply deployment
+properties, non-bypassability or later execution stages unless those properties
+were specifically exercised and mapped. Legacy assertion logs and internal
+artifact verification responses are not scoped conformance reports.

@@ -165,7 +165,7 @@ def main() -> int:
         print(f"\n{failed} vector(s) failed", file=sys.stderr)
         return 1
 
-    print(f"\nAll {len(vectors)} vector(s) passed")
+    print(f"\nAll {len(vectors)} vector(s) passed (diagnostic only; scoped report: pnpm test:vectors:py)")
     return 0
 
 

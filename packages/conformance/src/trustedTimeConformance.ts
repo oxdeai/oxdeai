@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
+import { evidenceScope } from "./evidenceScope.mjs";
 import {
   PolicyEngine,
   signAuthorizationEd25519,
@@ -42,6 +43,7 @@ export type TrustedTimeSummary = {
   failed: number;
   pending: number;
   failures: string[];
+  evidenceScope: ReturnType<typeof evidenceScope>;
 };
 
 const CATEGORY_SET = new Set<string>(TRUSTED_TIME_CATEGORIES);
@@ -425,13 +427,15 @@ function mismatchDetail(vector: TrustedTimeVector, actual: unknown): string | un
 
 export function runTrustedTimeConformance(raw: unknown, log: (line: string) => void = console.log): TrustedTimeSummary {
   const file = parseTrustedTimeFile(raw);
-  const summary: TrustedTimeSummary = { active: 0, passed: 0, failed: 0, pending: 0, failures: [] };
+  const passedCaseIds: string[] = [];
+  const summary = { active: 0, passed: 0, failed: 0, pending: 0, failures: [] as string[] };
   for (const vector of file.vectors) {
     if (vector.status === "pending") { summary.pending++; log(`PENDING ${vector.id} blocked_by=${vector.blocked_by}`); continue; }
     summary.active++;
     try {
       const actual = runVector(vector);
       if (!matches(actual, vector.expected)) throw new Error(mismatchDetail(vector, actual) ?? `expected=${JSON.stringify(vector.expected)} actual=${JSON.stringify(actual)}`);
+      passedCaseIds.push(vector.id);
       summary.passed++; log(`PASS ${vector.id}`);
     } catch (error) {
       summary.failed++;
@@ -440,7 +444,11 @@ export function runTrustedTimeConformance(raw: unknown, log: (line: string) => v
       summary.failures.push(message); log(`FAIL ${message}`);
     }
   }
-  return summary;
+  return { ...summary, evidenceScope: evidenceScope({ consumer: "packages/conformance/src/trustedTimeConformance.ts", runtime: "TypeScript", selections: [{
+    representation: "packages/conformance/vectors/trusted-time.json", data: raw,
+    consumer: "packages/conformance/src/trustedTimeConformance.ts", runtime: "TypeScript",
+    caseIds: file.vectors.filter(v => v.status === "active").map(v => v.id), passedCaseIds,
+  }] }) };
 }
 
 export function trustedTimeExitCode(summary: TrustedTimeSummary): 0 | 1 {

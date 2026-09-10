@@ -122,7 +122,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	fmt.Printf("\nConformance passed: %d assertions\n", ctx.Passed)
+	fmt.Printf("\nDiagnostic checks passed: %d assertions (adapter protocol only; no scoped conformance claim)\n", ctx.Passed)
 }
 
 func runIntentHash(ctx *assertionCtx, adapter adapterClient, vectorsDir string) {
