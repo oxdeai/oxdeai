@@ -1,0 +1,30 @@
+{
+  "version": 1,
+  "declaredFor": "OxDeAI 2.0 S_freeze",
+  "note": "Predeclared falsification criteria. These are declared BEFORE the independent review begins. A reviewer may discover additional failures; no reviewer or maintainer may weaken a mandatory criterion after review starts without producing a new freeze candidate (a new candidateId bound to a new source SHA).",
+  "criteria": [
+    { "id": "ISO-001", "class": "artifact-isolation", "mandatory": true, "statement": "A required release-candidate package cannot be installed in a clean project outside the monorepo." },
+    { "id": "ISO-002", "class": "artifact-isolation", "mandatory": true, "statement": "Execution of a documented reproduction step requires an OxDeAI monorepo-relative path." },
+    { "id": "ISO-003", "class": "artifact-isolation", "mandatory": true, "statement": "Validation depends on an unpublished registry package that is not supplied in the RC bundle." },
+    { "id": "ISO-004", "class": "artifact-isolation", "mandatory": true, "statement": "The documented public package interface cannot be invoked from the installed artifact." },
+
+    { "id": "CORP-001", "class": "conformance-authority", "mandatory": true, "statement": "A release-relevant corpus has ambiguous authority." },
+    { "id": "CORP-002", "class": "conformance-authority", "mandatory": true, "statement": "The same logical corpus has multiple independently editable authoritative representations." },
+    { "id": "CORP-003", "class": "conformance-authority", "mandatory": true, "statement": "A Profile-C secondary representation can diverge from its authority without detection." },
+    { "id": "CORP-004", "class": "conformance-authority", "mandatory": true, "statement": "A documented cross-language or cross-runtime claim is not supported by the declared consumers." },
+    { "id": "CORP-005", "class": "conformance-authority", "mandatory": true, "statement": "A third party cannot determine which corpus supports a stated conformance claim." },
+
+    { "id": "REPRO-001", "class": "reproducibility", "mandatory": true, "statement": "The documented commands do not reproduce the claimed result." },
+    { "id": "REPRO-002", "class": "reproducibility", "mandatory": true, "statement": "A recorded result cannot be tied to the frozen Git SHA." },
+    { "id": "REPRO-003", "class": "reproducibility", "mandatory": true, "statement": "A recorded result cannot be tied to the supplied RC artifacts." },
+    { "id": "REPRO-004", "class": "reproducibility", "mandatory": true, "statement": "The clean external result differs semantically from the recorded freeze result." },
+
+    { "id": "SEC-001", "class": "security-boundary", "mandatory": true, "statement": "A freeze-blocking security defect accepted into the candidate remains reproducible against the frozen SHA." },
+    { "id": "SEC-002", "class": "security-boundary", "mandatory": true, "statement": "Verification of an externally supplied authorization is self-bound to an expectation derived from the artifact under verification, from an artifact it carries, or from the producer that created it in the same call." },
+    { "id": "SEC-003", "class": "security-boundary", "mandatory": true, "statement": "A known, reproduced issue permits execution outside the claimed frozen authorization boundary." },
+
+    { "id": "TOOL-001", "class": "toolchain", "mandatory": true, "statement": "The frozen build requires a package-manager or toolchain state rejected by the accepted toolchain-security requirement." },
+
+    { "id": "CLAIM-001", "class": "claim", "mandatory": true, "statement": "Release-facing documentation claims a property that the frozen implementation or evidence bundle does not establish." }
+  ]
+}

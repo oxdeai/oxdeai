@@ -1,0 +1,199 @@
+{
+  "version": 1,
+  "candidateId": "EXAMPLE-NOT-A-FREEZE-CANDIDATE",
+  "note": "NON-AUTHORITATIVE EXAMPLE. Illustrates the required shape of an S_freeze candidate record and is used as a synthetic PASS fixture. It is NOT a freeze candidate: the SHA, hashes and results below are placeholders and describe no real build. Producing a real candidate means recording real evidence, not editing this file.",
+  "source": {
+    "sha": "0000000000000000000000000000000000000000",
+    "cleanWorktree": true,
+    "toolchain": {
+      "node": "22.x",
+      "pnpm": "10.x"
+    },
+    "packageVersions": {
+      "@oxdeai/core": "2.0.0-rc.0",
+      "@oxdeai/guard": "2.0.0-rc.0",
+      "@oxdeai/conformance": "2.0.0-rc.0"
+    }
+  },
+  "rcArtifacts": [
+    {
+      "package": "@oxdeai/core",
+      "version": "2.0.0-rc.0",
+      "tarball": "oxdeai-core-2.0.0-rc.0.tgz",
+      "integrity": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+      "buildCommand": "pnpm pack",
+      "dependsOn": []
+    },
+    {
+      "package": "@oxdeai/conformance",
+      "version": "2.0.0-rc.0",
+      "tarball": "oxdeai-conformance-2.0.0-rc.0.tgz",
+      "integrity": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+      "buildCommand": "pnpm pack",
+      "dependsOn": [
+        "@oxdeai/core"
+      ]
+    }
+  ],
+  "conformanceAuthority": {
+    "manifest": "docs/conformance/corpus-authority.json",
+    "projectionVerified": true,
+    "releaseRelevantCorpora": [
+      {
+        "id": "profile-c",
+        "claimedRuntimes": [
+          "Go",
+          "Python",
+          "TypeScript"
+        ]
+      },
+      {
+        "id": "docs-canonicalization-v1",
+        "claimedRuntimes": [
+          "TypeScript",
+          "Go",
+          "Python"
+        ]
+      }
+    ]
+  },
+  "reproduction": {
+    "cleanEnvironment": [
+      "mkdir -p \"$WORK\" && cd \"$WORK\" && npm init -y"
+    ],
+    "externalInstall": [
+      "npm install ./oxdeai-core-2.0.0-rc.0.tgz ./oxdeai-conformance-2.0.0-rc.0.tgz"
+    ],
+    "publicInterface": [
+      "node -e \"import('@oxdeai/conformance').then(m => console.log(Object.keys(m)))\""
+    ],
+    "corpusExecution": [
+      "npx oxdeai-conformance validate"
+    ],
+    "resultVerification": [
+      "test \"$(npx oxdeai-conformance validate --json | jq -r .result)\" = PASS"
+    ]
+  },
+  "results": [
+    {
+      "command": "npx oxdeai-conformance validate",
+      "result": "PASS",
+      "assertions": 259,
+      "artifacts": [
+        "@oxdeai/conformance@2.0.0-rc.0"
+      ],
+      "sha": "0000000000000000000000000000000000000000"
+    }
+  ],
+  "findings": [
+    {
+      "id": "EXAMPLE-F1",
+      "state": "FIXED_AND_RETESTED",
+      "summary": "Illustrative finding.",
+      "retestCommand": "npx oxdeai-conformance validate",
+      "retestResult": "PASS"
+    }
+  ],
+  "conditionsAsserted": [],
+  "freezeDispositions": [],
+  "residualReviewScope": [
+    {
+      "ref": "#197",
+      "treatment": "included-in-review-scope",
+      "rationale": "Evaluator-input provenance is a declared review-scope residual, not a pre-freeze implementation blocker.",
+      "boundedClaim": "No release claim asserts authenticated evaluator-input provenance."
+    }
+  ],
+  "criteriaEvaluations": [
+    {
+      "criterionId": "ISO-001",
+      "state": "PASS",
+      "evidence": "example: not a real evaluation"
+    },
+    {
+      "criterionId": "ISO-002",
+      "state": "PASS",
+      "evidence": "example: not a real evaluation"
+    },
+    {
+      "criterionId": "ISO-003",
+      "state": "PASS",
+      "evidence": "example: not a real evaluation"
+    },
+    {
+      "criterionId": "ISO-004",
+      "state": "PASS",
+      "evidence": "example: not a real evaluation"
+    },
+    {
+      "criterionId": "CORP-001",
+      "state": "PASS",
+      "evidence": "example: not a real evaluation"
+    },
+    {
+      "criterionId": "CORP-002",
+      "state": "PASS",
+      "evidence": "example: not a real evaluation"
+    },
+    {
+      "criterionId": "CORP-003",
+      "state": "PASS",
+      "evidence": "example: not a real evaluation"
+    },
+    {
+      "criterionId": "CORP-004",
+      "state": "PASS",
+      "evidence": "example: not a real evaluation"
+    },
+    {
+      "criterionId": "CORP-005",
+      "state": "PASS",
+      "evidence": "example: not a real evaluation"
+    },
+    {
+      "criterionId": "REPRO-001",
+      "state": "PASS",
+      "evidence": "example: not a real evaluation"
+    },
+    {
+      "criterionId": "REPRO-002",
+      "state": "PASS",
+      "evidence": "example: not a real evaluation"
+    },
+    {
+      "criterionId": "REPRO-003",
+      "state": "PASS",
+      "evidence": "example: not a real evaluation"
+    },
+    {
+      "criterionId": "REPRO-004",
+      "state": "PASS",
+      "evidence": "example: not a real evaluation"
+    },
+    {
+      "criterionId": "SEC-001",
+      "state": "PASS",
+      "evidence": "example: not a real evaluation"
+    },
+    {
+      "criterionId": "SEC-002",
+      "state": "PASS",
+      "evidence": "example: not a real evaluation"
+    },
+    {
+      "criterionId": "SEC-003",
+      "state": "PASS",
+      "evidence": "example: not a real evaluation"
+    },
+    {
+      "criterionId": "TOOL-001",
+      "state": "PASS",
+      "evidence": "example: not a real evaluation"
+    },
+    {
+      "criterionId": "CLAIM-001",
+      "state": "PASS",
+      "evidence": "example: not a real evaluation"
+    }
+  ]
+}
