@@ -117,7 +117,7 @@ function main() {
     console.error(`\n${failed} PEP vector(s) failed`);
     process.exit(1);
   }
-  console.log(`\nAll ${pepFile.vectors.length} PEP vector(s) passed`);
+  console.log(`\nAll ${pepFile.vectors.length} PEP vector(s) passed (diagnostic only; scoped report: pnpm test:vectors:pep)`);
 }
 
 main();

@@ -312,3 +312,13 @@ evidence; review explicit-time fallback applicability; fix stale public coverage
 statements; make gateway test scheduling explicit; expand the curated inventory
 and adverse cases; collect deployment-specific replay/state/topology evidence;
 review the separate corpus-unification proposal without assuming equivalence.
+
+## Result evidence scope
+
+`verify:spec-claims --json` includes a structural-only `evidenceScope`: no corpus
+cases are executed, `coveredClaims` is empty and every registry record is in
+`excludedClaims`. This preserves the existing structural gate and inference
+guards. Runtime conformance reports use exact registry runner/selector mappings;
+covered entries carry their bounded `supports` text. Exclusions are computed from
+the registry, including new unmapped records. See
+[the evidence-scope contract](../../conformance/evidence-scope.md).

@@ -249,3 +249,22 @@ Related implementer docs:
 - [`docs/conformance/conformance-vectors.md`](../../docs/conformance/conformance-vectors.md)
 - [`docs/spec/interoperability/external-provider-profile.md`](../../docs/spec/interoperability/external-provider-profile.md)
 - [`packages/conformance/go-harness`](./go-harness)
+
+## Scoped results
+
+Conformance PASS is limited to the declared `evidenceScope`. The package validator
+emits `{ result, passed, failures, evidenceScope }`; after building, run
+`node dist/src/validate.js --json` for JSON-only stdout. The dedicated trusted-time
+CLI also accepts `--json`, and `runTrustedTimeConformance` adds `evidenceScope` to
+its returned summary. Existing counts and failure exit codes are unchanged.
+
+Coverage uses exact registry evidence mappings and actual passing cases;
+`excludedClaims` is the registry complement, not a handwritten list. Coverage
+means only the listed `supports` statements, never whole-protocol conformance or
+proof of all claim obligations. Reference-generated expectations remain bounded
+by the #325 provenance audit. No assurance class or signed attestation is added.
+
+Builds bundle a metadata snapshot so installed packages can report explicit
+exclusions and source identifiers without the repository checkout. See
+[the schema and limitations](../../docs/conformance/evidence-scope.md), including
+snapshot freshness, direct diagnostic harnesses and deployment exclusions.

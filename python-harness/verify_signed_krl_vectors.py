@@ -316,7 +316,7 @@ def main() -> int:
         print(f"\n{failed} SignedKRL vector(s) failed", file=sys.stderr)
         return 1
 
-    print(f"\nAll {len(vectors)} SignedKRL vector(s) passed")
+    print(f"\nAll {len(vectors)} SignedKRL vector(s) passed (diagnostic only; scoped report: pnpm test:vectors:py)")
     return 0
 
 

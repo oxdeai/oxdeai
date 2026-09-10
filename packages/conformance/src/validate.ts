@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 // SPDX-License-Identifier: Apache-2.0
+import { evidenceScope } from "./evidenceScope.mjs";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -342,9 +343,20 @@ const coreAdapter: ConformanceAdapter = {
 
 const here = fileURLToPath(new URL(".", import.meta.url));
 
+const exercised = new Map<string, unknown>();
+const caseResults = new Map<string, boolean>();
+const jsonOutput = process.argv.includes("--json");
+
+function recordCase(label: string, passed: boolean): void {
+  const id = label.split(/[ :]/)[0]!;
+  caseResults.set(id, (caseResults.get(id) ?? true) && passed);
+}
+
 function loadJson<T>(name: string): T {
   const p = resolve(here, "../../vectors", name);
-  return JSON.parse(readFileSync(p, "utf8")) as T;
+  const data = JSON.parse(readFileSync(p, "utf8")) as T;
+  exercised.set(`packages/conformance/vectors/${name}`, data);
+  return data;
 }
 
 type VectorFile = { version: string; vectors: Array<JsonRecord> };
@@ -356,11 +368,13 @@ type CheckCtx = {
 
 function pass(ctx: CheckCtx, msg: string): void {
   ctx.passed += 1;
-  console.log(`PASS ${msg}`);
+  recordCase(msg, true);
+  if (!jsonOutput) console.log(`PASS ${msg}`);
 }
 
 function fail(ctx: CheckCtx, msg: string): void {
   ctx.failures.push(msg);
+  recordCase(msg, false);
   console.error(`FAIL ${msg}`);
 }
 
@@ -1558,35 +1572,49 @@ function main(): void {
   const ctx: CheckCtx = { failures: [], passed: 0 };
   const adapter = coreAdapter;
 
-  console.log(`Running conformance validation with ${adapter.name}`);
+  if (!jsonOutput) console.log(`Running conformance validation with ${adapter.name}`);
 
-  validateIntentHashVectors(ctx, adapter);
-  validateAuthorizationVectors(ctx, adapter);
-  const trustedTime = runTrustedTimeConformance(loadJson<unknown>("trusted-time.json"));
-  ctx.passed += trustedTime.passed;
-  ctx.failures.push(...trustedTime.failures);
-  validateAuthorizationVerificationVectors(ctx, adapter);
-  validateAuthorizationSignatureVectors(ctx, adapter);
-  validateSnapshotVectors(ctx, adapter);
-  validateAuditChainVectors(ctx, adapter);
-  validateAuditVerificationVectors(ctx, adapter);
-  validateEnvelopeVectors(ctx, adapter);
-  validateEnvelopeSignatureVectors(ctx, adapter);
-  validateDelegationParentHashVectors(ctx);
-  validateDelegationVerificationVectors(ctx);
-  validateDelegationChainVectors(ctx);
-  validateDelegationSignatureVectors(ctx);
-  validateKeyLifecycleVectors(ctx, adapter);
-  validateClockSemanticsVectors(ctx, adapter);
-  validateProfileCStateVerificationVectors(ctx, adapter);
-  validateSignedKrlVectors(ctx);
+  try {
+    validateIntentHashVectors(ctx, adapter);
+    validateAuthorizationVectors(ctx, adapter);
+    const trustedTime = runTrustedTimeConformance(loadJson<unknown>("trusted-time.json"), line => {
+      const match = /^(PASS|FAIL) ([^ :]+)/.exec(line);
+      if (match) recordCase(match[2]!, match[1] === "PASS");
+      if (!jsonOutput) console.log(line);
+    });
+    ctx.passed += trustedTime.passed;
+    ctx.failures.push(...trustedTime.failures);
+    validateAuthorizationVerificationVectors(ctx, adapter);
+    validateAuthorizationSignatureVectors(ctx, adapter);
+    validateSnapshotVectors(ctx, adapter);
+    validateAuditChainVectors(ctx, adapter);
+    validateAuditVerificationVectors(ctx, adapter);
+    validateEnvelopeVectors(ctx, adapter);
+    validateEnvelopeSignatureVectors(ctx, adapter);
+    validateDelegationParentHashVectors(ctx);
+    validateDelegationVerificationVectors(ctx);
+    validateDelegationChainVectors(ctx);
+    validateDelegationSignatureVectors(ctx);
+    validateKeyLifecycleVectors(ctx, adapter);
+    validateClockSemanticsVectors(ctx, adapter);
+    validateProfileCStateVerificationVectors(ctx, adapter);
+    validateSignedKrlVectors(ctx);
 
+  } catch (error) {
+    ctx.failures.push(error instanceof Error ? error.message : String(error));
+  }
+  const scope = evidenceScope({ consumer: "packages/conformance/src/validate.ts", runtime: "TypeScript", selections: [...exercised].map(([representation, data]) => {
+    const ids = (data as VectorFile).vectors.map(v => String(v.id)).filter(id => caseResults.has(id));
+    return { representation, data, consumer: "packages/conformance/src/validate.ts", runtime: "TypeScript", caseIds: ids, passedCaseIds: ids.filter(id => caseResults.get(id)) };
+  }) });
+  console.log(JSON.stringify({ result: ctx.failures.length ? "FAIL" : "PASS", passed: ctx.passed, failures: ctx.failures, evidenceScope: scope }));
   if (ctx.failures.length > 0) {
     console.error(`\nConformance failed: ${ctx.failures.length} assertion(s)`);
-    process.exit(1);
+    process.exitCode = 1;
+    return;
   }
 
-  console.log(`\nConformance passed: ${ctx.passed} assertions`);
+  if (!jsonOutput) console.log(`\nConformance passed: ${ctx.passed} assertions (declared evidenceScope only)`);
 }
 
 main();

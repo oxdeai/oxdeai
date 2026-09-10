@@ -271,7 +271,7 @@ def main() -> int:
         print(f"\n{failed} Profile C vector(s) failed", file=sys.stderr)
         return 1
 
-    print(f"\nAll {len(vectors)} Profile C vector(s) passed")
+    print(f"\nAll {len(vectors)} Profile C vector(s) passed (diagnostic only; scoped report: pnpm test:vectors:py)")
     return 0
 
 

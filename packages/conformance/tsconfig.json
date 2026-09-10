@@ -8,7 +8,10 @@
     "rootDir": ".",
     "esModuleInterop": true,
     "skipLibCheck": true,
-    "types": ["node"]
+    "types": [
+      "node"
+    ],
+    "allowJs": true
   },
   "include": ["src", "scripts"]
 }

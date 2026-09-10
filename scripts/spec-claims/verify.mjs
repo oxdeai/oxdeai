@@ -1,3 +1,4 @@
+import { evidenceScope, repositoryMetadata, digest } from "../../packages/conformance/src/evidenceScope.mjs";
 import { readFileSync, readdirSync, realpathSync, statSync } from 'node:fs';
 import { resolve, relative, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -247,7 +248,12 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     if (args.some(a => !['--advisory', '--json'].includes(a))) throw Error('usage: node scripts/spec-claims/verify.mjs [--json] [--advisory] [--registry path]');
     const registry = JSON.parse(readFileSync(registryPath, 'utf8'));
     const result = verify(registry);
+    const metadata = repositoryMetadata(ROOT);
+    metadata.registry = registry;
+    metadata.source.artifacts[REGISTRY] = digest(readFileSync(registryPath));
+    result.evidenceScope = evidenceScope({ kind: "structural-only", metadata, consumer: "scripts/spec-claims/verify.mjs", runtime: "JavaScript" });
     console.log(args.includes('--json') ? JSON.stringify(result, null, 2) : report(result));
+    if (!args.includes("--json")) console.log(JSON.stringify({ evidenceScope: result.evidenceScope }));
     if (args.includes('--advisory')) console.log(advisory(registry));
     process.exitCode = result.issues.length ? 1 : 0;
   } catch (e) { console.error(`RESULT: FAIL — ${e.message}`); process.exitCode = 1; }

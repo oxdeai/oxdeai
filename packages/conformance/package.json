@@ -53,11 +53,11 @@
     "typescript": "^5.0.0"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json && node scripts/build-evidence-metadata.mjs",
     "prepack": "pnpm build",
     "extract": "pnpm -C ../core build && pnpm build && node dist/scripts/extract-vectors.js",
     "validate": "pnpm -C ../core build && pnpm build && node dist/src/validate.js",
     "validate:trusted-time": "pnpm -C ../core build && pnpm build && node dist/src/validate-trusted-time.js",
-    "test": "pnpm -C ../core build && pnpm build && node --test dist/src/trustedTimeConformance.test.js"
+    "test": "pnpm -C ../core build && pnpm build && node --test dist/src/*.test.js"
   }
 }

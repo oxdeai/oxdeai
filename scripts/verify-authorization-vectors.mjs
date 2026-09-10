@@ -87,7 +87,7 @@ function main() {
     console.error(`\n${failed} authorization vector(s) failed`);
     process.exit(1);
   }
-  console.log(`\nAll ${vectors.length} authorization vector(s) passed`);
+  console.log(`\nAll ${vectors.length} authorization vector(s) passed (diagnostic only; scoped report: pnpm test:vectors:auth)`);
 }
 
 main();

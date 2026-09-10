@@ -1,3 +1,4 @@
+import { evidenceScope } from "../../packages/conformance/src/evidenceScope.mjs";
 import assert from 'node:assert/strict';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -76,5 +77,6 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
       writeFileSync(resolve(ROOT, SECONDARY), serialize(project(source)));
     }
     check(); console.log('Profile-C projection: PASS (representation consistency only)');
+    console.log(JSON.stringify({ result: 'PASS', evidenceScope: evidenceScope({ kind: 'structural-only', consumer: 'scripts/corpus/profile-c.mjs', runtime: 'JavaScript' }) }));
   } catch (e) { console.error(`Profile-C projection: FAIL: ${e.message}`); process.exitCode = 1; }
 }

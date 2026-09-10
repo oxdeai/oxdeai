@@ -136,3 +136,9 @@ Error response:
 - The harness itself does not redefine protocol semantics.
 - Vectors remain the behavioral truth source.
 - A native implementation is considered aligned when it reproduces expected vector outcomes.
+
+The adapter's `{ ok, output }` messages and this optional driver's assertions are
+operation diagnostics, not scoped conformance reports. They establish no claim
+coverage or independent normative authority. Official root Go/Python commands
+emit the [scoped report](../../../docs/conformance/evidence-scope.md); this optional
+adapter route remains blocked by #306 and is not counted as passing evidence.

@@ -197,7 +197,7 @@ function main(): void {
     process.exit(1);
   }
 
-  console.log(`\nAll ${vectors.length} vector(s) passed`);
+  console.log(`\nAll ${vectors.length} vector(s) passed (diagnostic only; scoped report: pnpm test:vectors:ts)`);
 }
 
 main();
