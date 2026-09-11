@@ -1,0 +1,134 @@
+{
+  "version": 1,
+  "declaredFor": "OxDeAI 2.0 S_freeze",
+  "note": "Predeclared falsification criteria. These are declared BEFORE the independent review begins. A reviewer may discover additional failures; no reviewer or maintainer may weaken a mandatory criterion after review starts without producing a new freeze candidate (a new candidateId bound to a new source SHA).",
+  "evidenceBoundary": "Gate evidence requirements only; no new protocol obligations and no override of protocol specifications. Sources describe existing requirements or unresolved context, not invented maintainer resolutions. Missing/ambiguous exact exits remain null and blocking. Registry resolution and direct evidence are both required where an exit is established. Deferral never closes a blocker.",
+  "criteria": [
+    {"id": "ISO-001", "class": "artifact-isolation", "mandatory": true, "statement": "A required release-candidate package cannot be installed in a clean project outside the monorepo.", "evidenceStages": ["external-install"]},
+    {"id": "ISO-002", "class": "artifact-isolation", "mandatory": true, "statement": "Execution of a documented reproduction step requires an OxDeAI monorepo-relative path.", "evidenceStages": ["external-install"]},
+    {"id": "ISO-003", "class": "artifact-isolation", "mandatory": true, "statement": "Validation depends on an unpublished registry package that is not supplied in the RC bundle.", "evidenceStages": ["external-install"]},
+    {"id": "ISO-004", "class": "artifact-isolation", "mandatory": true, "statement": "The documented public package interface cannot be invoked from the installed artifact.", "evidenceStages": ["external-install"]},
+    {"id": "CORP-001", "class": "conformance-authority", "mandatory": true, "statement": "A release-relevant corpus has ambiguous authority.", "evidenceStages": ["structural-review"]},
+    {"id": "CORP-002", "class": "conformance-authority", "mandatory": true, "statement": "The same logical corpus has multiple independently editable authoritative representations.", "evidenceStages": ["structural-review"]},
+    {"id": "CORP-003", "class": "conformance-authority", "mandatory": true, "statement": "A Profile-C secondary representation can diverge from its authority without detection.", "evidenceStages": ["structural-review"]},
+    {"id": "CORP-004", "class": "conformance-authority", "mandatory": true, "statement": "A documented cross-language or cross-runtime claim is not supported by the declared consumers.", "evidenceStages": ["structural-review"]},
+    {"id": "CORP-005", "class": "conformance-authority", "mandatory": true, "statement": "A third party cannot determine which corpus supports a stated conformance claim.", "evidenceStages": ["structural-review"]},
+    {"id": "REPRO-001", "class": "reproducibility", "mandatory": true, "statement": "The documented commands do not reproduce the claimed result.", "evidenceStages": ["external-reproduction"]},
+    {"id": "REPRO-002", "class": "reproducibility", "mandatory": true, "statement": "A recorded result cannot be tied to the frozen Git SHA.", "evidenceStages": ["external-reproduction"]},
+    {"id": "REPRO-003", "class": "reproducibility", "mandatory": true, "statement": "A recorded result cannot be tied to the supplied RC artifacts.", "evidenceStages": ["external-reproduction"]},
+    {"id": "REPRO-004", "class": "reproducibility", "mandatory": true, "statement": "The clean external result differs semantically from the recorded freeze result.", "evidenceStages": ["external-reproduction"]},
+    {"id": "SEC-001", "class": "security-boundary", "mandatory": true, "statement": "A freeze-blocking security defect accepted into the candidate remains reproducible against the frozen SHA.", "evidenceStages": ["protected-execution"]},
+    {"id": "SEC-002", "class": "security-boundary", "mandatory": true, "statement": "Verification of an externally supplied authorization is self-bound to an expectation derived from the artifact under verification, from an artifact it carries, or from the producer that created it in the same call.", "evidenceStages": ["protected-execution"]},
+    {"id": "SEC-003", "class": "security-boundary", "mandatory": true, "statement": "A known, reproduced issue permits execution outside the claimed frozen authorization boundary.", "evidenceStages": ["protected-execution"]},
+    {"id": "TOOL-001", "class": "toolchain", "mandatory": true, "statement": "The frozen build requires a package-manager or toolchain state rejected by the accepted toolchain-security requirement.", "evidenceStages": ["toolchain"]},
+    {"id": "CLAIM-001", "class": "claim", "mandatory": true, "statement": "Release-facing documentation claims a property that the frozen implementation or evidence bundle does not establish.", "evidenceStages": ["claim-review"]}
+  ],
+  "blockerExitConditions": [
+    {
+      "id": "CANON-003",
+      "exitConditionState": "specified",
+      "exitCondition": "- duplicate keys MUST be detected during parsing",
+      "evidenceStages": ["raw-input"],
+      "boundary": "Detection during raw parsing is the sourced property. This entry does not invent an additional unconditional duplicate-key rejection rule; object-level NFC collision checks do not exercise raw duplicate-key detection.",
+      "sources": [
+        {"path": "docs/verification/spec-claims/claims.json", "claimId": "CANON-003", "role": "registry-state"},
+        {"path": "docs/spec/core/canonicalization-v1.md", "section": "## 5. Input Parsing Requirements", "quote": "- duplicate keys MUST be detected during parsing", "role": "normative"}
+      ]
+    },
+    {
+      "id": "VERIFY-ORDER-001",
+      "exitConditionState": "unresolved",
+      "exitCondition": null,
+      "evidenceStages": [],
+      "boundary": "The normative verification sequences conflict; no resolved sequence or maintainer resolution is established.",
+      "sources": [
+        {"path": "docs/verification/spec-claims/claims.json", "claimId": "VERIFY-ORDER-001", "role": "registry-state"},
+        {"path": "docs/spec/verification/verification-v1.md", "section": "## 9. Determinism and Ordering", "quote": "- Check ordering **MUST** follow the sequences in §§5–6 to ensure deterministic results across implementations.", "role": "normative"},
+        {"path": "docs/spec/verification/verification-v1.md", "section": "## 5. AuthorizationV1 Verification (Required Ordering)", "quote": "4. Signature check over canonicalized payload excluding `signature` (canonicalization-v1).", "role": "conflicting-sequence"},
+        {"path": "docs/spec/artifacts/authorization-v1.md", "section": "## 10. Verification Procedure", "quote": "5. Check expiration: `now >= effectiveExpiry` → reject", "role": "conflicting-sequence"},
+        {"path": "docs/spec/artifacts/authorization-v1.md", "section": "## 10. Verification Procedure", "quote": "9. Verify signature", "role": "conflicting-sequence"}
+      ]
+    },
+    {
+      "id": "DELEGATION-AUDIT-001",
+      "exitConditionState": "specified",
+      "exitCondition": "Both events MUST be included in the hash-chained audit log.",
+      "evidenceStages": ["audit-effect"],
+      "boundary": "The cited property is an existing specification requirement. Evidence stages describe gate validation only, not additional protocol obligations.",
+      "sources": [
+        {"path": "docs/verification/spec-claims/claims.json", "claimId": "DELEGATION-AUDIT-001", "role": "registry-state"},
+        {"path": "docs/spec/artifacts/delegation-v1.md", "section": "## 7. Audit Event", "quote": "Both events MUST be included in the hash-chained audit log.", "role": "normative"}
+      ]
+    },
+    {
+      "id": "ETA-SIGNING-001",
+      "exitConditionState": "unresolved",
+      "exitCondition": null,
+      "evidenceStages": [],
+      "boundary": "The signature-preimage definitions conflict; no resolved preimage or maintainer resolution is established.",
+      "sources": [
+        {"path": "docs/verification/spec-claims/claims.json", "claimId": "ETA-SIGNING-001", "role": "registry-state"},
+        {"path": "docs/spec/core/eta-core-v1.md", "section": "## 5. Authorization Artifact (AuthorizationV1)", "quote": "- The signature preimage MUST be the canonical JSON bytes of the AuthorizationV1 object, **excluding the `signature` field**, using the canonicalization rules in `canonicalization-v1.md`.", "role": "normative"},
+        {"path": "docs/spec/artifacts/authorization-v1.md", "section": "### Signing preimage", "quote": "2. For nested signatures: include `signature: { alg, kid }` (without `sig`)", "role": "conflicting-preimage"}
+      ]
+    },
+    {
+      "id": "PEP-DEPLOY-001",
+      "exitConditionState": "specified",
+      "exitCondition": "The PEP Gateway **MUST** act as the **sole execution boundary** for protected actions.",
+      "evidenceStages": ["deployment"],
+      "boundary": "This exit is the sole execution boundary requirement only. Replay restart/replica/recovery guarantees are not universally added to it; any such deployment claims still need direct deployment evidence under verification-v1 section 4.3. Consume does not prove execution.",
+      "sources": [
+        {"path": "docs/verification/spec-claims/claims.json", "claimId": "PEP-DEPLOY-001", "role": "registry-state"},
+        {"path": "docs/spec/enforcement/pep-gateway-v1.md", "section": "### 4.1 Execution Boundary", "quote": "The PEP Gateway **MUST** act as the **sole execution boundary** for protected actions.", "role": "normative"},
+        {"path": "docs/spec/verification/verification-v1.md", "section": "### 4.3 Replay-Store Contract and Deployment Boundary", "quote": "Restart persistence, replica sharing/visibility, backend persistence", "role": "evidence-boundary"}
+      ]
+    },
+    {
+      "id": "STATE-TRUST-001",
+      "exitConditionState": "specified",
+      "exitCondition": "A compliant state provider MUST serve a coherent state view to `getState()`.",
+      "evidenceStages": ["deployment"],
+      "boundary": "The cited property is an existing specification requirement. Evidence stages describe gate validation only, not additional protocol obligations.",
+      "sources": [
+        {"path": "docs/verification/spec-claims/claims.json", "claimId": "STATE-TRUST-001", "role": "registry-state"},
+        {"path": "docs/spec/state-provider-requirements.md", "section": "### 2.1 Requirement", "quote": "A compliant state provider MUST serve a coherent state view to `getState()`.", "role": "normative"},
+        {"path": "docs/spec/state-provider-requirements.md", "section": "## 8. Compliance Evidence", "quote": "Integrators claiming state-provider compliance MUST be able to provide the following evidence on request:", "role": "deployment-evidence"}
+      ]
+    },
+    {
+      "id": "CANON-ESC-001",
+      "exitConditionState": "unresolved",
+      "exitCondition": null,
+      "evidenceStages": [],
+      "boundary": "The registry explicitly says the lock has no existing repository definition. Its context quote is not an escaping requirement or exit condition.",
+      "sources": [
+        {"path": "docs/verification/spec-claims/claims.json", "claimId": "CANON-ESC-001", "role": "registry-state"},
+        {"path": "docs/spec/core/canonicalization-v1.md", "section": "## 6. Serialization Rules (normative)", "quote": "- Strings: normalize to Unicode NFC and encode as JSON strings.", "role": "context"}
+      ]
+    },
+    {
+      "id": "RT-TRUST-1",
+      "exitConditionState": "unresolved",
+      "exitCondition": null,
+      "evidenceStages": [],
+      "boundary": "The audit explicitly retains a residual. Minimum provider compliance requirements do not establish a generic full-closure condition.",
+      "sources": [
+        {"path": "docs/verification/spec-claims/claims.json", "claimId": "RT-TRUST-1", "role": "registry-state"},
+        {"path": "docs/audits/protocol-audit-post-interoperability.md", "section": "### 5.3 Residual Trust Risks", "quote": "**RT-TRUST-1: State provider integrity** *(SPECIFIED WITH RESIDUAL)*", "role": "context"}
+      ]
+    },
+    {
+      "id": "RT-TRUST-2",
+      "exitConditionState": "conditional",
+      "exitCondition": "`RT-TRUST-2` is fully closeable when `signed_required` + `verifyKrl` + `KrlWatermarkStore` + `SignedKrlCache` are all configured.",
+      "evidenceStages": ["deployment"],
+      "boundary": "Deployment-conditional closure only. Generic artifact or signature verification does not establish these configured paths or close ecosystem/default-mode residuals.",
+      "sources": [
+        {"path": "docs/verification/spec-claims/claims.json", "claimId": "RT-TRUST-2", "role": "registry-state"},
+        {"path": "docs/spec/interoperability/external-provider-profile.md", "section": "#### 2.2.5 KRL Integrity at Profile B", "quote": "Full RT-TRUST-2 closure requires `signed_required` + `verifyKrl` + `KrlWatermarkStore` + `SignedKrlCache`; compatibility modes retain residual transport-trust risk.", "role": "context"},
+        {"path": "docs/audits/protocol-audit-post-interoperability.md", "section": "### 5.3 Residual Trust Risks", "quote": "`RT-TRUST-2` is fully closeable when `signed_required` + `verifyKrl` + `KrlWatermarkStore` + `SignedKrlCache` are all configured.", "role": "conditional-closure"}
+      ]
+    }
+  ]
+}

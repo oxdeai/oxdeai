@@ -45,7 +45,9 @@
     "test:spec-claims": "node --test scripts/spec-claims/verify.test.mjs",
     "project:profile-c": "node scripts/corpus/profile-c.mjs --write",
     "verify:corpus-authority": "node scripts/corpus/verify-authority.mjs",
-    "test:corpus-authority": "node --test scripts/corpus/corpus.test.mjs"
+    "test:corpus-authority": "node --test scripts/corpus/corpus.test.mjs",
+    "verify:s-freeze": "node scripts/s-freeze/verify.mjs",
+    "test:s-freeze": "node --test scripts/s-freeze/verify.test.mjs"
   },
   "devDependencies": {
     "@oxdeai/core": "workspace:*",
