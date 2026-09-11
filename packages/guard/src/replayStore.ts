@@ -3,22 +3,30 @@
 /**
  * ReplayStore — pluggable replay-prevention backend for the OxDeAI guard.
  *
- * The guard calls consumeAuthId (and optionally consumeDelegationId) before
- * every execution. Implementations MUST be fail-closed: if the store is
+ * The guard authenticates/verifies before calling consumeAuthId (and optionally
+ * consumeDelegationId), and consumes before protected execution. Implementations
+ * MUST be fail-closed: if the store is
  * unavailable, throw rather than returning a permissive result. Any thrown
  * error is caught by the guard and re-raised as OxDeAIAuthorizationError,
  * blocking execution.
  *
- * Atomicity:
- *   From the guard's perspective each call is a single check-and-consume
- *   operation. Durable backends should implement this using compare-and-swap
- *   or an equivalent operation so that concurrent callers cannot both observe
- *   a "not yet consumed" result for the same ID.
+ * Normative store contract (verification-v1 §4.3):
+ *   At most one concurrent consume may succeed for an identifier in its declared
+ *   replay domain. Consumed IDs MUST remain unavailable while the protected
+ *   authorization could otherwise still be accepted. An indeterminate result
+ *   MUST NOT be reported as successful consumption. No backend is mandated.
  *
- * Durability tiers:
- *   - In-memory (default)  : single-process only; replay state lost on restart.
- *   - Redis / DynamoDB     : survives restarts and horizontal scaling.
- *   - Relational DB        : full ACID guarantees; suits regulated environments.
+ * Consumption spends the replay entitlement; it does not record a completed
+ * effect. A crash or failure after consume may spend an authorization without
+ * execution. Multiple consume calls are not one transaction with the effect.
+ *
+ * Deployment boundary:
+ *   The caller declares/configures the replay domain through store selection and
+ *   namespace/routing. Local code cannot infer every valid deployment boundary.
+ *   In-memory stores lose state on restart. External backends can support shared
+ *   retention, but restart persistence, replica visibility, topology, backend
+ *   persistence settings and HA/recovery guarantees require deployment evidence.
+ *   Generic implementation conformance does not prove these properties.
  */
 export interface ReplayStore {
   /**
@@ -26,8 +34,9 @@ export interface ReplayStore {
    *
    * @param authId        The auth_id from the AuthorizationV1 artifact.
    * @param opts.expiry   Unix timestamp (seconds) when the auth expires.
-   *                      Durable backends may use this to set a TTL on the
-   *                      record so that expired entries are garbage-collected.
+   *                      Backends may garbage-collect only after the identifier
+   *                      can no longer authorize reuse anywhere in the declared
+   *                      domain, accounting for its verifier clocks/acceptance rules.
    * @returns `true`  if the auth_id was successfully consumed (first use).
    * @returns `false` if the auth_id was already consumed (replay detected).
    * @throws             if the store is unavailable — the guard will DENY.
@@ -41,9 +50,9 @@ export interface ReplayStore {
    * consumeAuthId on the parent authorization: consuming the parentAuth
    * once prevents the same delegation chain from being replayed.
    *
-   * Implement this method when stricter delegation tracking is required
-   * (e.g. when a parent auth may authorise multiple distinct delegations and
-   * per-delegation replay tracking is needed independently of parentAuth).
+   * Implement this method when separate delegation-ID tracking is required by
+   * the declared profile/domain. The current guard always consumes parentAuth
+   * as well; adding this method does not enable multiple uses of that parent.
    *
    * @param delegationId  The delegation_id from the DelegationV1 artifact.
    * @param opts.expiry   Unix timestamp (seconds) when the delegation expires.
@@ -68,8 +77,9 @@ export interface ReplayStore {
  *   - Multi-process / horizontally-scaled deployments
  *   - Scenarios where replay prevention must survive process restarts
  *
- * For production deployments requiring durability, implement ReplayStore
- * backed by Redis, DynamoDB, a relational database, or equivalent.
+ * Where the declared replay domain spans restarts or processes, use a backend
+ * and deployment configuration that preserve the contract across that domain.
+ * A backend's technology name alone does not demonstrate that guarantee.
  */
 export function createInMemoryReplayStore(): ReplayStore {
   const consumedAuthIds = new Set<string>();

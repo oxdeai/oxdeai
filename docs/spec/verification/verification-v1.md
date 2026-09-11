@@ -66,21 +66,56 @@ A durable mutation is any write a verifier or enforcement boundary makes that
 outlives the current request and can affect a later authorization decision —
 replay-store consumption is the canonical example. Authentication here means the
 artifact's signature has been verified against configured trust anchors; a
-structural or presence check is not authentication.
+structural or presence check is not authentication. Here “durable” means surviving
+this request, including a write to an in-memory store; it does not assert restart
+persistence or require a particular persistence technology.
 
 This rule constrains **the ordering of side effects relative to authentication**.
 It does **NOT** make any store operation mandatory, does **NOT** prescribe a store
 implementation, and does **NOT** dictate the ordering of checks *within*
 verification — that is a separate question.
 
-The operative consequence is that a rejected artifact must leave no trace that
-can deny a later legitimate one. Where a boundary both authenticates and consumes
+The operative consequence is that unauthenticated input MUST NOT leave trusted
+replay state that can deny a later legitimate presentation. Where a boundary both authenticates and consumes
 a single-use identifier, the consume **MUST** follow successful authentication and
 **MUST** still precede the protected side effect. Atomicity of the consume is a
 property of the store operation, not of where it is called, so moving it after
 authentication does not weaken replay protection: two concurrent presentations of
-the same identifier still resolve to exactly one consumer, and neither executes
-before consuming.
+the same identifier permit at most one successful consume within the declared
+replay domain, and neither may execute without successful consumption. Store
+unavailability can prevent both from executing.
+
+### 4.3 Replay-Store Contract and Deployment Boundary
+
+Where an artifact or execution profile requires replay resistance:
+
+- The replay identifier and domain MUST be declared/configured. All boundaries
+  accepting the same entitlement within that domain MUST participate in its
+  consumption contract. Local code cannot infer every valid deployment boundary.
+- Consume MUST atomically check and spend the entitlement: at most one consume
+  for the same identifier/domain may succeed under concurrency while that
+  entitlement remains protected. Atomicity is a store contract, not evidence of
+  backend durability. No backend technology is mandated.
+- Consumed identifiers MUST remain unavailable for reuse while the protected
+  authorization could otherwise still be accepted in that domain. Eviction or
+  TTL policy MUST account for the domain's acceptance window and verifier clocks.
+- Store failure, unavailability or an indeterminate required replay result MUST
+  NOT become permissive success. Without a definitive successful consume, the
+  boundary MUST NOT perform the protected side effect.
+
+Consumption means **entitlement spent**, not **effect completed**. A crash after
+consume and before the effect may spend the authorization without the effect
+occurring. A later denial, CAS conflict, hook failure or partial sequence of
+consumes does not imply rollback of a prior successful consume. This contract
+provides no transaction between replay state and the external effect.
+
+Implementation conformance checks ordering and fail-closed behavior against this
+contract. Restart persistence, replica sharing/visibility, backend persistence
+configuration, topology correctness, HA/SLA and recovery guarantees require
+separate deployment evidence. Restart resistance is a deployment property;
+generic conformance does not establish it. This separation does not permit a
+replay-resistant deployment to accept an identifier whose required consumption
+history is unavailable or indeterminate.
 
 
 ## 5. AuthorizationV1 Verification (Required Ordering)

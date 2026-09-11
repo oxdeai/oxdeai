@@ -290,7 +290,21 @@ The gateway **MUST** enforce replay resistance.
 ### 12.2 Minimum Model
 
 * Unique authorization identifier (`auth_id`)
-* Persistent consumption tracking
+* Atomic consumption tracking in a declared/configured replay domain
+* Retention of consumed IDs while their authorizations could otherwise still be accepted
+
+The gateway MUST authenticate/verify before authoritative replay mutation and
+consume before the protected side effect. Unauthenticated input MUST NOT mutate
+trusted replay state. Required replay-state failure, unavailability or an
+indeterminate consume result MUST block execution; it MUST NOT become permissive
+success. The [store contract](../verification/verification-v1.md#43-replay-store-contract-and-deployment-boundary)
+mandates atomicity and retention, not a backend technology.
+
+“Tracking” does not itself prove restart persistence, replica sharing, backend
+persistence settings, topology correctness, HA/SLA or recovery guarantees. Those
+are deployment properties. A successful consume spends the authorization; it does
+not prove execution completed or even started. A crash between consume and effect
+may leave a spent authorization with no effect.
 
 ---
 

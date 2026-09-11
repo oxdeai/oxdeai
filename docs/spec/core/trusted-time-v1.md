@@ -312,6 +312,18 @@ the trusted-time gates is preserved.
 
 ### 7.1 Persisted window state and deployment migration
 
+Persisted window state here means retained policy state; its use does not prove
+restart persistence or a replay backend's durability. Deterministic evaluation
+assumes identical trusted inputs and available authoritative state, not merely
+the same past security events. Required state that is unavailable or indeterminate
+MUST NOT be treated as empty history permitting protected execution.
+
+The nonce-retention rules in §2.1/§7 remain mandatory for their declared domain.
+They do not replace the authorization/delegation entitlement store contract in
+[verification §4.3](../verification/verification-v1.md#43-replay-store-contract-and-deployment-boundary),
+or establish replica visibility, topology, persistence configuration, HA/SLA or
+recovery guarantees. Those require deployment evidence.
+
 The state schema is unchanged. Before the trusted-clock migration, existing
 `window_start` values may have been derived from attacker-controlled
 `intent.timestamp`; trusted and legacy values cannot be distinguished
