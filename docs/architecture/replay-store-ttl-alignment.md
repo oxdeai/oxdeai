@@ -1,7 +1,7 @@
 # OxDeAI Replay-Store TTL Alignment
 
 **Status:** Non-normative (developer documentation)
-**Scope:** Replay-store TTL requirements, durability tiers, timing constraints, and operational guidance for production deployments
+**Scope:** Replay-store TTL requirements, deployment durability assumptions, timing constraints, and operational guidance for production deployments
 
 ---
 
@@ -11,6 +11,16 @@ This document complements:
 - [`docs/architecture/key-custody-and-rotation.md`](./key-custody-and-rotation.md) — key lifecycle (replay retention relates to authorization expiry)
 - [`packages/guard/src/replayStore.ts`](../../packages/guard/src/replayStore.ts) — `ReplayStore` interface and in-memory implementation
 - [`packages/guard/src/replayStore.redis.ts`](../../packages/guard/src/replayStore.redis.ts) — Redis implementation and `computeTtl`
+
+The [normative store contract](../spec/verification/verification-v1.md#43-replay-store-contract-and-deployment-boundary)
+requires atomic consume and retention throughout possible acceptance in the declared
+replay domain. Backend examples below are integration sketches, not deployment
+certifications. Generic conformance and the current corpus do not prove crash/restart
+behavior, arbitrary interleavings, replica visibility, persistence configuration,
+topology correctness, HA/SLA, or recovery. Restart resistance needs deployment evidence.
+
+Consumption spends an entitlement, not proof of a completed effect. A crash after
+consume and before execution may leave it spent without an effect.
 
 **Core invariant:**
 
@@ -27,7 +37,7 @@ An authorization artifact has a **validity window** — the period between `issu
 The alignment rule is:
 
 ```text
-replay store entry retention ≥ authorization validity window
+replay store entry retention ≥ remaining possible acceptance period at consume
 ```
 
 `authorization validity window = expiry − issued_at`
@@ -39,11 +49,13 @@ An entry that is evicted while the authorization is still unexpired creates a **
 - `expiry` / `expires_at` — the guard rejects the authorization after this time (`AUTH_EXPIRED`)
 - Replay TTL — the guard rejects re-use of `auth_id` for this duration
 
-If the replay TTL is too short, the authorization expires naturally before any replay window opens. If the authorization's expiry window is long, the replay TTL must match.
+If replay TTL is too short, eviction can reopen replay while the authorization is still acceptable. Retention must cover the remaining acceptance period across the declared domain, including verifier clock differences.
 
 ---
 
 ## 2. Replay Lifecycle
+
+This example assumes aligned verifier clocks; the eviction shown is too early.
 
 ```text
                                       ┌── replay store entry evicted
@@ -53,18 +65,18 @@ If the replay TTL is too short, the authorization expires naturally before any r
 ────┼────────────────┼───────────────┼────────────┼──────────►  time
     │                │               │            │
     │◄──────────────►│               │            │
-    │  validity      │               │            │
-    │  window        │               │            │
+    │  before first  │               │            │
+    │  consume       │               │            │
     │                │◄─────────────►│            │
     │                │  replay TTL   │            │
-    │                │  (minimum)    │            │
+    │                │  (too short)  │            │
     │
     │ LIFECYCLE STATES:
     │
     │  [ISSUABLE] issued_at → first use
     │      auth_id not yet consumed; authorization is valid
     │
-    │  [CONSUMED] first use → eviction / expiry (whichever is later)
+    │  [CONSUMED] first use → eviction
     │      auth_id consumed; replay attempts denied
     │
     │  [EXPIRED-CONSUMED] expiry reached, entry still in store
@@ -80,7 +92,7 @@ If the replay TTL is too short, the authorization expires naturally before any r
     │      (or store would have returned true — still safe)
 ```
 
-**The only dangerous state is EVICTED-VALID.** Correct TTL alignment eliminates it.
+EVICTED-VALID illustrates early eviction. Lost history after restart or failover can create the same risk even with a correct TTL.
 
 ---
 
@@ -92,13 +104,13 @@ If the replay TTL is too short, the authorization expires naturally before any r
 replay_ttl(auth) ≥ auth.expiry − now_at_consume
 ```
 
-Where `now_at_consume` is the clock time at the moment `consumeAuthId` is called (the first execution). Equivalently, since `consumeAuthId` is called before expiry:
+Under aligned verifier/store clock and expiry assumptions, `now_at_consume` is the clock time when `consumeAuthId` is called, before execution. A conservative bound under those assumptions is:
 
 ```text
 replay_ttl(auth) ≥ auth.expiry − auth.issued_at   (conservative bound)
 ```
 
-Using `auth.expiry − now_at_consume` produces a tighter and correct TTL. Using `auth.expiry − auth.issued_at` is a safe over-estimate — the entry persists slightly longer than strictly necessary but eliminates all replay windows.
+These bounds assume eviction cannot precede the last permissible acceptance anywhere in the replay domain. The full issuance window is not required when only a shorter acceptance period remains.
 
 The Redis implementation uses the tighter bound:
 
@@ -113,39 +125,37 @@ The minimum of 1 second prevents zero-TTL or negative-TTL conditions for already
 
 ### Rule 2 — Clock Skew Buffer
 
-Clock skew between the issuer, guard host, and replay store can cause the guard's `now` to differ from the issuer's clock at signing time. A skew of ±30 seconds is typical for NTP-synchronized hosts.
-
-To account for skew, add a buffer:
-
-```text
-replay_ttl(auth) ≥ (auth.expiry − now_at_consume) + clock_skew_buffer
-```
-
-Recommended buffer: **60 seconds** for standard deployments; **120 seconds** for distributed multi-region deployments.
-
-The Redis implementation does not add a buffer — it relies on the expiry check in `verifyAuthorization` being the primary expiry gate, and uses TTL only for garbage collection. Deployers requiring strict skew tolerance should set a longer authorization expiry window rather than relying on store TTL.
-
-### Rule 3 — Minimum Retention Regardless of Expiry
-
-Even if `expiry − now` evaluates to zero or negative (already-expired artifact), the store entry must be retained for at least 1 second. This prevents edge cases at exact expiry boundaries where a race between eviction and a concurrent replay attempt could permit a brief window.
+Verifier clocks (including injected verification time), the adapter's local wall
+clock, and store expiry behavior must be aligned or bounded. Any retention buffer
+must cover the deployment's actual maximum acceptance difference; a generic number
+or NTP configuration alone does not prove that bound.
 
 ```text
-replay_ttl ≥ max(1, expiry − now_at_consume)
+replay_ttl(auth) ≥ remaining acceptance period across all verifiers in the domain
 ```
 
-This is exactly what `computeTtl` enforces.
+The Redis adapter adds no buffer. If its TTL cannot meet the domain's retention
+requirement, use a store policy that can, or block execution while required history
+is indeterminate. Extending issuer expiry also extends acceptance; it does not fix
+an eviction/verification clock mismatch.
+
+### Rule 3 — Adapter Minimum TTL
+
+`computeTtl` floors TTL at one second to avoid invalid zero/negative TTL values.
+This implementation detail is not a normative retention duration or proof against
+clock mismatch. Expired artifacts are independently rejected by verification.
 
 ### Rule 4 — Delegation ID TTL
 
 `consumeDelegationId` follows the same rules as `consumeAuthId`. The `opts.expiry` passed is the delegation's expiry, not the parent authorization's. The stricter of the two (parent auth expiry or delegation expiry) governs the effective validity window. In practice, delegations must not exceed the parent authorization's expiry (`DELEGATION_EXPIRY_EXCEEDS_PARENT`), so delegation TTL ≤ parent auth TTL.
 
-### Summary Formula
+### Illustrative Buffered Formula
 
 ```text
 replay_ttl_seconds = max(1, auth.expiry − floor(Date.now() / 1000)) + optional_buffer
 ```
 
-For a 5-minute authorization window with 60-second buffer:
+For illustration only, assuming a justified 60-second retention buffer (not added by the built-in adapter):
 
 ```text
 issued_at = T
@@ -171,17 +181,17 @@ const store = createInMemoryReplayStore();
 | TTL / eviction | No — entries persist until process ends (no GC) |
 | Multi-process | No — each process has an independent `Set` |
 | Restart durability | No |
-| Production-ready | Development and single-process testing only |
+| Scope | One store instance lifetime; no deployment durability claim |
 
 **Limitations:**
 - Grows unboundedly — `auth_id` entries are never evicted. For long-lived processes handling high volume, memory pressure accumulates.
 - Does not prevent replay across process restarts or across multiple guard instances.
 - The `opts.expiry` parameter is accepted but ignored.
 
-**When it is safe to use:**
-- Single-process deployments where replay risk is acceptable if the process restarts.
-- Development and test environments.
-- Short-lived processes (e.g., a Lambda function handling a single request).
+**Scope:** Suitable for tests or an explicitly bounded store-instance lifetime.
+If still-valid authorizations can be accepted after restart or by another store
+instance, preserve shared authoritative history or block that acceptance. Short
+artifact lifetime alone does not make lost history safe.
 
 ### 4.2 Redis Store (`createRedisReplayStore`)
 
@@ -192,11 +202,11 @@ const store = createRedisReplayStore({ client: redis });
 | Property | Value |
 |---|---|
 | Atomicity | Yes — `SET NX EX` is a single atomic Redis command |
-| Persistence | Configurable — AOF/RDB persistence survives restarts |
+| Persistence | Depends on configuration and assessed loss/recovery behavior |
 | TTL / eviction | Yes — key expires at `max(1, expiry − now)` seconds |
-| Multi-process | Yes — all instances share one Redis cluster |
-| Restart durability | Yes (with Redis persistence enabled) |
-| Production-ready | Yes |
+| Multi-process | Requires all domain participants to use the authoritative keyspace |
+| Restart durability | Requires deployment evidence; enabling persistence alone is insufficient |
+| Deployment compliance | Requires evidence for the declared domain and failure model |
 
 **Key schema:**
 ```text
@@ -206,14 +216,12 @@ replay:delegation:<delegation_id> → "1" with TTL
 
 **Atomicity mechanism:** `SET key value NX EX ttl` either sets the key and returns `"OK"` (first use) or returns `null` (key exists — replay). No TOCTOU window exists; the check and set are one operation.
 
-**Persistence configuration:**
-- Enable AOF (`appendonly yes`) or RDB snapshots for restart durability.
-- Without persistence, a Redis restart drops all replay state — equivalent to an in-memory store for the post-restart window.
-- For regulated or high-security deployments, enable AOF with `appendfsync always`.
-
-**Cluster behavior:**
-- Redis Cluster: keys are sharded by slot. `auth_id` values are distributed across slots by default. All `SET NX EX` operations remain atomic per-slot; cross-slot TOCTOU is not a concern because each `auth_id` maps to exactly one slot.
-- Redis Sentinel: automatic failover; short window during failover where store may be unavailable → guard throws → DENY (fail-closed).
+**Persistence and topology:** AOF/RDB settings, replicas, Cluster, or Sentinel do
+not by themselves establish the retention contract. Assess acknowledged-write loss,
+failover visibility, eviction policy, and recovery for the declared domain. Atomic
+commands on one authoritative keyspace do not prove atomic consume across independent
+primaries. Unavailable or indeterminate required history must block execution,
+including after recovery; a reachable empty store is not evidence that IDs are unused.
 
 **Client compatibility:**
 - ioredis: native positional argument style — compatible directly.
@@ -242,13 +250,13 @@ const store: ReplayStore = {
 | Property | Value |
 |---|---|
 | Atomicity | Yes — `INSERT ... ON CONFLICT DO NOTHING` is atomic per row |
-| Persistence | Yes — full ACID guarantees |
+| Persistence | Depends on transaction, storage, and recovery configuration |
 | TTL / eviction | Manual — requires a scheduled cleanup job (e.g., `DELETE WHERE expires_at < now()`) |
 | Multi-process | Yes |
-| Restart durability | Yes |
-| Production-ready | Yes, with proper index on `(auth_id)` and periodic eviction |
+| Restart durability | Requires deployment-specific evidence |
+| Deployment compliance | Requires domain-wide uniqueness, retention, and failure evidence |
 
-**TTL note:** Relational databases do not have native per-row TTL. An eviction job must run at interval to remove expired entries. The eviction interval should be short enough that the table does not grow unboundedly, but this is a maintenance concern — entries are rejected by the expiry check before the store lookup regardless.
+**TTL note:** This sketch uses scheduled cleanup; deletion is safe only after all domain verifiers reject the artifact. An eviction job must run at interval to remove expired entries. The eviction interval should be short enough that the table does not grow unboundedly, but this is a maintenance concern — entries are rejected by the expiry check before the store lookup regardless.
 
 ### 4.4 DynamoDB Store
 
@@ -279,13 +287,15 @@ const store: ReplayStore = {
 | Property | Value |
 |---|---|
 | Atomicity | Yes — conditional `PutItem` with `attribute_not_exists` is atomic |
-| Persistence | Yes — DynamoDB is durable by default |
-| TTL / eviction | Yes — native DynamoDB TTL attribute (eventual eviction, up to 48h lag) |
+| Persistence | Backend guarantees must be assessed against the deployment failure model |
+| TTL / eviction | Native TTL attribute; deletion is eventual |
 | Multi-process | Yes |
-| Restart durability | Yes |
-| Production-ready | Yes |
+| Restart durability | Requires deployment-specific evidence |
+| Deployment compliance | Requires evidence for the declared domain and failure model |
 
-**DynamoDB TTL note:** DynamoDB TTL eviction is eventual — items may persist for up to 48 hours after the TTL timestamp. This is safe: items are only evicted after they expire, never before. A consumed `auth_id` will not be evicted while the authorization is still valid; the authorization's expiry check fires first.
+**TTL note:** Delayed eviction is compatible with replay retention. The configured
+TTL timestamp must not precede the last permissible acceptance across the domain;
+backend choice alone does not establish that alignment or cross-region atomicity.
 
 ### 4.5 Shared `Map` (test / multi-instance simulation)
 
@@ -312,22 +322,13 @@ const store: ReplayStore = {
 
 ### 5.1 Clock Skew
 
-Clock skew between the issuer (signing time), the guard host (verification time), and the Redis server (TTL base) can cause subtle misalignments:
+The relevant comparison is the adapter/store eviction time against every verifier's
+last permissible acceptance time, not simply issuer versus guard wall time. A slower
+verifier may still accept an artifact after a faster host's computed TTL elapses.
+Bound these differences and retain accordingly. Extending authorization expiry or
+adding a verification grace period extends the required retention period too.
 
-```text
-Issuer clock: T
-Guard clock:  T + Δ   (Δ = skew, typically ±30s for NTP-synced hosts)
-Redis clock:  T + δ   (δ = skew relative to guard host, typically <1s for co-located Redis)
-```
-
-**Effect on TTL:**
-- If guard clock is ahead of issuer (`Δ > 0`): computed TTL = `expiry − (T + Δ)` is shorter than `expiry − T`. The store entry is evicted slightly earlier than the issuer intended.
-- If guard clock is behind issuer (`Δ < 0`): computed TTL is longer. Entry persists slightly longer — no security impact.
-
-**Mitigation:**
-- Keep guard hosts NTP-synchronized (±1 second typical).
-- Add a clock skew buffer to the authorization expiry window (e.g., issue authorizations with `expiry = now + window + 60s`). This is an issuer-side concern.
-- Do not rely on replay store eviction for security — the expiry check in `verifyAuthorization` is the primary gate.
+The following timing examples assume aligned clocks and unchanged acceptance rules.
 
 ### 5.2 Delayed Delivery
 
@@ -369,11 +370,11 @@ For stores with TTL-based eviction (Redis):
 
 ### 5.5 Distributed Clock Drift
 
-In multi-region deployments, guard instances in different regions may have clocks drifted by up to several seconds even with NTP. The computed TTL at each instance will differ by this drift amount.
-
-**Safe direction:** If one instance computes a shorter TTL and evicts the key while another instance would not have evicted it yet, the expiry check provides the backstop — the authorization's `expiry` field is an absolute timestamp verified independently.
-
-**Unsafe direction:** Clock drift could in theory cause one guard instance to accept an authorization (its clock says `now < expiry`) while another rejects it (`now ≥ expiry`). This is an expiry-consistency concern, not a replay-store concern. Mitigate with NTP synchronization and a short expiry grace period.
+If an entry expires while any verifier in the domain still accepts the artifact,
+replay can succeed. An absolute expiry timestamp does not eliminate clock differences.
+This is a replay-retention concern as well as an expiry-consistency concern. Validate
+the domain's clock bounds and retention policy; do not accept through an indeterminate
+history window.
 
 ---
 
@@ -388,7 +389,7 @@ In multi-region deployments, guard instances in different regions may have clock
 | **Expected verifier behavior** | Replay succeeds; guard executes the action again |
 | **Operational impact** | Authorization reuse within the original expiry window is possible |
 | **Fail-closed outcome** | Not fail-closed — this is the primary misconfiguration risk |
-| **Mitigation** | Enforce Rule 1: TTL ≥ authorization validity window. Add skew buffer. |
+| **Mitigation** | Retain through the last permissible acceptance in the declared domain, including bounded clock differences. |
 
 ### RT-2: Authorization Still Valid After Replay Eviction
 
@@ -398,7 +399,7 @@ In multi-region deployments, guard instances in different regions may have clock
 | **Enforcement point** | Expiry check still rejects if `now ≥ expiry`; but if `now < expiry`, replay succeeds |
 | **Expected verifier behavior** | Second execution allowed |
 | **Fail-closed outcome** | No — depends on TTL alignment correctness |
-| **Mitigation** | Use `computeTtl(expiry) = max(1, expiry − now)` (as the Redis implementation does). Never set TTL shorter than `expiry − issued_at`. |
+| **Mitigation** | Validate retention against every domain verifier; the default adapter formula assumes clock alignment. |
 
 ### RT-3: Process Restart Loses Replay State
 
@@ -409,7 +410,7 @@ In multi-region deployments, guard instances in different regions may have clock
 | **Expected verifier behavior** | Replayed authorizations succeed after restart |
 | **Operational impact** | Any authorization consumed before restart can be replayed until its expiry |
 | **Fail-closed outcome** | Not fail-closed for the restart window |
-| **Mitigation** | Use a durable backend-backed store (Redis with persistence, PostgreSQL, DynamoDB) for production. In-memory store is explicitly development-only. |
+| **Mitigation** | Preserve authoritative history across the declared restart boundary, or block acceptance until required history is known or affected authorizations can no longer be accepted. |
 
 ### RT-4: Distributed Store Inconsistency
 
@@ -446,8 +447,8 @@ In multi-region deployments, guard instances in different regions may have clock
 
 | Field | Detail |
 |---|---|
-| **Description** | Guard host clock is ahead of issuer clock by Δ seconds; computed TTL = `expiry − (T + Δ)` is shorter than intended |
-| **Enforcement point** | Expiry check still fires at `expiry` per guard clock; replay store entry expires at `expiry − Δ` per guard clock |
+| **Description** | Adapter wall clock is ahead of a domain verifier by Δ seconds; computed retention may end while that verifier still accepts |
+| **Enforcement point** | The slower verifier still sees `now < expiry` after the entry is evicted |
 | **Expected verifier behavior** | Window of replay risk = `Δ` seconds before expiry (entry evicted before expiry check fires) |
 | **Fail-closed outcome** | Partially — replay is possible within the skew window |
 | **Mitigation** | Add a skew buffer to TTL: `TTL = max(1, expiry − now + skew_buffer)`. Sync clocks with NTP. |
@@ -479,7 +480,7 @@ In multi-region deployments, guard instances in different regions may have clock
 | **Enforcement point** | Post-restart, lost entries are unknown to the store; replay is possible |
 | **Operational impact** | Window of vulnerability = entries consumed since last persistence sync |
 | **Fail-closed outcome** | Not fully fail-closed for lost entries |
-| **Mitigation** | Use `appendfsync always` for maximum durability (performance trade-off). For most deployments, `appendfsync everysec` is an acceptable balance — at most 1 second of entries may be lost on crash. |
+| **Mitigation** | Assess persistence and recovery against the declared failure model. Losing still-required consumed IDs violates retention; block execution if their history cannot be established. No persistence setting alone certifies compliance. |
 
 ---
 
@@ -493,19 +494,14 @@ Always compute TTL from the authorization's absolute expiry, not from a static c
 TTL = max(1, auth.expiry − floor(now_seconds)) + clock_skew_buffer
 ```
 
-Recommended clock skew buffers by deployment type:
-
-| Deployment | Skew buffer |
-|---|---|
-| Single-host | 0 (NTP-synced clocks) |
-| Multi-host same region | 30 seconds |
-| Multi-host multi-region | 60–120 seconds |
+Derive the buffer from measured/enforced clock and expiry bounds for the declared
+domain. This is deployment guidance, not a new adapter option or a conformance proof.
 
 ### 7.2 Monitoring Signals
 
 | Signal | Threshold | Meaning |
 |---|---|---|
-| `auth_id` consume rate (true) | Baseline | Normal execution flow |
+| `auth_id` consume rate (true) | Baseline | Entitlements spent; not a count of completed effects |
 | `auth_id` consume rate (false) | > 0 | Replay attempts detected |
 | Store error rate | > 0 | Replay store degraded; executions being denied |
 | Store latency (P99) | > 50ms | Store under load; risk of timeout → DENY |
@@ -520,13 +516,12 @@ Recommended clock skew buffers by deployment type:
 Guard: 1 instance
 Replay store: createInMemoryReplayStore()
 Durability: none (process restart resets)
-Risk: replay after restart (acceptable for low-risk, short-lived deployments)
+Scope: one store instance lifetime; no protection across lost history
 ```
 
 **Checklist:**
-- [ ] Authorization expiry window is short (< 5 minutes recommended)
-- [ ] Process restarts are infrequent and audited
-- [ ] Not used for high-value or regulated actions
+- [ ] Domain is explicitly limited to the store instance lifetime
+- [ ] Still-valid artifacts cannot be accepted elsewhere or after history loss
 
 #### HA Deployment (Multi-Instance, Same Region)
 
@@ -534,14 +529,14 @@ Risk: replay after restart (acceptable for low-risk, short-lived deployments)
 Guard: N instances behind a load balancer
 Replay store: createRedisReplayStore({ client: redis })
 Redis: single-primary with replica(s) + Sentinel for failover
-Durability: AOF persistence (appendfsync everysec)
+Durability: assess persistence, acknowledged-write loss, failover, and recovery
 ```
 
 **Checklist:**
-- [ ] Redis persistence enabled (`appendonly yes`)
-- [ ] Sentinel or Cluster for HA
-- [ ] TTL = `max(1, expiry − now)` (default `computeTtl`)
-- [ ] Clock skew buffer: 30 seconds added to authorization expiry window (issuer-side)
+- [ ] Persistence/recovery retains all still-required consumption history
+- [ ] Failover preserves authoritative history or blocks acceptance
+- [ ] Adapter TTL covers all domain acceptance windows
+- [ ] Retention accounts for bounded verifier/store clock differences
 - [ ] Guard handles Redis errors by DENY (no fallback to in-memory)
 - [ ] Monitor: replay rate, store error rate, P99 latency
 
@@ -559,37 +554,36 @@ Offline verification (`createVerifier` / `verifyAuthorization`) does not enforce
 
 ```text
 Guard: instances in region A and region B
-Replay store: Redis Cluster with cross-region replication, or DynamoDB global tables
-Durability: full persistence
-Clock skew buffer: 120 seconds
+Replay store: domain-wide atomic consume with assessed retention and visibility
+Durability: deployment-specific evidence required
+Clock skew buffer: derived from domain acceptance bounds
 ```
 
 **Checklist:**
-- [ ] Cross-region replication lag is accounted for in authorization expiry window
-- [ ] DynamoDB global tables or Redis Enterprise active-active for multi-region atomic SET NX
-- [ ] Clock skew buffer 120 seconds (issuer-side expiry extension)
-- [ ] Replay entries in region A are visible to region B within replication lag window
-- [ ] Accept brief replay window equal to replication lag if using eventually-consistent replication
+- [ ] Same ID/domain cannot be consumed successfully in two regions
+- [ ] Acknowledged consumes remain authoritative during failover and recovery
+- [ ] Retention covers every region's acceptance window
+- [ ] Replica lag cannot permit reuse; unavailable/indeterminate history blocks execution
 
 ### 7.4 Production Checklist
 
 ```
 REPLAY STORE SELECTION
-[ ] Use createRedisReplayStore or equivalent durable backend in production
-[ ] createInMemoryReplayStore is limited to development/test
+[ ] Declare the replay domain and select a store satisfying its contract
+[ ] In-memory scope ends with the store instance; do not accept through lost history
 
 ATOMICITY
 [ ] consumeAuthId uses atomic check-and-set (SET NX EX for Redis; INSERT ON CONFLICT for SQL)
 [ ] No read-then-write patterns
 
 PERSISTENCE
-[ ] Redis: appendonly yes + appendfsync everysec (or always for regulated deployments)
-[ ] All guard instances share the same store
+[ ] Validate persistence, replica visibility, and recovery for the declared failure model
+[ ] All domain participants share authoritative consumption history
 
 TTL
 [ ] TTL derived from auth.expiry, not a static constant
-[ ] TTL = max(1, expiry − now)
-[ ] Optional clock skew buffer added at the issuer (authorization expiry window)
+[ ] Retention covers the last permissible acceptance across the domain
+[ ] Any retention buffer covers bounded clock differences, not an issuer expiry extension
 
 FAIL-CLOSED
 [ ] Store errors propagate as throws — no silent fallback

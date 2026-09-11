@@ -252,23 +252,39 @@ authority, external-resource TOCTOU, post-execution-start failures).
 
 ---
 
-## Replay store: production requirements
+## Replay store: contract and deployment requirements
 
-The guard prevents replay via a pluggable `ReplayStore`. Every `auth_id` and
-`delegation_id` is atomically check-and-consumed before execution.
+The guard verifies/authenticates before authoritative replay mutation and consumes
+required replay entitlements before protected execution. The parent `auth_id` is
+always consumed; `delegation_id` tracking is used when the store provides it.
 
-### Default: in-memory (development only)
+The [normative store contract](../../docs/spec/verification/verification-v1.md#43-replay-store-contract-and-deployment-boundary)
+requires at most one successful consume per identifier in a declared replay domain,
+retention while the authorization could otherwise still be accepted, and no protected
+execution when required replay state is unavailable or indeterminate. No backend
+technology is mandated. Configure the domain through store namespace/routing and
+ensure all accepting boundaries participate; local code cannot infer that topology.
+
+Consumption spends authorization; it does not prove execution completed. A crash
+between consume and effect can spend the authorization without producing the effect.
+Generic conformance does not certify restart persistence, replica visibility, backend
+persistence configuration, topology correctness, HA/SLA, or recovery guarantees.
+
+### Default: in-memory (one store instance lifetime)
 
 ```typescript
 import { OxDeAIGuard } from "@oxdeai/guard";
 // No replayStore config → createInMemoryReplayStore() used automatically.
 ```
 
-**NOT suitable for production.** Replay state is:
+Replay protection is limited to the lifetime and users of this store instance. State is:
 - lost on process restart
 - not shared across instances (horizontal scaling allows cross-instance replay)
 
-### Production: Redis backend
+A deployment accepting still-valid artifacts across restarts or separate store instances
+must preserve authoritative consumption history or block execution when it is missing.
+
+### Redis backend
 
 ```typescript
 import { OxDeAIGuard, createRedisReplayStore } from "@oxdeai/guard";
@@ -286,9 +302,10 @@ const guard = OxDeAIGuard({
 });
 ```
 
-Atomicity is guaranteed by `SET key value NX EX ttl`. Exactly one caller
-wins across any number of instances; all others see `null` and receive
-`OxDeAIAuthorizationError: replay detected`.
+`SET key value NX EX ttl` provides atomic consume in the authoritative Redis
+keyspace: at most one concurrent caller succeeds for a retained key. Existing keys
+return `null` and cause replay denial. This command alone does not establish
+restart durability or safe replica/failover behavior; those require deployment evidence.
 
 **Key schema:**
 
@@ -298,7 +315,9 @@ wins across any number of instances; all others see `null` and receive
 | `DelegationV1` | `replay:delegation:<delegation_id>` |
 
 **TTL:** derived from artifact `expiry`: `max(1, expiry - now)`. Keys
-auto-evict after the artifact expires. No manual cleanup required.
+auto-evict; this is safe only if every verifier in the replay domain can no longer
+accept the artifact at eviction. The adapter uses local wall time with no skew buffer;
+see [TTL alignment](../../docs/architecture/replay-store-ttl-alignment.md).
 
 **Fail-closed:** if Redis is unavailable (network failure, timeout, restart),
 `consumeAuthId` throws. The guard catches this and raises
@@ -329,7 +348,7 @@ const guard = OxDeAIGuard({
 ### Custom backends
 
 Implement `ReplayStore` directly for DynamoDB, Postgres, or any store that
-provides compare-and-set semantics:
+satisfies the atomicity, retention, domain, and failure contract above:
 
 ```typescript
 import type { ReplayStore } from "@oxdeai/guard";

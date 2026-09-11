@@ -415,10 +415,9 @@ export function OxDeAIGuard(config: OxDeAIGuardConfig) {
       // ── Replay consumption: after every verification, before any execution ──
       //
       // Placed here rather than immediately after each id's own verification so
-      // that NO denial on this path leaves a durable write behind — not a
-      // signature failure, not an authority rejection, not a chain or scope
-      // violation. Both ids are consumed only once the request is fully
-      // entitled to execute.
+      // that signature, authority, chain and scope rejection precede replay
+      // mutation. Later store/hook failures can leave an earlier consume spent;
+      // consumption is not a transaction with execution and is not rolled back.
       //
       // Atomicity is unchanged: each consume is still a single atomic
       // check-and-set, and both still strictly precede `execute()` below, so

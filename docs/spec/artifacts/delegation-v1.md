@@ -228,7 +228,25 @@ A `DelegationV1` artifact MUST NOT be used as the parent of another `DelegationV
 
 `delegation_id` is the replay nonce. Implementations that track consumed delegation IDs MUST reject a `DelegationV1` whose `delegation_id` has been previously seen in the same policy scope.
 
-Implementations that do not track consumed IDs MUST document this as a deployment assumption. Fail-closed behavior is REQUIRED if replay state is ambiguous.
+The optional `consumed_ids` input describes standalone artifact verification; it
+does not waive replay resistance required by an execution profile. Implementations
+that do not track consumed IDs MUST document that limitation and MUST NOT claim
+replay-resistant execution on that basis. A PEP whose profile requires replay
+resistance MUST enforce the [replay-store contract](../verification/verification-v1.md#43-replay-store-contract-and-deployment-boundary)
+in its declared/configured replay domain. Fail-closed behavior is REQUIRED if
+required replay state is unavailable or ambiguous.
+
+Whether separate `delegation_id` consumption is required is determined by the
+declared artifact/execution profile and replay model. An implementation MUST NOT
+omit replay tracking required by that profile merely because another identifier
+is consumed. Unavailable or indeterminate required replay state MUST block
+protected execution.
+
+As implementation behavior, the current TypeScript Guard always consumes the
+parent `auth_id`, including when its store lacks `consumeDelegationId`. This is
+not a general protocol rule permitting `delegation_id` tracking to be omitted,
+and does not authorize repeated use of a parent for distinct delegations.
+Optional tracking is not a deployment durability claim.
 
 ### 4.6 Fail-Closed Conditions
 
@@ -359,9 +377,13 @@ A PEP that accepts `DelegationV1` as an authorization credential MUST:
 
 1. Resolve the parent `AuthorizationV1` locally (from cache or request context - no live control plane call)
 2. Run the full verification algorithm above
-3. Execute the action only if verification returns `ALLOW`
-4. Record a delegation audit event referencing both `delegation_id` and `parent_auth_hash`
-5. Mark `delegation_id` as consumed if replay tracking is active
+3. After successful verification/authentication, atomically consume the required replay entitlement under §4.5; unavailable or indeterminate required replay state MUST block execution
+4. Execute the action only if verification returns `ALLOW` and required consumption succeeds
+5. Record a delegation audit event referencing both `delegation_id` and `parent_auth_hash`
+
+A consumed entitlement is not a completed action. Failure or crash between steps
+3 and 4 can spend it without execution; restart persistence is a deployment
+property, not proof supplied by this verification algorithm.
 
 A PEP MUST NOT:
 

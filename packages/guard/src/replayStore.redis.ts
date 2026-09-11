@@ -2,13 +2,14 @@
 /**
  * replayStore.redis.ts
  *
- * Production-grade ReplayStore backed by Redis.
+ * Redis-backed ReplayStore; deployment durability is not certified here.
  *
  * Atomicity guarantee:
  *   SET key value NX EX ttl is a single atomic Redis command.
- *   Across any number of guard instances sharing the same Redis cluster,
- *   exactly one caller will receive "OK" for a given key; all others receive
- *   null. This eliminates the TOCTOU window present in read-then-write patterns.
+ *   Within one authoritative Redis keyspace, at most one concurrent caller can
+ *   receive "OK" for a retained key. Store errors can leave no successful caller.
+ *   This avoids a read-then-write race; it does not prove retention through
+ *   failover, independent replicas, restart, eviction or recovery.
  *
  * Key schema:
  *   replay:auth:<auth_id>           — AuthorizationV1 single-use tokens
@@ -16,7 +17,8 @@
  *
  * TTL policy:
  *   ttl = max(1, expiry - now)
- *   Keys are automatically evicted by Redis once the artifact expires.
+ *   Safe eviction requires alignment with every verifier's acceptance window
+ *   in the declared replay domain; the formula alone does not prove alignment.
  *   A minimum of 1 second is enforced so that already-expired artifacts
  *   never create zero-TTL or infinite-TTL keys.
  *
@@ -35,13 +37,15 @@
  *         nodeRedisClient.set(k, v, { NX: true, EX: ttl }),
  *     };
  *
- * Clock skew:
- *   TTL is derived from artifact expiry (absolute Unix timestamp). If the
- *   guard host clock is skewed relative to the issuer, the TTL may be shorter
- *   or longer than intended. A skew of ±30 seconds is typical and acceptable
- *   given that authorization artifacts already carry explicit expiry checks in
- *   strictVerifyAuthorization. The Redis TTL only governs key eviction, not
- *   authorization validity.
+ * Replay domain and clocks:
+ *   The caller configures the authoritative keyspace through the supplied client;
+ *   fixed key prefixes do not discover deployment boundaries. TTL uses the local
+ *   wall clock, which may differ from injected verifier time or other hosts.
+ *   No generic clock-skew allowance is established here. Deployments must ensure
+ *   a consumed key cannot expire or be lost while any verifier in that domain
+ *   could still accept the authorization. Uncertain required replay state must
+ *   block execution. Backend persistence, replication and recovery need separate
+ *   validation; a consume result is not evidence that the effect occurred.
  */
 
 import type { ReplayStore } from "./replayStore.js";
@@ -102,10 +106,9 @@ function delegationKey(delegationId: string): string {
 /**
  * Compute the TTL (seconds) to assign to a Redis key.
  *
- * Always at least 1 second — zero or negative TTLs would cause Redis to either
- * reject the command or create a key that expires immediately, which could allow
- * replay of already-expired artifacts on a subsequent request within the same
- * second.
+ * Always at least 1 second to avoid invalid/non-positive Redis TTLs.
+ * Authorization expiry is enforced by the verifier independently. This minimum
+ * is not a clock-skew buffer or proof of retention across the replay domain.
  */
 function computeTtl(expiry: number): number {
   const now = Math.floor(Date.now() / 1000);
@@ -117,7 +120,8 @@ function computeTtl(expiry: number): number {
 // ---------------------------------------------------------------------------
 
 /**
- * createRedisReplayStore — production-grade, multi-instance-safe ReplayStore.
+ * createRedisReplayStore — atomic consume within the configured Redis keyspace.
+ * Restart resistance and cross-instance visibility depend on deployment setup.
  *
  * Usage:
  *

@@ -452,7 +452,17 @@ A provider or adapter claiming OxDeAI interoperability MUST:
 ### 4.7 Replay Safety
 
 - Never issue the same `auth_id` twice
-- Size `auth_id` replay store TTL as: `max(1, expiry − now)` per [replay-store TTL alignment guide](../../architecture/replay-store-ttl-alignment.md)
+- Declare/configure the replay domain and retain consumed IDs while any verifier
+  in that domain could otherwise still accept the authorization.
+- `max(1, expiry − now)` is the current Redis adapter's TTL calculation, not a
+  generic clock-skew or durability guarantee. Validate its alignment with all
+  verifier clocks/acceptance windows; see the non-normative
+  [TTL guide](../../architecture/replay-store-ttl-alignment.md).
+- Profiles A/B/C require atomic, fail-closed consumption before protected
+  execution under [verification §4.3](../verification/verification-v1.md#43-replay-store-contract-and-deployment-boundary).
+  Unavailable/indeterminate required replay state MUST block execution.
+- Consumption spends the entitlement; it does not prove an effect occurred.
+  Restart resistance, replica visibility and recovery require deployment evidence.
 
 ---
 
@@ -511,7 +521,13 @@ Any ambiguity → DENY:
 - `createPepGatewayExecutor` supports Profiles A and B (gateway-level only; no live-state access)
 - `OxDeAIGuard` supports Profiles A, B, and C (with `computeStateHash` for B and C)
 - Profile C requires `OxDeAIGuard`, `getState`, `setState`, and `computeStateHash` correctly configured
-- In-memory replay store is development-only; not production-grade for multi-process or restart-durable deployments
+- An in-memory store can exercise the implementation contract within its instance
+  lifetime. It does not establish replay protection across process restarts or
+  separate store instances.
+- “Production” in this integration matrix describes an available integration
+  surface, not certification of replay-store durability, topology, replica
+  visibility, backend persistence configuration, HA/SLA or recovery. Deployment
+  suitability must be assessed against the declared replay domain.
 
 ---
 
@@ -604,7 +620,9 @@ no partial acceptance, and no advisory-only path.
   as complete `(issuer, policyId)` pairs. A trusted signing key is not policy authority:
   a valid signature only proves that a trusted key for the *claimed* issuer signed the
   artifact (#301). Missing authority configuration **MUST** fail closed.
-- Use any replay store; in-memory for development, durable backend for production
+- Use a replay store satisfying the atomicity, retention and fail-closed contract
+  for the declared replay domain; assess restart and cross-instance guarantees
+  separately for the deployment. No backend technology is mandated.
 - No `computeStateHash` configuration needed
 
 ### Profile B: External provider wire-compatible

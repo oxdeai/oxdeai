@@ -215,6 +215,35 @@ subsequent prohibited reuse
 
 Replay tests MUST use the replay identifier and replay scope defined by the relevant artifact or profile.
 
+Three boundaries MUST remain distinct:
+
+1. **Implementation conformance:** authenticate/verify before authoritative replay
+   mutation; consume before protected execution; unauthenticated input MUST NOT
+   mutate trusted replay state. Required replay-state unavailability or an
+   indeterminate result MUST prevent protected execution.
+2. **Normative store contract:** atomic consume permits at most one success for
+   the same identifier/domain under concurrency, retains consumed IDs throughout
+   their possible acceptance window, and never treats store failure as success.
+   No backend technology is mandated; see [verification §4.3](../verification/verification-v1.md#43-replay-store-contract-and-deployment-boundary).
+3. **Deployment compliance:** restart persistence, replica sharing/visibility,
+   persistence configuration, topology, HA/SLA and recovery guarantees require
+   deployment-specific evidence. Generic conformance MUST NOT be presented as
+   proof of these properties.
+
+The replay domain MUST be declared/configured; local code cannot infer every
+valid deployment boundary. “Same security history implies the same decision” is
+only meaningful with the same trusted inputs and available, authoritative replay
+state. Loss or unavailability of required history MUST fail closed rather than
+reconstructing a permissive decision from missing state.
+
+Consumed means entitlement spent, not effect completed. A crash after consume
+and before effect can spend an authorization without execution. The current
+corpus does not prove crash/restart behavior, arbitrary concurrent interleavings
+or deployment persistence. Guard tests cover selected shared-instance and error
+paths; the Redis unit tests use an in-memory fake and selected concurrency/TTL
+cases. Neither those tests nor portable replay vectors certify a deployed
+backend's durability. They do not weaken its required store contract.
+
 Replay semantics MUST NOT be generalized across artifacts.
 
 For example, the presence of an optional nonce in an artifact does not establish replay protection unless its specification defines the required replay-state behavior.

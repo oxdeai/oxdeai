@@ -12,8 +12,10 @@
  * later legitimate authorization carrying the same id.
  *
  * These tests pin two properties that must hold together:
- *   1. no denial, for ANY reason, leaves a replay write behind; and
+ *   1. the tested pre-consumption verification denials leave no replay write; and
  *   2. replay protection still works for requests that do execute.
+ * Later store/CAS/hook failures may follow a successful consume. These tests
+ * do not prove rollback, completed execution, crash recovery or restart durability.
  */
 import test from "node:test";
 import assert from "node:assert/strict";
