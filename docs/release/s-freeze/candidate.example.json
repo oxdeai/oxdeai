@@ -1,13 +1,13 @@
 {
   "version": 1,
   "candidateId": "EXAMPLE-NOT-A-FREEZE-CANDIDATE",
-  "note": "NON-AUTHORITATIVE EXAMPLE. Illustrates the required shape of an S_freeze candidate record and is used as a synthetic PASS fixture. It is NOT a freeze candidate: the SHA, hashes and results below are placeholders and describe no real build. Producing a real candidate means recording real evidence, not editing this file.",
+  "note": "NON-AUTHORITATIVE EXAMPLE. Incomplete and intentionally BLOCKED. Illustrative exact toolchain versions and placeholder SHA/hashes describe no build; referenced evidence files and tarballs are not supplied. Never use this as release evidence.",
   "source": {
     "sha": "0000000000000000000000000000000000000000",
     "cleanWorktree": true,
     "toolchain": {
-      "node": "22.x",
-      "pnpm": "10.x"
+      "node": "22.14.0",
+      "pnpm": "10.34.5"
     },
     "packageVersions": {
       "@oxdeai/core": "2.0.0-rc.0",
@@ -37,7 +37,7 @@
   ],
   "conformanceAuthority": {
     "manifest": "docs/conformance/corpus-authority.json",
-    "projectionVerified": true,
+    "projectionVerified": false,
     "releaseRelevantCorpora": [
       {
         "id": "profile-c",
@@ -55,7 +55,8 @@
           "Python"
         ]
       }
-    ]
+    ],
+    "projectionEvidence": []
   },
   "reproduction": {
     "cleanEnvironment": [
@@ -77,21 +78,27 @@
   "results": [
     {
       "command": "npx oxdeai-conformance validate",
-      "result": "PASS",
-      "assertions": 259,
+      "result": "NOT_EVALUATED",
       "artifacts": [
         "@oxdeai/conformance@2.0.0-rc.0"
       ],
-      "sha": "0000000000000000000000000000000000000000"
+      "sha": "0000000000000000000000000000000000000000",
+      "id": "example-conformance",
+      "evidence": {
+        "path": "evidence/conformance.json",
+        "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "binding": {
+        "path": "evidence/conformance-binding.json",
+        "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+      }
     }
   ],
   "findings": [
     {
       "id": "EXAMPLE-F1",
-      "state": "FIXED_AND_RETESTED",
-      "summary": "Illustrative finding.",
-      "retestCommand": "npx oxdeai-conformance validate",
-      "retestResult": "PASS"
+      "state": "REPORTED",
+      "summary": "Illustrative finding."
     }
   ],
   "conditionsAsserted": [],
@@ -107,93 +114,99 @@
   "criteriaEvaluations": [
     {
       "criterionId": "ISO-001",
-      "state": "PASS",
-      "evidence": "example: not a real evaluation"
+      "state": "NOT_EVALUATED",
+      "evidence": []
     },
     {
       "criterionId": "ISO-002",
-      "state": "PASS",
-      "evidence": "example: not a real evaluation"
+      "state": "NOT_EVALUATED",
+      "evidence": []
     },
     {
       "criterionId": "ISO-003",
-      "state": "PASS",
-      "evidence": "example: not a real evaluation"
+      "state": "NOT_EVALUATED",
+      "evidence": []
     },
     {
       "criterionId": "ISO-004",
-      "state": "PASS",
-      "evidence": "example: not a real evaluation"
+      "state": "NOT_EVALUATED",
+      "evidence": []
     },
     {
       "criterionId": "CORP-001",
-      "state": "PASS",
-      "evidence": "example: not a real evaluation"
+      "state": "NOT_EVALUATED",
+      "evidence": []
     },
     {
       "criterionId": "CORP-002",
-      "state": "PASS",
-      "evidence": "example: not a real evaluation"
+      "state": "NOT_EVALUATED",
+      "evidence": []
     },
     {
       "criterionId": "CORP-003",
-      "state": "PASS",
-      "evidence": "example: not a real evaluation"
+      "state": "NOT_EVALUATED",
+      "evidence": []
     },
     {
       "criterionId": "CORP-004",
-      "state": "PASS",
-      "evidence": "example: not a real evaluation"
+      "state": "NOT_EVALUATED",
+      "evidence": []
     },
     {
       "criterionId": "CORP-005",
-      "state": "PASS",
-      "evidence": "example: not a real evaluation"
+      "state": "NOT_EVALUATED",
+      "evidence": []
     },
     {
       "criterionId": "REPRO-001",
-      "state": "PASS",
-      "evidence": "example: not a real evaluation"
+      "state": "NOT_EVALUATED",
+      "evidence": []
     },
     {
       "criterionId": "REPRO-002",
-      "state": "PASS",
-      "evidence": "example: not a real evaluation"
+      "state": "NOT_EVALUATED",
+      "evidence": []
     },
     {
       "criterionId": "REPRO-003",
-      "state": "PASS",
-      "evidence": "example: not a real evaluation"
+      "state": "NOT_EVALUATED",
+      "evidence": []
     },
     {
       "criterionId": "REPRO-004",
-      "state": "PASS",
-      "evidence": "example: not a real evaluation"
+      "state": "NOT_EVALUATED",
+      "evidence": []
     },
     {
       "criterionId": "SEC-001",
-      "state": "PASS",
-      "evidence": "example: not a real evaluation"
+      "state": "NOT_EVALUATED",
+      "evidence": []
     },
     {
       "criterionId": "SEC-002",
-      "state": "PASS",
-      "evidence": "example: not a real evaluation"
+      "state": "NOT_EVALUATED",
+      "evidence": []
     },
     {
       "criterionId": "SEC-003",
-      "state": "PASS",
-      "evidence": "example: not a real evaluation"
+      "state": "NOT_EVALUATED",
+      "evidence": []
     },
     {
       "criterionId": "TOOL-001",
-      "state": "PASS",
-      "evidence": "example: not a real evaluation"
+      "state": "NOT_EVALUATED",
+      "evidence": []
     },
     {
       "criterionId": "CLAIM-001",
-      "state": "PASS",
-      "evidence": "example: not a real evaluation"
+      "state": "NOT_EVALUATED",
+      "evidence": []
     }
-  ]
+  ],
+  "snapshot": {
+    "path": "evidence/source-snapshot.json",
+    "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "unresolvedAssumptions": [],
+  "deploymentAssumptions": []
 }

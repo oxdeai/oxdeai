@@ -50,6 +50,9 @@ jobs:
       - name: Security-gate wiring regression tests
         run: pnpm run security:gate:test
 
+      - name: S_freeze verifier regression tests
+        run: pnpm test:s-freeze
+
       - name: Website lint (best-effort)
         run: pnpm -C website lint || echo "website lint skipped (format locally)"
 

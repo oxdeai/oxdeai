@@ -13,10 +13,10 @@
 // It is NOT a security audit, NOT the publication step, and a PASS here is NOT
 // a claim of whole-protocol conformance or of non-bypassable deployment
 // enforcement. It reports whether declared, recorded evidence is internally
-// sufficient and unresolved items are explicitly dispositioned.
+// sufficient within scope; unresolved blockers remain blocking.
 //
-// Blocker classes are kept separate on purpose — never collapsed into one
-// opaque boolean:
+// Declared blockers and blocking diagnostics are separate. Both prevent PASS.
+// Diagnostic classes preserve evidence failure detail:
 //
 //   claim              release-blocking spec-claim state
 //   maintainer-decision claim the registry says a human must rule on
@@ -29,10 +29,11 @@
 //
 // Deliberately NOT encoded: "all gap/unassessed claims block". That is wrong.
 // What is encoded is "all RELEASE-BLOCKING unresolved claims block", where
-// release-blocking derives from declared freeze scope plus explicit reviewed
-// disposition. See resolveClaimBlockers().
+// release-blocking derives from declared freeze scope and unresolved exits. See resolveClaimBlockers().
 
 import { readFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { evidenceScope, digest, AUDIT } from '../../packages/conformance/src/evidenceScope.mjs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -52,9 +53,15 @@ export const FINDING_STATES = ['REPORTED', 'REPRODUCED', 'FIXED_AND_RETESTED', '
 const IN_FREEZE_SCOPE = new Set(['in-scope']);
 /** Scope dispositions that require an explicitly asserted condition to be in scope. */
 const CONDITIONAL_SCOPE = new Set(['conditional']);
+// Existing scope semantics (tests 5, 6, 6b, 7, 8); no implicit fallback state.
+const VALID_SCOPE = new Set([...IN_FREEZE_SCOPE, ...CONDITIONAL_SCOPE, 'deferred', 'deployment', 'out-of-scope']);
 
 /** Decisions that count as an explicit, reviewed freeze disposition. */
 const ACCEPTED_DECISIONS = new Set(['fixed-before-freeze', 'included-in-review-scope', 'deferred-with-rationale']);
+
+// Freeze provenance only: resolved major.minor.patch, optionally prefixed by
+// Node's 'v' and/or carrying an exact prerelease/build suffix. Not TOOL-001 policy.
+const EXACT_VERSION_RE = /^v?(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
 
 const SHA_RE = /^[0-9a-f]{40}$/;
 const INTEGRITY_RE = /^(sha512-[A-Za-z0-9+/]+={0,2}|sha256:[0-9a-f]{64})$/;
@@ -63,8 +70,7 @@ const text = (v) => typeof v === 'string' && v.trim().length > 0;
 const blocker = (id, cls, reason, evidence) => ({ id, class: cls, reason, evidence: evidence ?? null });
 
 /**
- * An explicit, reviewed disposition that removes a claim from the
- * freeze-critical set. Absence of evidence is never acceptance: every field
+ * A complete review disposition; it does not remove a blocker. Every field
  * below is required, and a disposition that fails any check is treated as
  * absent rather than as a weaker acceptance.
  */
@@ -76,9 +82,10 @@ export function acceptedDisposition(candidate, claimId) {
   return d;
 }
 
-/** True when a claim sits inside the declared 2.0 freeze boundary. */
+/** True/false for known scope states; null is invalid, never out-of-scope. */
 export function inFreezeScope(claim, candidate) {
   const disp = claim.scopeDisposition;
+  if (!VALID_SCOPE.has(disp)) return null;
   if (IN_FREEZE_SCOPE.has(disp)) return true;
   if (!CONDITIONAL_SCOPE.has(disp)) return false;
   // A conditional claim is in scope only when the candidate explicitly asserts
@@ -88,31 +95,29 @@ export function inFreezeScope(claim, candidate) {
   return asserted.has(claim.id);
 }
 
-/**
- * Release-blocking claim rules.
- *
- *  1. maintainerDecisionRequired blocks REGARDLESS of scopeDisposition until an
- *     explicit accepted disposition exists. Being out-of-scope, deferred or
- *     deployment-scoped does NOT by itself discharge a decision the registry
- *     says a human owes. (Inferring acceptance from scopeDisposition alone is
- *     exactly the shortcut this gate exists to prevent.)
- *  2. An unresolved evidence state (gap/unassessed) blocks only when the claim
- *     is inside the declared freeze boundary and has no accepted disposition.
- */
+function resolveScopeDiagnostics(registry) {
+  return (registry.claims ?? []).filter(claim => !VALID_SCOPE.has(claim.scopeDisposition)).map(claim =>
+    blocker(`CLAIM-SCOPE-${claim.id}`, 'claim',
+      'missing, malformed or unknown scopeDisposition; cannot infer out-of-scope',
+      `${REGISTRY}#${claim.id}.scopeDisposition`));
+}
+
+/** Registry gaps and required maintainer decisions remain blocking. Candidate
+ * dispositions cannot override the registry or stand in for direct evidence. */
 export function resolveClaimBlockers(registry, candidate) {
   const out = [];
   for (const claim of registry.claims ?? []) {
-    const accepted = acceptedDisposition(candidate, claim.id);
+    // A disposition records review posture, never repairs unresolved evidence.
     const scoped = inFreezeScope(claim, candidate);
 
-    if (claim.maintainerDecisionRequired === true && !accepted) {
+    if (claim.maintainerDecisionRequired === true) {
       out.push(blocker(claim.id, 'maintainer-decision',
-        `maintainerDecisionRequired=true and no accepted freeze disposition (scopeDisposition=${claim.scopeDisposition})`,
+        `maintainerDecisionRequired=true; a disposition cannot resolve the normative/evidence question (scopeDisposition=${claim.scopeDisposition})`,
         `${REGISTRY}#${claim.id}`));
       continue;
     }
-    if (!scoped || accepted) continue;
-    if (claim.evidenceState === 'gap' || claim.evidenceState === 'unassessed') {
+    if (!scoped) continue;
+    if (!['specified', 'non-normative'].includes(claim.normativeState) || claim.evidenceState !== 'mapped') {
       out.push(blocker(claim.id, 'claim',
         `evidenceState=${claim.evidenceState} for release-blocking ${claim.scopeDisposition} claim`,
         `${REGISTRY}#${claim.id}`));
@@ -127,7 +132,11 @@ export function resolveProvenanceBlockers(candidate) {
   const src = candidate.source ?? {};
   if (!SHA_RE.test(src.sha ?? '')) out.push(blocker('SOURCE-SHA', 'provenance', 'missing or malformed exact 40-hex Git SHA', 'candidate.source.sha'));
   if (src.cleanWorktree !== true) out.push(blocker('SOURCE-CLEAN', 'provenance', 'freeze record does not assert a clean worktree', 'candidate.source.cleanWorktree'));
-  if (!src.toolchain || Object.keys(src.toolchain).length === 0) out.push(blocker('SOURCE-TOOLCHAIN', 'provenance', 'no toolchain versions recorded', 'candidate.source.toolchain'));
+  if (!src.toolchain || typeof src.toolchain !== 'object' || Array.isArray(src.toolchain) ||
+      Object.keys(src.toolchain).length === 0 ||
+      Object.values(src.toolchain).some(version => typeof version !== 'string' || !EXACT_VERSION_RE.test(version))) {
+    out.push(blocker('SOURCE-TOOLCHAIN', 'provenance', 'toolchain must record resolved exact versions; missing, partial, ranged or wildcard versions are not freeze provenance', 'candidate.source.toolchain'));
+  }
   if (!src.packageVersions || Object.keys(src.packageVersions).length === 0) out.push(blocker('SOURCE-PKGVER', 'provenance', 'no package versions recorded', 'candidate.source.packageVersions'));
 
   const repro = candidate.reproduction ?? {};
@@ -148,7 +157,7 @@ export function resolveProvenanceBlockers(candidate) {
   for (const [i, r] of results.entries()) {
     const ref = `candidate.results[${i}]`;
     if (!text(r?.command)) out.push(blocker(`RESULT-${i}-CMD`, 'provenance', 'result has no command', ref));
-    if (!text(r?.result)) out.push(blocker(`RESULT-${i}-OUTCOME`, 'provenance', 'result has no outcome', ref));
+    if (r?.result !== 'PASS') out.push(blocker(`RESULT-${i}-OUTCOME`, 'provenance', 'result must be PASS', ref));
     if (r?.sha !== src.sha) out.push(blocker(`RESULT-${i}-SHA`, 'provenance', 'result is not tied to the frozen source SHA', ref));
     if (!Array.isArray(r?.artifacts) || r.artifacts.length === 0) out.push(blocker(`RESULT-${i}-ARTIFACTS`, 'provenance', 'result is not tied to any RC artifact identity', ref));
   }
@@ -241,8 +250,8 @@ export function resolveFindingBlockers(candidate) {
     // REPORTED is not REPRODUCED: an unreproduced finding cannot be discharged.
     if (f.state === 'REPORTED') out.push(blocker(id, 'finding', 'finding is REPORTED and has not been reproduced against a recorded revision', ref));
     // Code change alone is not a fix: the original failure case must be rerun.
-    if (f.state === 'FIXED_AND_RETESTED' && !(text(f.retestCommand) && text(f.retestResult))) {
-      out.push(blocker(id, 'finding', 'FIXED_AND_RETESTED requires the original failure case to be rerun (retestCommand + retestResult)', ref));
+    if (f.state === 'FIXED_AND_RETESTED' && !(text(f.retestCommand) && f.retestResult === 'PASS')) {
+      out.push(blocker(id, 'finding', 'FIXED_AND_RETESTED requires the original failure case to be rerun (retestCommand + successful retestResult)', ref));
     }
     if (f.state === 'REPRODUCED') out.push(blocker(id, 'finding', 'finding is REPRODUCED and has no accepted fix/retest or explicit deferral', ref));
     if (f.state === 'DEFERRED_WITH_RATIONALE' && !(text(f.rationale) && text(f.boundedClaim))) {
@@ -265,30 +274,222 @@ export function resolveResidualBlockers(candidate) {
   return out;
 }
 
-export function verify(candidate, { registry, manifest, criteria }) {
-  const blockers = [
-    ...resolveClaimBlockers(registry, candidate),
+// Evidence is unsigned local/reviewer evidence. Hashes bind bytes, not truth.
+// Non-conformance observations are a freeze-bundle record, not a new protocol
+// artifact. A trusted reviewer must assess whether their tests exercise the
+// declared property. No report type, PASS label or assurance class proves it.
+const sha256 = bytes => createHash('sha256').update(bytes).digest('hex');
+const same = (a, b) => digest(a) === digest(b);
+const array = v => Array.isArray(v) ? v : [];
+const nonempty = v => Array.isArray(v) && v.length > 0;
+const unique = xs => new Set(xs).size === xs.length;
+
+export function resolveEvidence(candidate, { registry, manifest, criteria, read }) {
+  const blockers = [], diagnostics = [], records = [], valid = new Map();
+  const fail = (id, reason) => diagnostics.push(blocker(id, 'evidence', reason, 'candidate.results'));
+  const load = descriptor => {
+    if (!text(descriptor?.path) || !/^[0-9a-f]{64}$/.test(descriptor?.sha256 ?? '')) throw Error('missing evidence path/hash');
+    const bytes = read(descriptor.path);
+    if (sha256(bytes) !== descriptor.sha256) throw Error(`evidence hash mismatch: ${descriptor.path}`);
+    return JSON.parse(bytes.toString());
+  };
+  const artifacts = new Map();
+  for (const a of array(candidate.rcArtifacts)) {
+    const id = `${a.package}@${a.version}`;
+    try {
+      if (artifacts.has(id)) throw Error('duplicate artifact identity');
+      const bytes = read(a.tarball);
+      const integrity = a.integrity?.startsWith('sha256:') ? `sha256:${sha256(bytes)}`
+        : `sha512-${createHash('sha512').update(bytes).digest('base64')}`;
+      if (a.integrity !== integrity) throw Error('RC artifact bytes do not match integrity');
+      artifacts.set(id, a.integrity);
+    } catch (e) { fail(`RC-${id}-BYTES`, e.message); }
+  }
+  let snapshot, capturedSnapshot;
+  try {
+    snapshot = load(candidate.snapshot);
+    capturedSnapshot = snapshot;
+    if (!same(snapshot.registry, registry) || !same(snapshot.manifest, manifest)) throw Error('snapshot registry/manifest differs from gate inputs');
+    if (snapshot.source?.revision !== candidate.source?.sha || snapshot.source?.workingTreeDirty !== false) throw Error('snapshot source is not the clean candidate revision');
+    if (!Object.keys(snapshot.source?.artifacts ?? {}).length) throw Error('snapshot has no source hashes');
+    // Source files accompany the bundle; do not substitute the live checkout's
+    // SHA or clean-tree assertion for evidence-level byte identity.
+    for (const [path, hash] of Object.entries(snapshot.source.artifacts)) {
+      if (sha256(read(path)) !== hash) throw Error(`snapshot source hash mismatch: ${path}`);
+    }
+    const requiredFiles = new Set([REGISTRY, CORPUS_MANIFEST, AUDIT]);
+    const audit = read(AUDIT).toString();
+    for (const c of manifest.corpora) {
+      for (const p of [c.spec, ...array(c.supportFiles), ...array(c.consumers).map(x => x.path), ...c.representations.map(r => r.path)].filter(text)) requiredFiles.add(p);
+      const row = audit.split('\n').find(line => line.startsWith(`| [${c.id}](`));
+      const classification = row?.split(' | ')[4];
+      const provenance = classification?.startsWith('Mixed: spec-derived') && c.id === 'docs-canonicalization-v1' ? 'mixed' : 'reference-generated';
+      if (snapshot.provenance?.[c.id] !== provenance) throw Error('snapshot promotes or changes audited expectation provenance');
+      for (const r of c.representations) {
+        const data = JSON.parse(read(r.path));
+        const cases = Array.isArray(data) ? data : data.vectors ?? [{ ...data, id: data.auth_id }];
+        if (!same(snapshot.representations?.[r.path], { digest: digest(data), cases: Object.fromEntries(cases.map(v => [v.id, digest(v)])) })) throw Error('snapshot corpus fingerprints differ from bundled bytes');
+      }
+    }
+    for (const p of requiredFiles) if (!snapshot.source.artifacts[p]) throw Error(`snapshot omits required source hash: ${p}`);
+    const registryBytes = read(REGISTRY), manifestBytes = read(CORPUS_MANIFEST);
+    if (!same(JSON.parse(registryBytes), registry) || !same(JSON.parse(manifestBytes), manifest)) throw Error('bundled registry/manifest mismatch');
+    if (snapshot.source.artifacts[REGISTRY] !== sha256(registryBytes) || snapshot.source.artifacts[CORPUS_MANIFEST] !== sha256(manifestBytes)) throw Error('registry/manifest hashes missing');
+  } catch (e) { fail('EVIDENCE-SNAPSHOT', e.message); snapshot = null; }
+
+  const dispositionIds = array(candidate.freezeDispositions).map(d => d?.claimId);
+  for (const id of dispositionIds) {
+    if (!registry.claims.some(c => c.id === id) || dispositionIds.filter(x => x === id).length !== 1 || !acceptedDisposition(candidate, id)) fail(id ?? 'DISPOSITION', 'unknown, ambiguous or incomplete disposition');
+  }
+  const ids = array(candidate.results).map(r => r?.id);
+  if (!unique(ids) || ids.some(id => !text(id))) fail('EVIDENCE-IDS', 'result IDs must be present and unique');
+  for (const [i, r] of array(candidate.results).entries()) {
+    let doc;
+    try {
+      doc = load(r.evidence);
+      records.push({ id: r.id, evidence: r.evidence, report: doc });
+      if (!text(r.id) || ids.filter(id => id === r.id).length !== 1) throw Error('missing or duplicate result ID');
+      if (!snapshot) throw Error('no valid source snapshot');
+      if (r.result !== 'PASS' || doc.result !== 'PASS') throw Error('result/evidence is not PASS');
+      if ((typeof doc.failed === 'number' && doc.failed !== 0) ||
+          (Array.isArray(doc.failures) ? doc.failures.length !== 0 : doc.failures !== undefined && doc.failures !== 0) ||
+          (doc.executions !== undefined && (!Array.isArray(doc.executions) || doc.executions.some(e => e.exitCode !== 0)))) throw Error('PASS contradicts recorded failures or execution exits');
+      const source = doc.evidenceScope?.source ?? doc.source;
+      if (!same(source, snapshot.source)) throw Error('evidence source revision, dirty state or hashes differ from snapshot');
+      if (!nonempty(r.artifacts) || r.artifacts.some(id => !artifacts.has(id))) throw Error('unresolved RC artifact reference');
+      // Binding record is hashed separately so the existing #324 report remains
+      // byte-for-byte unchanged. It records the command and exact tested tarballs.
+      const binding = load(r.binding);
+      if (binding.unsigned !== true || binding.command !== r.command || binding.reportSha256 !== r.evidence.sha256 || !same(binding.source, source)) throw Error('missing/mismatched unsigned execution binding');
+      const expected = Object.fromEntries(r.artifacts.map(id => [id, artifacts.get(id)]));
+      if (!same(binding.artifacts, expected)) throw Error('execution binding does not identify tested RC bytes');
+      if (!Array.isArray(binding.unresolvedAssumptions) || !Array.isArray(binding.deploymentAssumptions)) throw Error('missing assumption records');
+      records.at(-1).binding = binding;
+      if (binding.unresolvedAssumptions.length) throw Error('execution has unresolved assumptions');
+      if (r.claims !== undefined && !Array.isArray(r.claims)) throw Error('malformed claimed scope');
+      if (doc.evidenceScope) {
+        const scope = doc.evidenceScope;
+        if (scope.version !== 1 || !['execution', 'structural-only'].includes(scope.kind)) throw Error('unknown scope kind');
+        // Reuse #324 coverage construction, including its provenance audit. The
+        // snapshot supplies source identity; audit classifications are checked
+        // against the bundled audit, never promoted by the candidate.
+        const selections = array(scope.corpora).map(c => ({ ...c, data: JSON.parse(read(c.representation)) }));
+        const expectedScope = evidenceScope({ kind: scope.kind, selections, metadata: snapshot });
+        for (const key of ['corpora', 'coveredClaims', 'excludedClaims', 'corpusProvenance', 'assumptions', 'limitations', 'source']) {
+          if (!same(scope[key], expectedScope[key])) throw Error(`invalid evidenceScope.${key}`);
+        }
+        for (const c of scope.corpora) {
+          if (!nonempty(c.caseIds) || !unique(c.caseIds) || !same(c.caseIds, c.passedCaseIds) || !same(c.caseIds, c.matchedCaseIds)) throw Error('unexecuted, failed or unmatched corpus cases');
+          if (!array(scope.consumers).some(x => x.path === c.consumer && x.runtime === c.runtime)) throw Error('missing exact consumer/runtime');
+        }
+        for (const claim of array(r.claims)) {
+          if (!scope.coveredClaims.some(c => c.id === claim.id && same(c.evidence, claim.evidence))) throw Error('claim exceeds exact bounded evidenceScope');
+        }
+        // Structural-only reports may document consistency, never execution.
+        if (scope.kind === 'structural-only' && (scope.corpora.length || array(r.claims).length)) throw Error('structural evidence cannot claim execution');
+      } else {
+        if (doc.kind !== 'review-observations' || doc.unsigned !== true || !text(doc.reviewedBy) || !text(doc.reviewedAt)) throw Error('missing reviewed observations');
+        if (array(r.claims).length) throw Error('review observations cannot manufacture coveredClaims');
+        if (!nonempty(doc.observations)) throw Error('no direct observations');
+        for (const o of doc.observations) {
+          if (!text(o.id) || o.expected !== o.actual || o.result !== 'PASS' || !text(o.command) || !text(o.expected) || !text(o.actual) || !text(o.property)) throw Error('incomplete or failed observation');
+          const log = load(o.log);
+          for (const key of ['result', 'command', 'property', 'stage', 'expected', 'actual', ...(o.stage === 'deployment' ? ['replayDomain', 'topology'] : [])]) {
+            if (log[key] !== o[key]) throw Error('observation differs from recorded output');
+          }
+          if (!same(log.source, source) || !same(log.artifacts, expected)) throw Error('observation output source/artifact mismatch');
+        }
+        if (!unique(doc.observations.map(o => o.id))) throw Error('ambiguous observation IDs');
+      }
+      valid.set(r.id, { entry: r, doc, binding });
+    } catch (e) { fail(`RESULT-${i}-EVIDENCE`, e.message); }
+  }
+  // A reviewed observation supports only its exact predeclared property/stage.
+  // A conformance report supports only a selected registry evidence statement;
+  // it is not a substitute for a whole criterion or a later execution stage.
+  const supports = (refs, property, stages) => nonempty(refs) && refs.every(ref => {
+    const r = valid.get(ref.resultId);
+    const o = r?.doc.kind === 'review-observations' && r.doc.observations.find(o => o.id === ref.observationId);
+    return o && o.property === property && stages.includes(o.stage) &&
+      (o.stage !== 'deployment' || (text(o.replayDomain) && text(o.topology) && nonempty(r.binding.deploymentAssumptions)));
+  });
+  for (const c of criteria.criteria ?? []) {
+    const evals = array(candidate.criteriaEvaluations).filter(e => e.criterionId === c.id);
+    if (c.mandatory && (evals.length !== 1 || evals[0].state !== 'PASS' || !supports(evals[0].evidence, c.statement, array(c.evidenceStages)))) fail(c.id, 'mandatory criterion lacks successful, exact, stage-appropriate observations');
+  }
+  for (const f of array(candidate.findings)) {
+    if (f.state === 'FIXED_AND_RETESTED' && (!text(f.failureCondition) || !supports(f.evidence, f.failureCondition, [f.stage].filter(text)) || !array(f.evidence).every(ref => valid.get(ref.resultId)?.doc.observations?.find(o => o.id === ref.observationId)?.command === f.retestCommand))) fail(f.id, 'successful retest must exercise the original failure condition');
+  }
+  for (const c of criteria.blockerExitConditions ?? []) {
+    const claim = registry.claims.find(x => x.id === c.id);
+    const d = array(candidate.freezeDispositions).find(x => x.claimId === c.id);
+    if (!['specified', 'conditional'].includes(c.exitConditionState) || !text(c.exitCondition) || !array(c.sources).some(s => text(s.path) && text(s.section) && s.quote === c.exitCondition) || !acceptedDisposition(candidate, c.id) || !claim || claim.maintainerDecisionRequired !== false || !['specified', 'non-normative'].includes(claim.normativeState) || claim.evidenceState !== 'mapped' ||
+        d?.decision !== 'fixed-before-freeze' || !supports(d.evidence, c.exitCondition, c.evidenceStages)) {
+      blockers.push(blocker(c.id, 'claim', 'exit condition remains unresolved; disposition is not demonstrated closure', c.exitCondition ?? c.boundary));
+    }
+  }
+  for (const entry of array(candidate.conformanceAuthority?.releaseRelevantCorpora)) {
+    for (const runtime of array(entry.claimedRuntimes)) {
+      const executed = [...valid.values()].some(r => r.doc.evidenceScope?.kind === 'execution' && r.doc.evidenceScope.corpora.some(c => c.id === entry.id && c.runtime === runtime && c.matchedCaseIds.length));
+      if (!executed) fail(`CORPUS-${entry.id}-RUNTIME-${runtime}`, 'no exact executed and passed corpus/runtime evidence');
+    }
+  }
+  if (candidate.conformanceAuthority?.independentNormativeAuthority !== undefined && candidate.conformanceAuthority.independentNormativeAuthority !== false) fail('CORPUS-PROVENANCE', 'no independently-derived corpus authority demonstrated by the current audit');
+  if (criteria.criteria.some(c => c.id === 'CORP-003') && !supports(candidate.conformanceAuthority?.projectionEvidence,
+      criteria.criteria.find(c => c.id === 'CORP-003')?.statement, ['structural-review'])) fail('CORPUS-PROJECTION-EVIDENCE', 'projectionVerified alone is insufficient; exact projection check evidence required');
+  if (array(candidate.unresolvedAssumptions).length) fail('UNRESOLVED-ASSUMPTIONS', 'candidate has unresolved assumptions');
+  return { blockers, diagnostics, records, snapshot: capturedSnapshot ?? null };
+}
+
+export function verify(candidate, { registry, manifest, criteria, read = p => readFileSync(resolve(ROOT, p)) }) {
+  const evidence = resolveEvidence(candidate, { registry, manifest, criteria, read });
+  // Only registry-declared release claims and declared freeze exits enter this
+  // array. Never classify failures by ID prefixes: a diagnostic ID may collide
+  // with a declared claim without changing that claim's disposition.
+  const declared = [...resolveClaimBlockers(registry, candidate), ...evidence.blockers];
+  const order = (a, b) => `${a.id}:${a.class}:${a.reason}`.localeCompare(`${b.id}:${b.class}:${b.reason}`, 'en');
+  const blockers = [...new Set(declared.map(b => b.id))].sort().map(id => {
+    const entries = declared.filter(b => b.id === id).sort(order);
+    return { ...entries[0], reason: [...new Set(entries.map(b => b.reason))].join('; '), details: entries };
+  });
+  const diagnostics = [
+    ...resolveScopeDiagnostics(registry),
     ...resolveCorpusBlockers(candidate, manifest),
     ...resolveArtifactBlockers(candidate),
     ...resolveProvenanceBlockers(candidate),
     ...resolveFindingBlockers(candidate),
     ...resolveResidualBlockers(candidate),
     ...resolveCriterionBlockers(candidate, criteria),
-  ];
-  // Deterministic ordering: class, then id.
-  blockers.sort((a, b) => (a.class === b.class ? (a.id < b.id ? -1 : a.id > b.id ? 1 : 0) : a.class < b.class ? -1 : 1));
-  return { status: blockers.length === 0 ? 'PASS' : 'BLOCKED', blockers };
+    ...evidence.diagnostics,
+  ].sort(order);
+  return { status: blockers.length === 0 && diagnostics.length === 0 ? 'PASS' : 'BLOCKED', unsigned: true,
+    limitations: ['Unsigned local evidence, not an attestation or an assurance class.',
+      'Hashes establish byte identity, not truth or independent reproduction.',
+      'A reviewer must assess whether recorded observations directly exercise each exit condition.',
+      'Reference-generated expectations and cross-language agreement do not establish independent normative authority.',
+      'Consume and ALLOW do not prove execution; generic conformance does not prove deployment durability.'],
+    blockers, diagnostics, dispositions: array(candidate.freezeDispositions).map(d => ({ ...d,
+      status: blockers.some(b => b.id === d.claimId) ? (d.decision === 'deferred-with-rationale' && acceptedDisposition(candidate, d.claimId) ? 'reviewed-deferral-unresolved' : 'unresolved') : (criteria.blockerExitConditions?.some(c => c.id === d.claimId) ? 'demonstrated-closure' : 'reviewed-disposition') })),
+    gateInputs: { registry: digest(registry), manifest: digest(manifest), criteria: digest(criteria) },
+    declaredResults: candidate.results ?? [],
+    source: candidate.source ?? null, snapshot: { identity: candidate.snapshot ?? null, metadata: evidence.snapshot },
+    evidence: evidence.records, unresolvedAssumptions: candidate.unresolvedAssumptions ?? [],
+    deploymentAssumptions: candidate.deploymentAssumptions ?? [],
+  };
 }
 
 export function report(result) {
   const lines = [`S_FREEZE: ${result.status}`];
-  if (result.blockers.length) {
-    lines.push('', `BLOCKERS (${result.blockers.length}):`);
-    for (const b of result.blockers) lines.push(`- ${b.id}\n  class: ${b.class}\n  reason: ${b.reason}${b.evidence ? `\n  evidence: ${b.evidence}` : ''}`);
+  for (const [label, entries] of [['DECLARED BLOCKERS', result.blockers], ['BLOCKING DIAGNOSTICS', result.diagnostics]]) {
+    if (!entries.length) continue;
+    lines.push('', `${label} (${entries.length}):`);
+    for (const b of entries) lines.push(`- ${b.id}\n  class: ${b.class}\n  reason: ${b.reason}${b.evidence ? `\n  evidence: ${b.evidence}` : ''}`);
   }
   lines.push('', 'S_freeze is a reviewed-candidate gate, not a publication step.',
     'Structural traceability is not semantic proof. Verifier correctness is not non-bypassable deployment enforcement.',
-    'A PASS states that recorded evidence is internally sufficient and unresolved items are explicitly dispositioned — not that the protocol is conformant.');
+    'Either declared blockers or evidence diagnostics prevent PASS; diagnostics are not advisory.',
+    'Unsigned evidence; not an attestation. Reviewed deferrals remain unresolved and blocking.',
+    'PASS is bounded by the recorded evidence, assumptions and limitations; it is not protocol conformance.');
   return lines.join('\n');
 }
 
@@ -298,14 +499,16 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   try {
     const args = process.argv.slice(2);
     const at = (flag) => { const i = args.indexOf(flag); return i === -1 ? null : args[i + 1]; };
+    if (args.includes('--criteria')) throw Error('criteria override is not permitted for a freeze decision');
     const candidatePath = at('--candidate');
     if (!candidatePath) throw Error('usage: node scripts/s-freeze/verify.mjs --candidate <path> [--json]');
     const result = verify(JSON.parse(readFileSync(resolve(candidatePath), 'utf8')), {
       registry: load(at('--registry') ?? REGISTRY),
       manifest: load(at('--manifest') ?? CORPUS_MANIFEST),
-      criteria: load(at('--criteria') ?? CRITERIA),
+      criteria: load(CRITERIA),
+      read: p => readFileSync(resolve(dirname(resolve(candidatePath)), p)),
     });
-    console.log(args.includes('--json') ? JSON.stringify(result, null, 2) : report(result));
+    console.log(args.includes('--json') ? JSON.stringify(result, null, 2) : `${report(result)}\n${JSON.stringify({ unsigned: result.unsigned, diagnostics: result.diagnostics, gateInputs: result.gateInputs, declaredResults: result.declaredResults, source: result.source, snapshot: result.snapshot, evidence: result.evidence, dispositions: result.dispositions, unresolvedAssumptions: result.unresolvedAssumptions, deploymentAssumptions: result.deploymentAssumptions, limitations: result.limitations })}`);
     process.exitCode = result.status === 'PASS' ? 0 : 1;
   } catch (e) { console.error(`S_FREEZE: BLOCKED — ${e.message}`); process.exitCode = 1; }
 }
