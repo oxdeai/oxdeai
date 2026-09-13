@@ -72,9 +72,11 @@ Current limitation: this is a first adapter-boundary extraction. The packaged si
 * Runtime configuration files and environment variables
 * Service exposure (ports, TLS termination, network policy)
 * Image lifecycle (pull, tag, upgrade, rollback)
-* Mounted config volumes (`/etc/oxdeai/`, adapter config)
-* Platform adapter injection (Frappe tooling, Nextcloud tooling, etc.)
-* Replay backend provisioning (Redis, mounted persistence, etc.)
+* Runtime configuration and secret injection for the deployed PEP
+* Network and platform routing around the deployed PEP
+* Future mounted config volumes (`/etc/oxdeai/`) when that interface is implemented
+* Platform adapter deployment/injection as additional adapters are implemented
+* Replay backend provisioning (currently Redis; mounted persistence remains future work)
 * Network-level bypass prevention (ensuring callers cannot reach the target platform without passing through the PEP)
 
 ### OxDeAI owns
@@ -94,7 +96,7 @@ Current limitation: this is a first adapter-boundary extraction. The packaged si
 
 ### Generic OxDeAI PEP
 
-The long-term image is a generic OxDeAI PEP OCI artifact. It accepts platform-specific configuration through mounted files and environment variables. It does not embed platform-specific adapter code or credentials.
+The long-term target is a generic OxDeAI PEP OCI artifact. The current reference runtime accepts configuration through environment variables. Mounted runtime configuration is a planned interface and is not consumed by the current implementation. The image does not embed platform credentials or signing private keys.
 
 The current packaging target is:
 
@@ -143,7 +145,9 @@ The Frappe PoC image is not the required long-term image shape. It demonstrates:
 * fail-closed behavior on upstream errors
 * structured decision logging
 
-Future LGF deployments should use the generic PEP image with LGF-injected platform adapters, unless a Frappe-specific deployment is required.
+The current generic sidecar packages the Frappe-oriented reference runtime
+behind the `PlatformAdapter` boundary. Runtime adapter selection and additional
+LGF-injected platform adapters remain future work.
 
 ### Generic sidecar runtime behavior
 
@@ -182,118 +186,147 @@ Observed result from the pulled GHCR image:
 
 ## Runtime Configuration Contract
 
-The PEP is configured through environment variables and optional mounted config files.
+The current reference PEP is configured through environment variables.
 
-### Environment variables
+This section describes the configuration interface actually consumed by
+`src/config.ts`.
 
-| Variable | Type | Description |
-|----------|------|-------------|
-| `OXDEAI_MODE` | public | `enforce` or `observe` |
-| `OXDEAI_EXPECTED_AUDIENCE` | deployment-specific | Audience claim the PEP expects in AuthorizationV1 artifacts |
-| `OXDEAI_ISSUER` | deployment-specific | Issuer identity for AuthorizationV1 artifacts |
-| `OXDEAI_AUTHORIZATION_TTL_SECONDS` | public | TTL for issued authorizations (PoC default: `60`) |
-| `OXDEAI_REPLAY_STORE` | deployment-specific | Replay backend type: `memory`, `redis`, or `mounted` |
-| `OXDEAI_TRUSTED_KEYSETS_FILE` | deployment-specific | Path to mounted trusted keysets JSON |
-| `OXDEAI_POLICY_FILE` | deployment-specific | Path to mounted policy JSON |
-| `OXDEAI_ACTION_MAP_FILE` | deployment-specific | Path to mounted action map JSON |
-| `FRAPPE_BASE_URL` | deployment-specific | Frappe REST API base URL (Frappe PoC only) |
-| `FRAPPE_API_KEY` | **secret** | Frappe API key - runtime-injected only |
-| `FRAPPE_API_SECRET` | **secret** | Frappe API secret - runtime-injected only |
-| `SIGNING_PRIVATE_KEY_PEM` | **secret** | Ed25519 private key PEM - runtime-injected only |
-| `SIGNING_KID` | deployment-specific | Key identifier for the signing key |
-| `PORT` | public | HTTP listen port (default: `3000`) |
+Mounted trusted-keyset, policy, action-map, and runtime configuration files
+described later in this document are a **planned interface** and are **not
+currently loaded by the runtime**.
+
+### Environment variables implemented by the current runtime
+
+| Variable | Requirement | Description |
+|----------|-------------|-------------|
+| `OXDEAI_MODE` | required | `enforce` or `observe` |
+| `EXPECTED_AUDIENCE` | required | Audience required by AuthorizationV1 verification |
+| `FRAPPE_BASE_URL` | required by current Frappe runtime | Frappe REST API base URL; this requirement is adapter-specific, not a generic PEP protocol requirement |
+| `FRAPPE_API_KEY` | required in `enforce` | Frappe API key, runtime-injected |
+| `FRAPPE_API_SECRET` | required in `enforce` | Frappe API secret, runtime-injected |
+| `SIGNING_PRIVATE_KEY_PEM` | required | Ed25519 private key used to issue AuthorizationV1 artifacts |
+| `SIGNING_KID` | optional | Signing key identifier; default `lgf-frappe-pep-key-1` |
+| `ISSUER` | optional | Authorization issuer; default `oxdeai.lgf-frappe-pep` |
+| `AUTHORIZATION_TTL_SECONDS` | optional | Authorization TTL; default `60` |
+| `REPLAY_STORE` | optional | Replay backend: `memory` or `redis`; default `memory` |
+| `REDIS_URL` | required when `REPLAY_STORE=redis` | Redis connection URL |
+| `REPLAY_KEY_PREFIX` | optional | Redis replay-key prefix; default `oxdeai:pep:replay` |
+| `REPLAY_TTL_SKEW_SECONDS` | optional | Additional replay TTL skew; default `60` |
+| `PORT` | optional | HTTP listener port; default `3000` |
+
+The current runtime supports only:
+
+```text
+REPLAY_STORE=memory
+REPLAY_STORE=redis
+````
+
+A `mounted` replay backend is not implemented.
+
+### Current trust-configuration provenance
+
+The reference PEP does not currently load trusted keysets, policy definitions,
+or action maps from mounted files.
+
+For the current implementation:
+
+* the Ed25519 public key used for AuthorizationV1 verification is derived from
+  the runtime-injected `SIGNING_PRIVATE_KEY_PEM`;
+* the trusted keyset passed to `verifyAuthorization()` is constructed by the
+  PEP from that derived public key, `ISSUER`, and `SIGNING_KID`;
+* the trusted authorization-authority pair is constructed from the configured
+  issuer and the locally defined `POLICY_ID`;
+* `POLICY_ID` comes from the current policy implementation;
+* the expected audience comes from `EXPECTED_AUDIENCE`;
+* replay configuration comes from `REPLAY_STORE` and the associated Redis
+  settings when Redis is selected.
+
+A valid signature and an allowed `(issuer, policy_id)` authority pair are
+separate requirements in the current execution path.
 
 ### Configuration categories
 
-* **Public config**: safe to document and commit as defaults. Examples: `OXDEAI_MODE`, `OXDEAI_AUTHORIZATION_TTL_SECONDS`, `PORT`.
-* **Deployment-specific config**: varies per LGF bench or target platform. Examples: `OXDEAI_EXPECTED_AUDIENCE`, `FRAPPE_BASE_URL`, `SIGNING_KID`.
-* **Secrets**: must be injected at runtime only. Must never appear in images, repos, logs, or documentation. Examples: `FRAPPE_API_KEY`, `FRAPPE_API_SECRET`, `SIGNING_PRIVATE_KEY_PEM`.
-* **PoC defaults**: values used during validation but not necessarily appropriate for production. Examples: `OXDEAI_REPLAY_STORE=memory`, `OXDEAI_AUTHORIZATION_TTL_SECONDS=60`.
-* **Production-required settings**: values that must be explicitly set for production deployment. Examples: `OXDEAI_MODE=enforce`, a non-memory replay store, a trusted keyset file with rotatable keys.
+* **Required PEP runtime configuration**:
+  `OXDEAI_MODE`, `EXPECTED_AUDIENCE`, `SIGNING_PRIVATE_KEY_PEM`.
+* **Current Frappe adapter configuration**:
+  `FRAPPE_BASE_URL`.
+* **Enforce-mode platform secrets**:
+  `FRAPPE_API_KEY`, `FRAPPE_API_SECRET`.
+* **Optional deployment configuration**:
+  `ISSUER`, `SIGNING_KID`, `AUTHORIZATION_TTL_SECONDS`, `PORT`.
+* **Replay configuration**:
+  `REPLAY_STORE`, `REDIS_URL`, `REPLAY_KEY_PREFIX`,
+  `REPLAY_TTL_SKEW_SECONDS`.
+* **Planned configuration interfaces**:
+  mounted trusted-keyset, policy, action-map, and runtime files.
 
-### Example env file shape (placeholders only)
+Secrets must be injected at runtime and must not be baked into images or
+written to logs.
+
+### Example current runtime configuration
 
 ```env
 OXDEAI_MODE=enforce
-OXDEAI_EXPECTED_AUDIENCE=PEP-frappe.lgf.oxdeai.dev
-OXDEAI_ISSUER=oxdeai.lgf-frappe-pep
-OXDEAI_AUTHORIZATION_TTL_SECONDS=60
-OXDEAI_REPLAY_STORE=memory
-OXDEAI_TRUSTED_KEYSETS_FILE=/etc/oxdeai/trusted-keysets.json
-OXDEAI_POLICY_FILE=/etc/oxdeai/policy.json
-OXDEAI_ACTION_MAP_FILE=/etc/oxdeai/action-map.json
+EXPECTED_AUDIENCE=PEP-frappe.lgf.oxdeai.dev
+
+ISSUER=oxdeai.lgf-frappe-pep
+AUTHORIZATION_TTL_SECONDS=60
+SIGNING_KID=lgf-frappe-pep-key-1
+
+REPLAY_STORE=memory
+
 FRAPPE_BASE_URL=<frappe-base-url>
 FRAPPE_API_KEY=<runtime-injected-secret>
 FRAPPE_API_SECRET=<runtime-injected-secret>
+
 SIGNING_PRIVATE_KEY_PEM=<runtime-injected-secret>
-SIGNING_KID=<signing-key-id>
+
+PORT=3000
 ```
 
-## Mounted Runtime Config
+For Redis-backed replay:
 
-The generic PEP reads platform-agnostic config from mounted files. LGF mounts these at deployment time.
+```env
+REPLAY_STORE=redis
+REDIS_URL=redis://<redis-host>:6379
+REPLAY_KEY_PREFIX=oxdeai:pep:replay
+REPLAY_TTL_SKEW_SECONDS=60
+```
+
+## Planned Mounted Runtime Config — Not Yet Implemented
+
+The following mounted-file model describes a possible future generic PEP
+configuration interface.
+
+**The current reference runtime does not read these files and does not honor
+environment variables pointing to them.**
+
+They must therefore not be treated as active trust inputs or deployment
+controls for the current reference PEP.
+
+A future implementation may introduce a layout such as:
 
 ```text
 /etc/oxdeai/
-  trusted-keysets.json    # Ed25519 public keys for AuthorizationV1 verification
-  policy.json             # Action-level policy rules (ALLOW / DENY conditions)
-  action-map.json         # Maps protected actions to platform adapter endpoints
-  runtime.json            # Optional runtime overrides (TTL, replay config, etc.)
+  trusted-keysets.json
+  policy.json
+  action-map.json
+  runtime.json
 ```
 
-### trusted-keysets.json
+Possible responsibilities would include:
 
-Contains one or more KeySet objects. Each KeySet identifies an issuer and its public keys:
+* `trusted-keysets.json` — externally managed Ed25519 verification keys;
+* `policy.json` — externally managed action policy;
+* `action-map.json` — mapping protected actions to selected platform adapters;
+* `runtime.json` — optional runtime settings.
 
-```json
-[
-  {
-    "issuer": "oxdeai.lgf-frappe-pep",
-    "version": "1",
-    "keys": [
-      {
-        "kid": "lgf-frappe-pep-key-1",
-        "alg": "Ed25519",
-        "public_key": "<PEM-encoded-ed25519-public-key>",
-        "status": "active"
-      }
-    ]
-  }
-]
-```
+The exact schemas, precedence rules, validation behavior, and trust semantics
+for these files are not part of the current executable contract and must not be
+inferred from this reference documentation.
 
-### policy.json
-
-Defines which actions are allowed or denied by policy:
-
-```json
-{
-  "name": "lgf-frappe-helpdesk-poc-v1",
-  "protected_action": "frappe.helpdesk.create_ticket",
-  "rules": [
-    { "field": "priority", "value": "Low", "decision": "ALLOW" },
-    { "field": "priority", "value": "Medium", "decision": "ALLOW" },
-    { "field": "priority", "value": "Urgent", "decision": "DENY" }
-  ],
-  "default": "DENY"
-}
-```
-
-### action-map.json
-
-Maps protected action names to platform adapter endpoints:
-
-```json
-{
-  "frappe.helpdesk.create_ticket": {
-    "adapter": "frappe-rest",
-    "endpoint": "/api/resource/HD%20Ticket",
-    "method": "POST"
-  }
-}
-```
-
-These files contain no secrets. They can be version-controlled in LGF deployment repos.
+The current executable source of truth remains `src/config.ts` together with
+the current policy and authorization implementation.
 
 ## Replay Persistence
 
