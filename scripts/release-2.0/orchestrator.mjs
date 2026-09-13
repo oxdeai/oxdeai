@@ -771,10 +771,10 @@ export function buildPromotionPlan(manifest, state) {
 
 // Injected synchronous transport only. observeDistTag must independently read
 // registry state and return { tag, version }; apply results are not evidence.
-// TODO: A real promotion transport MUST NOT be wired until partial dist-tag
-// application/retry semantics are defined and registry-observed idempotence
-// is demonstrated. Some tags may have changed when a later application fails
-// while local state remains READY_TO_PROMOTE; recovery is deferred.
+// partialDistTagRecovery: "registry-observed-idempotent-retry" declares that
+// after partial application, retrying the same plan observes current tags and
+// safely reapplies entries as needed to converge on the exact target versions.
+// This is a required transport contract, not proof of its implementation.
 export function promote({ manifest, state, releaseDir, promotionTransport }) {
   validateState(manifest, state);
   assertPhase(state, "READY_TO_PROMOTE");
@@ -782,6 +782,12 @@ export function promote({ manifest, state, releaseDir, promotionTransport }) {
   if (!promotionTransport || typeof promotionTransport.applyDistTag !== "function" ||
       typeof promotionTransport.observeDistTag !== "function") {
     throw new ReleaseOrchestratorError("promote requires an injected promotionTransport");
+  }
+  if (promotionTransport.partialDistTagRecovery !== "registry-observed-idempotent-retry") {
+    throw new ReleaseOrchestratorError(
+      'promotionTransport must declare partialDistTagRecovery="registry-observed-idempotent-retry"; ' +
+      'partial dist-tag recovery/resume semantics are otherwise undefined'
+    );
   }
   for (const entry of plan) promotionTransport.applyDistTag(entry);
   for (const p of manifest.packages) {
@@ -842,7 +848,8 @@ async function main() {
     reportLocalPrecheck();
     const sourceRevision = currentSourceRevision();
     const { manifest } = pack({ discovered, releaseDir: releaseDirArg, sourceRevision });
-    console.log(`PACK: PASS — ${manifest.packages.length} package(s) recorded in ${releaseDirArg}/${MANIFEST_FILENAME}`);
+    console.log(`PACK (local): PASS — ${manifest.packages.length} package(s) recorded in ${releaseDirArg}/${MANIFEST_FILENAME}`);
+    console.log("Registry auth/rights/public-scope checks: NOT RUN");
     return;
   }
 
