@@ -34,7 +34,7 @@
 // list.
 
 import { createHash } from "node:crypto";
-import { observeRegistryPrecheck } from "./auth-precheck.mjs";
+import { observeRegistryPrecheck, RELEASE_REGISTRY_REQUIREMENTS } from "./auth-precheck.mjs";
 import { spawnSync } from "node:child_process";
 import {
   existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync,
@@ -302,6 +302,159 @@ export function precheck({ discovered, policy = POLICY, gitTransport, authTransp
     throw new ReleaseOrchestratorError(`PRECHECK failed:\n  - ${blockers.join("\n  - ")}`, { blockers });
   }
   return { ok: true, discovered, ...(registryObservations ? { registryObservations } : {}) };
+}
+
+// ── Step 4: explicit, pure readiness evaluation ────────────────────────────
+// READY_FOR_PUBLISH is derived evidence for the next planning step, not a new
+// persisted phase, authorization, or execution. VERIFIED_LOCAL remains the
+// existing state-machine prerequisite. No transport or filesystem is consulted.
+// authPrecheck is the already-produced { observations, blockers } result of
+// observeRegistryPrecheck(), NOT an authTransport. Raw npm errors are irrelevant.
+// Receipt/manifest consistency is checked; artifacts are not rebuilt/reverified.
+// Existing receipts do not establish freshness, authenticity, or an independent
+// source-to-bytes proof. This evaluator does not invent such evidence.
+/**
+ * @typedef {{code: string, detail: string, package?: string}} ReadinessFailure
+ * @typedef {{kind: "ready", state: "READY_FOR_PUBLISH", evidence: object} |
+ * {kind: "not-ready", reasons: ReadinessFailure[]}} ReleaseReadiness
+ */
+/** @returns {ReleaseReadiness} */
+export function evaluateReleaseReadiness(inputs = {}) {
+  if (inputs === null || typeof inputs !== "object" || Array.isArray(inputs)) {
+    return { kind: "not-ready", reasons: [{ code: "POLICY_RELEASE_STATE_MISMATCH", detail: "evidence inputs must be an object" }] };
+  }
+  const { policy = POLICY, localPrecheck, manifest, state, authPrecheck } = inputs;
+  const reasons = [];
+  const reject = (code, detail, pkg) => reasons.push({ code, detail, ...(pkg ? { package: pkg } : {}) });
+  const object = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
+  const sameSet = (names, expected) => Array.isArray(names) && names.length === expected.length &&
+    new Set(names).size === names.length && names.every((name) => expected.includes(name));
+  const unresolved = (v) => Object.hasOwn(v, "blockers") && (!Array.isArray(v.blockers) || v.blockers.length !== 0);
+
+  if (!object(localPrecheck) || localPrecheck.ok !== true || unresolved(localPrecheck)) {
+    reject("LOCAL_PRECHECK_NOT_PASSED", "a successful local precheck receipt is required");
+  }
+  try {
+    if (!object(policy) || Object.keys(policy).length === 0) throw new Error();
+    assertReleaseMetadataConsistency(policy);
+  } catch {
+    reject("POLICY_RELEASE_STATE_MISMATCH", "invalid release POLICY");
+    return { kind: "not-ready", reasons };
+  }
+  const names = Object.keys(policy).sort(); // Stable evidence ordering, not an execution plan.
+  const candidates = localPrecheck?.discovered;
+  if (!Array.isArray(candidates) || !sameSet(candidates.map((p) => p?.name), names) ||
+      candidates.some((p) => p.manifest?.version !== policy[p.name].version)) {
+    reject("POLICY_RELEASE_STATE_MISMATCH", "local precheck package set/versions differ from POLICY");
+  }
+  if (!object(manifest) || manifest.manifestVersion !== MANIFEST_VERSION ||
+      !/^[0-9a-f]{40}$/.test(manifest.releaseId ?? "") || manifest.releaseId !== manifest.sourceRevision ||
+      !Array.isArray(manifest.packages)) {
+    reject("PACKED_ARTIFACTS_NOT_VERIFIED", "valid manifest identity and package records are required");
+    return { kind: "not-ready", reasons };
+  }
+  if (!sameSet(manifest.packages.map((p) => p?.package), names)) {
+    reject("POLICY_RELEASE_STATE_MISMATCH", "manifest package set differs from POLICY");
+  }
+  for (const p of manifest.packages) {
+    const expected = policy[p?.package];
+    if (!expected || p.version !== expected.version || p.releaseLine !== expected.releaseLine || p.publishOrder !== expected.publishOrder) {
+      reject("POLICY_RELEASE_STATE_MISMATCH", "manifest release metadata differs from POLICY", p?.package);
+    }
+    if (!object(p) || typeof p.tarball !== "string" || !p.tarball ||
+        typeof p.integrity !== "string" || !/^sha512-[A-Za-z0-9+/]{86}==$/.test(p.integrity)) {
+      reject("PACKED_ARTIFACTS_NOT_VERIFIED", "missing or malformed recorded artifact identity", p?.package);
+    }
+  }
+  try {
+    if (manifest.manifestIntegrity !== computeManifestIntegrity(manifest)) throw new Error();
+  } catch {
+    reject("PACKED_ARTIFACTS_NOT_VERIFIED", "manifest digest does not bind the supplied manifest records");
+  }
+  try {
+    validateState(manifest, state);
+    if (state.phase !== "VERIFIED_LOCAL" || Object.values(state.packages).some((p) => p.publishStatus !== "pending") ||
+        Object.hasOwn(state, "blocker")) {
+      reject("PUBLICATION_PLANNING_STATE_INVALID", "publication planning requires VERIFIED_LOCAL with pending packages and no blocker");
+    }
+    if (state.history.at(-1)?.phase !== "VERIFIED_LOCAL") {
+      reject("PACKED_ARTIFACTS_NOT_VERIFIED", "local artifact verification is not recorded in current state history");
+    }
+  } catch {
+    reject("POLICY_RELEASE_STATE_MISMATCH", "state structure or release identity does not match the manifest");
+    reject("PACKED_ARTIFACTS_NOT_VERIFIED", "valid local verification state is required");
+  }
+
+  if (!object(authPrecheck) || !Array.isArray(authPrecheck.blockers) || authPrecheck.blockers.length !== 0 ||
+      (Object.hasOwn(authPrecheck, "ok") && authPrecheck.ok !== true)) {
+    reject("AUTH_PRECHECK_NOT_PASSED", "auth precheck has missing, malformed, or unresolved blockers");
+  }
+  const observations = authPrecheck?.observations;
+  const requirements = RELEASE_REGISTRY_REQUIREMENTS;
+  const normalizedFailures = ["AUTH_UNAUTHENTICATED", "REGISTRY_UNAVAILABLE", "REGISTRY_ACCESS_INSUFFICIENT", "REGISTRY_STATE_UNDETERMINED"];
+  const usable = (observation, label, pkg) => {
+    if (!object(observation) || observation.registry !== requirements.registry) {
+      reject(label === "identity" ? "AUTH_IDENTITY_NOT_ESTABLISHED" : "REGISTRY_STATE_UNDETERMINED",
+        `${label}: missing observation or unexpected registry`, pkg);
+      return false;
+    }
+    if (observation.kind === "unknown") {
+      const code = normalizedFailures.includes(observation.reason?.code) ? observation.reason.code : "REGISTRY_STATE_UNDETERMINED";
+      reject(code, `${label}: unknown observation`, pkg);
+      return false;
+    }
+    return true;
+  };
+  const identity = observations?.identity;
+  const identityUsable = usable(identity, "identity");
+  if (identityUsable && (identity.kind !== "identity" || typeof identity.username !== "string" || !/^[a-z0-9][a-z0-9._-]*$/.test(identity.username))) {
+    reject("AUTH_IDENTITY_NOT_ESTABLISHED", "normalized npm identity not established");
+  }
+  const access = observations?.access;
+  let accessUsable = usable(access, "access");
+  if (accessUsable && (access.kind !== "access" || !identityUsable || access.subject !== identity.username || !object(access.packages) ||
+      Object.values(access.packages).some((right) => !["read-only", "read-write"].includes(right)))) {
+    reject("REGISTRY_STATE_UNDETERMINED", "malformed or mismatched normalized access observation");
+    accessUsable = false;
+  }
+  const statuses = observations?.packages;
+  if (!Array.isArray(statuses) || !sameSet(statuses.map((p) => p?.packageName), names)) {
+    reject("REGISTRY_STATE_UNDETERMINED", "required package observations must form an exact set, without duplicates");
+  }
+  for (const name of names) {
+    const status = Array.isArray(statuses) ? statuses.find((p) => p?.packageName === name) : undefined;
+    if (!usable(status, "package status", name)) continue;
+    switch (status.kind) {
+      case "missing":
+        reject("PACKAGE_CREATION_AUTHORITY_NOT_ESTABLISHED", "missing package has no positive creation-authority evidence or current visibility", name);
+        if (Object.hasOwn(status, "visibility")) reject("REGISTRY_STATE_UNDETERMINED", "missing package cannot have current visibility", name);
+        break;
+      case "existing":
+        if (!["public", "private"].includes(status.visibility)) {
+          reject("REGISTRY_STATE_UNDETERMINED", "unsupported current visibility", name);
+        } else if (status.visibility !== requirements.existingPackageVisibility) {
+          reject("PACKAGE_VISIBILITY_MISMATCH", "existing package does not have the required current public visibility", name);
+        }
+        if (accessUsable) {
+          if (!Object.hasOwn(access.packages, name)) reject("REGISTRY_STATE_UNDETERMINED", "package access not positively observed", name);
+          else if (access.packages[name] !== requirements.requiredRegistryAccess) {
+            reject("REGISTRY_ACCESS_INSUFFICIENT", "observed read-only access does not satisfy required read-write", name);
+          }
+        }
+        break;
+      default:
+        reject("REGISTRY_STATE_UNDETERMINED", "unsupported normalized package state", name);
+    }
+  }
+  if (reasons.length) return { kind: "not-ready", reasons };
+  return {
+    kind: "ready", state: "READY_FOR_PUBLISH",
+    evidence: structuredClone({
+      requirements, registry: identity.registry, username: identity.username,
+      localPrecheck, authPrecheck, manifest, releaseState: state,
+      packagesEvaluated: names,
+    }),
+  };
 }
 
 // determinismProbe is diagnostic only and never authorizes reconstruction.
