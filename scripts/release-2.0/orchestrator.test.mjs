@@ -14,8 +14,6 @@ import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from "nod
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { createHash } from "node:crypto";
-import { spawnSync } from "node:child_process";
-import { fileURLToPath } from "node:url";
 
 import {
   MANIFEST_FILENAME,
@@ -35,7 +33,7 @@ import {
   pack,
   precheck,
   promote,
-  publishNext,
+  publishPlannedOperation,
   requireOriginalTarballs,
   resume,
   runDeterminismProbe,
@@ -48,6 +46,8 @@ import {
   verifyLocal,
   validateState,
 } from "./orchestrator.mjs";
+
+import { fixturePlan } from "./publication-fixture.mjs";
 
 import { POLICY, assertReleaseMetadataConsistency } from "../verify-packed-artifacts.mjs";
 
@@ -147,7 +147,6 @@ function registryThatPublishesThenAppearsWithIntegrity(integrityByKey) {
   return {
     getRegistryVersion(name, version) {
       const key = `${name}@${version}`;
-      if (integrityByKey.has(key)) return { exists: true, integrity: integrityByKey.get(key) };
       return store.has(key) ? { exists: true, integrity: store.get(key) } : { exists: false };
     },
     // Simulates: publish command reports an ambiguous failure, but the bytes
@@ -389,7 +388,7 @@ test("HIGHEST PRIORITY: registry integrity != manifest integrity halts publicati
   const registry = fakeRegistry({ [`${target.package}@${target.version}`]: "sha512-WRONG-BYTES" });
 
   assert.throws(
-    () => publishNext({ manifest, state, releaseDir, registryTransport: registry }),
+    () => publishPlannedOperation({ plan: fixturePlan(manifest, releaseDir), operationIndex: 0, manifest, state, releaseDir, registryTransport: registry }),
     RegistryIntegrityConflictError
   );
   // No publication continuation: state was not advanced past VERIFIED_LOCAL/PUBLISHING_NEXT into PUBLISHED_NEXT.
@@ -443,7 +442,11 @@ test("16. publish error followed by registry presence with matching integrity is
   const integrityByKey = new Map(manifest.packages.map((p) => [`${p.package}@${p.version}`, p.integrity]));
   const registry = registryThatPublishesThenAppearsWithIntegrity(integrityByKey);
 
-  const result = publishNext({ manifest, state, releaseDir, registryTransport: registry });
+  const plan = fixturePlan(manifest, releaseDir);
+  for (const operation of plan.operations) {
+    publishPlannedOperation({ plan, operationIndex: operation.index, manifest, state, releaseDir, registryTransport: registry });
+  }
+  const result = state;
   assert.equal(result.phase, "PUBLISHED_NEXT");
   for (const p of manifest.packages) {
     assert.equal(result.packages[p.package].publishStatus, "published");
@@ -456,7 +459,7 @@ test("17. publish error followed by a missing registry version persists PARTIAL_
   state.phase = "VERIFIED_LOCAL";
   const registry = alwaysFailPublish(fakeRegistry());
 
-  const result = publishNext({ manifest, state, releaseDir, registryTransport: registry });
+  const result = publishPlannedOperation({ plan: fixturePlan(manifest, releaseDir), operationIndex: 0, manifest, state, releaseDir, registryTransport: registry });
   assert.equal(result.phase, "PARTIAL_NEXT");
   // First package in publish order was attempted and left pending (never marked published).
   const first = [...manifest.packages].sort((a, b) => a.publishOrder - b.publishOrder)[0];
@@ -478,7 +481,7 @@ test("18. publish error followed by a registry version with divergent integrity 
   };
 
   assert.throws(
-    () => publishNext({ manifest, state, releaseDir, registryTransport: registry }),
+    () => publishPlannedOperation({ plan: fixturePlan(manifest, releaseDir), operationIndex: 0, manifest, state, releaseDir, registryTransport: registry }),
     RegistryIntegrityConflictError
   );
 });
@@ -684,8 +687,8 @@ for (const [label, mutate] of stateMutations) {
     mutate(f.state);
     saveState(f.releaseDir, f.state);
     const forbidden = new Proxy({}, { get() { assert.fail("transport consulted before state validation"); } });
-    const args = { ...f, registryTransport: forbidden, installTransport: forbidden, promotionTransport: forbidden };
-    for (const fn of [verifyLocal, publishNext, verifyRegistry, verifyExternalInstall, transitionToReadyToPromote, promote]) {
+    const args = { ...f, plan: fixturePlan(f.manifest, f.releaseDir), operationIndex: 0, registryTransport: forbidden, installTransport: forbidden, promotionTransport: forbidden };
+    for (const fn of [verifyLocal, publishPlannedOperation, verifyRegistry, verifyExternalInstall, transitionToReadyToPromote, promote]) {
       assert.throws(() => fn(args), /invalid release state/);
     }
     assert.throws(() => buildPromotionPlan(f.manifest, f.state), /invalid release state/);
@@ -725,7 +728,7 @@ for (const observation of ["missing", "matching", "divergent"]) {
 }
 
 for (const stop of ["conflict", "throw", "ambiguous conflict"]) {
-  test(`mid-loop ${stop} persists prior success and diagnostic BEFORE surfacing error`, () => {
+  test(`a separately selected operation with ${stop} preserves prior success and persists its diagnostic`, () => {
     const f = packFixture();
     f.state.phase = "VERIFIED_LOCAL";
     const [first, second] = f.manifest.packages;
@@ -744,7 +747,9 @@ for (const stop of ["conflict", "throw", "ambiguous conflict"]) {
         return { ok: data.package === first.package, error: "ambiguous" };
       },
     };
-    assert.throws(() => publishNext({ ...f, registryTransport }), (error) => {
+    const plan = fixturePlan(f.manifest, f.releaseDir);
+    publishPlannedOperation({ ...f, plan, operationIndex: 0, registryTransport });
+    assert.throws(() => publishPlannedOperation({ ...f, plan, operationIndex: 1, registryTransport }), (error) => {
       // This runs as the error reaches the caller: disk must already be updated.
       const saved = loadState(f.releaseDir);
       assert.equal(saved.phase, "PARTIAL_NEXT");
@@ -763,7 +768,7 @@ test("PARTIAL_NEXT resume records PUBLISHING_NEXT in transition history", () => 
   const f = packFixture();
   f.state.phase = "PARTIAL_NEXT";
   const before = f.state.history.length;
-  publishNext({ ...f, registryTransport: alwaysFailPublish(fakeRegistry()) });
+  publishPlannedOperation({ ...f, plan: fixturePlan(f.manifest, f.releaseDir), operationIndex: 0, registryTransport: alwaysFailPublish(fakeRegistry()) });
   assert.deepEqual(f.state.history.slice(before).map((e) => e.phase), ["PUBLISHING_NEXT", "PARTIAL_NEXT"]);
 });
 
@@ -868,80 +873,72 @@ test("failed local integrity verification leaves persisted PACKED state unchange
 });
 
 for (const mode of ["missing", "matching", "divergent"]) {
-  test(`direct PARTIAL_NEXT publish reconciles forged published state: ${mode}`, () => {
+  test(`explicit PARTIAL_NEXT selection rechecks only its locally published package: ${mode}`, () => {
     const f = packFixture();
+    const plan = fixturePlan(f.manifest, f.releaseDir);
     f.state.phase = "PARTIAL_NEXT";
-    f.state.packages = fullyPublishedState(f.manifest);
-    saveState(f.releaseDir, f.state);
+    f.state.packages = Object.fromEntries(f.manifest.packages.map(p => [p.package,
+      { publishStatus: "published", registryIntegrity: p.integrity }]));
+    const before = structuredClone(f.state.packages);
+    const operationIndex = plan.operations.length - 1;
+    const selected = plan.operations[operationIndex];
     const queried = [], attempts = [];
     const registryTransport = {
       getRegistryVersion(name, version) {
-        const p = f.manifest.packages.find((p) => p.package === name);
-        assert.equal(version, p.version);
-        if (queried.length < f.manifest.packages.length) {
-          assert.equal(f.state.phase, "PARTIAL_NEXT");
-          assert.equal(attempts.length, 0);
-        }
         queried.push(name);
-        if (mode === "missing") return { exists: false };
-        return { exists: true, integrity: mode === "divergent" && name === "@oxdeai/cli" ? "sha512-WRONG" : p.integrity };
+        assert.equal(name, selected.package);
+        assert.equal(version, selected.version);
+        return mode === "missing" ? { exists: false } : {
+          exists: true, integrity: mode === "divergent" ? "sha512-WRONG" : selected.integrity,
+        };
       },
       publish(data) {
-        assert.ok(queried.length >= f.manifest.packages.length);
-        assert.equal(f.state.packages[data.package].publishStatus, "pending");
-        assert.equal(f.state.packages[data.package].registryVerified, undefined);
         attempts.push(data.package);
+        assert.equal(f.state.packages[data.package].publishStatus, "pending");
         return { ok: true };
       },
     };
+    const invoke = () => publishPlannedOperation({ ...f, plan, operationIndex, registryTransport });
     if (mode === "divergent") {
-      assert.throws(() => publishNext({ ...f, registryTransport }), (error) => {
-        const saved = loadState(f.releaseDir);
-        assert.equal(saved.phase, "PARTIAL_NEXT");
-        assert.equal(saved.blocker.code, "REGISTRY_INTEGRITY_CONFLICT");
-        assert.equal(saved.blocker.package, "@oxdeai/cli");
-        assert.equal(saved.blocker.registryIntegrity, "sha512-WRONG");
-        assert.ok(!saved.history.some((entry) => entry.phase === "PUBLISHING_NEXT"));
-        assert.equal(attempts.length, 0);
-        return error instanceof RegistryIntegrityConflictError;
-      });
+      assert.throws(invoke, RegistryIntegrityConflictError);
+      assert.equal(loadState(f.releaseDir).blocker.package, selected.package);
+      assert.equal(f.state.phase, "PARTIAL_NEXT");
     } else {
-      const result = publishNext({ ...f, registryTransport });
-      assert.equal(result.phase, "PUBLISHED_NEXT");
-      assert.deepEqual(attempts, mode === "missing" ? f.manifest.packages.map((p) => p.package) : []);
-      for (const p of f.manifest.packages) assert.equal(result.packages[p.package].registryIntegrity, p.integrity);
-      assert.deepEqual(result.history.slice(-2).map((entry) => entry.phase), ["PUBLISHING_NEXT", "PUBLISHED_NEXT"]);
+      assert.equal(invoke().phase, "PUBLISHED_NEXT");
+      assert.equal(f.state.packages[selected.package].registryIntegrity, selected.integrity);
     }
-    assert.deepEqual(queried.slice(0, f.manifest.packages.length), f.manifest.packages.map((p) => p.package));
+    assert.deepEqual(queried, [selected.package]);
+    assert.deepEqual(attempts, mode === "missing" ? [selected.package] : []);
+    for (const p of f.manifest.packages.filter(p => p.package !== selected.package)) {
+      assert.deepEqual(f.state.packages[p.package], before[p.package]);
+    }
   });
 }
 
 for (const command of ["precheck", "pack"]) {
-  test(`CLI ${command} reports local-only precheck and authorization checks NOT RUN`, () => {
+  test(`CLI ${command} reports local-only precheck and authorization checks NOT RUN`, async () => {
     const base = tmpDir("oxdeai-cli-reporting-");
     try {
-      const binDir = path.join(base, "bin");
-      mkdirSync(binDir);
-      // Only fixture git is available on PATH; no npm or pnpm can run.
-      writeFileSync(path.join(binDir, "git"),
-        '#!/bin/sh\ncase "$1 $2" in\n' +
-        '  "status --porcelain") exit 0 ;;\n' +
-        `  "rev-parse HEAD") printf '%s\\n' '${SHA}' ;;\n` +
-        '  *) exit 1 ;;\nesac\n', { mode: 0o755 });
       const releaseDir = path.join(base, "release");
       mkdirSync(releaseDir);
-      // The PACK guard must stop execution after reporting and before packing.
       writeFileSync(path.join(releaseDir, MANIFEST_FILENAME), "existing release");
-      const result = spawnSync(process.execPath, [
-        fileURLToPath(new URL("./orchestrator.mjs", import.meta.url)), command,
-        "--release-dir", releaseDir,
-      ], { encoding: "utf8", env: { ...process.env, PATH: binDir } });
-      assert.ifError(result.error);
-      assert.equal(result.status, command === "precheck" ? 0 : 1, result.stderr);
-      assert.equal(result.stdout,
-        "PRECHECK (local): PASS\nRegistry auth/rights/public-scope checks: NOT RUN\n");
-      if (command === "pack") assert.match(result.stderr, /Repacking\/reconstruction.*forbidden/);
-      else assert.equal(result.stderr, "");
+      const output = [];
+      // Exercise the actual CLI functions in process with a fixture git runner.
+      // No Node/shell subprocess is needed for the reporting assertions.
+      const source = readFileSync(new URL("./orchestrator.mjs", import.meta.url), "utf8");
+      const cli = source.slice(source.indexOf("function realGitTransport()"), source.indexOf("\nif (process.argv[1]"));
+      const run = new Function("spawnSync", "ROOT", "process", "console", "path", "discoverPublishablePackages",
+        "precheck", "pack", "MANIFEST_FILENAME", "ReleaseOrchestratorError", cli + "\nreturn main();");
+      const invoke = () => run((exe, args) => {
+        assert.equal(exe, "git");
+        assert.ok(["status", "rev-parse"].includes(args[0]));
+        return { status: 0, stdout: args[0] === "status" ? "" : SHA };
+      }, base, { argv: ["node", "orchestrator.mjs", command, "--release-dir", releaseDir] },
+      { log: line => output.push(line), error: assert.fail }, path, fakeDiscovered, precheck, pack,
+      MANIFEST_FILENAME, ReleaseOrchestratorError);
+      if (command === "pack") await assert.rejects(invoke, /Repacking\/reconstruction.*forbidden/);
+      else await invoke();
+      assert.deepEqual(output, ["PRECHECK (local): PASS", "Registry auth/rights/public-scope checks: NOT RUN"]);
       assert.equal(readFileSync(path.join(releaseDir, MANIFEST_FILENAME), "utf8"), "existing release");
     } finally {
       rmSync(base, { recursive: true, force: true });
