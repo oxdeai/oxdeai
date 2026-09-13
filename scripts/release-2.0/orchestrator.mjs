@@ -34,6 +34,7 @@
 // list.
 
 import { createHash } from "node:crypto";
+import { observeRegistryPrecheck } from "./auth-precheck.mjs";
 import { spawnSync } from "node:child_process";
 import {
   existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync,
@@ -251,8 +252,11 @@ export function validatePublishOrder(discovered, policy = POLICY) {
 // never requires live credentials for this task.
 //
 //   gitTransport.isClean(): boolean
-//   authTransport (optional): { whoami(): boolean, canPublish(pkg): boolean,
-//                                scopeIsPublic(scope): boolean }
+//   authTransport (optional): { whoami(), listPackageAccess(subject),
+//                                getPackageStatus(packageName) }
+// These methods return registry-attributed observations, never release verdicts.
+// Omission retains explicitly local-only CLI behavior. Injected observations
+// are checked against the explicit RELEASE_REGISTRY_REQUIREMENTS invariant.
 
 export function precheck({ discovered, policy = POLICY, gitTransport, authTransport }) {
   assertReleaseMetadataConsistency(policy);
@@ -287,18 +291,17 @@ export function precheck({ discovered, policy = POLICY, gitTransport, authTransp
 
   blockers.push(...validatePublishOrder(discovered, policy));
 
-  if (authTransport) {
-    if (!authTransport.whoami()) blockers.push("npm authentication is not valid");
-    for (const d of discovered) {
-      if (!authTransport.canPublish(d.name)) blockers.push(`publish rights not confirmed for ${d.name}`);
-    }
-    if (!authTransport.scopeIsPublic("@oxdeai")) blockers.push('@oxdeai scope is not confirmed publicly publishable');
+  let registryObservations;
+  if (authTransport !== undefined) {
+    const registryCheck = observeRegistryPrecheck({ discovered, authTransport });
+    registryObservations = registryCheck.observations;
+    blockers.push(...registryCheck.blockers);
   }
 
   if (blockers.length > 0) {
     throw new ReleaseOrchestratorError(`PRECHECK failed:\n  - ${blockers.join("\n  - ")}`, { blockers });
   }
-  return { ok: true, discovered };
+  return { ok: true, discovered, ...(registryObservations ? { registryObservations } : {}) };
 }
 
 // determinismProbe is diagnostic only and never authorizes reconstruction.
