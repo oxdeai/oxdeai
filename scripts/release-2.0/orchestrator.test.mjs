@@ -786,8 +786,8 @@ test("dependency fields deduplicate internal names and ignore dev and undiscover
   assert.deepEqual(validatePublishOrder(ds), []);
 });
 
-for (const mode of ["absent", "missing", "wrong", "some", "wrong tag", "exact"]) {
-  test(`promotion requires independently observed exact latest versions: ${mode}`, () => {
+for (const mode of ["absent", "undeclared recovery", "invalid recovery", "missing", "wrong", "some", "wrong tag", "exact"]) {
+  test(`promotion requires a recovery declaration and independently observed exact latest versions: ${mode}`, () => {
     const f = packFixture();
     f.state.phase = "READY_TO_PROMOTE";
     f.state.packages = fullyPublishedState(f.manifest);
@@ -795,6 +795,8 @@ for (const mode of ["absent", "missing", "wrong", "some", "wrong tag", "exact"])
     const applied = [], observed = [];
     const tags = new Map(f.manifest.packages.map((p) => [p.package, p.version]));
     const promotionTransport = mode === "absent" ? undefined : {
+      // Semantic declaration only; this fixture does not demonstrate recovery.
+      partialDistTagRecovery: "registry-observed-idempotent-retry",
       applyDistTag(entry) { applied.push(entry); return { ok: true }; },
       observeDistTag(name, tag) {
         assert.equal(applied.length, 10);
@@ -804,12 +806,23 @@ for (const mode of ["absent", "missing", "wrong", "some", "wrong tag", "exact"])
         return { tag: mode === "wrong tag" ? "next" : tag, version: mode === "wrong" ? "9.9.9" : tags.get(name) };
       },
     };
+    if (mode === "undeclared recovery") delete promotionTransport.partialDistTagRecovery;
+    if (mode === "invalid recovery") promotionTransport.partialDistTagRecovery = "atomic";
     if (mode === "exact") {
       assert.equal(promote({ ...f, promotionTransport }).state.phase, "PROMOTED");
+      assert.equal(applied.length, 10);
       assert.equal(observed.length, 10);
       assert.equal(loadState(f.releaseDir).phase, "PROMOTED");
     } else {
-      assert.throws(() => promote({ ...f, promotionTransport }), /promotionTransport|dist-tag verification/);
+      const declarationRejected = mode === "undeclared recovery" || mode === "invalid recovery";
+      const expectedError = mode === "absent" ? /requires an injected promotionTransport/
+        : declarationRejected ? /must declare partialDistTagRecovery/
+          : /dist-tag verification failed/;
+      assert.throws(() => promote({ ...f, promotionTransport }), expectedError);
+      if (mode === "absent" || declarationRejected) {
+        assert.deepEqual(applied, []);
+        assert.deepEqual(observed, []);
+      }
       assert.equal(f.state.phase, "READY_TO_PROMOTE");
       assert.equal(loadState(f.releaseDir).phase, "READY_TO_PROMOTE");
       if (mode === "some") assert.equal(observed.length, 10);
