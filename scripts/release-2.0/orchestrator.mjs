@@ -759,12 +759,134 @@ function persistPublicationBlocker({ manifest, state, releaseDir, error, activeP
 
 // ── PUBLISH_NEXT (planning/decision logic; never executes) ──────────────
 
-export function buildPublishCommandData(p, releaseDir) {
+export function buildPublishCommandData(p, releaseDir, { registry } = {}) {
   return {
     executable: "npm",
-    args: ["publish", path.resolve(releaseDir, p.tarball), "--tag", "next", "--access", "public"],
+    args: ["publish", path.resolve(releaseDir, p.tarball), "--tag", "next", "--access", "public",
+      ...(registry === undefined ? [] : ["--registry", registry])],
     package: p.package,
     version: p.version,
+  };
+}
+
+// ── Step 5: publication plan DATA ONLY ─────────────────────────────────────
+// Consumes a Step 4 receipt, without re-evaluating readiness, recomputing its
+// digest, observing authority, or verifying files. Receipt consistency is not
+// receipt authenticity/freshness. Planning is neither authorization nor execution.
+// No persisted phase, transport, or automatic execution is introduced here.
+export function derivePublicationPlan(inputs = {}) {
+  const object = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
+  const fail = (code, message) => { throw new ReleaseOrchestratorError(message, { code }); };
+  if (!object(inputs)) fail("READINESS_NOT_ESTABLISHED", "planner inputs must be an object");
+  const { readiness, releaseDir } = inputs;
+  if (!object(readiness) || readiness.kind !== "ready" || readiness.state !== "READY_FOR_PUBLISH") {
+    fail("READINESS_NOT_ESTABLISHED", "a successful READY_FOR_PUBLISH receipt is required");
+  }
+  // Absolute input prevents buildPublishCommandData/path.resolve consulting cwd.
+  if (typeof releaseDir !== "string" || !path.isAbsolute(releaseDir) || /[\\\x00-\x1f\x7f]/.test(releaseDir)) {
+    fail("INVALID_RELEASE_DIRECTORY", "releaseDir must be an explicit absolute path without backslashes/control characters");
+  }
+  const e = readiness.evidence;
+  if (!object(e) || !object(e.requirements) || !object(e.localPrecheck) || !object(e.authPrecheck) ||
+      e.localPrecheck.ok !== true || (Object.hasOwn(e.localPrecheck, "blockers") &&
+        (!Array.isArray(e.localPrecheck.blockers) || e.localPrecheck.blockers.length !== 0)) ||
+      !Array.isArray(e.authPrecheck.blockers) || e.authPrecheck.blockers.length !== 0 ||
+      (Object.hasOwn(e.authPrecheck, "ok") && e.authPrecheck.ok !== true)) {
+    fail("READINESS_EVIDENCE_INVALID", "readiness receipts/requirements must be present without unresolved failures");
+  }
+  const observations = e.authPrecheck.observations;
+  if (!object(observations) || !object(observations.identity) || !object(observations.access) ||
+      !Array.isArray(observations.packages) || observations.identity.kind !== "identity" ||
+      observations.packages.some((p) => !object(p) || p.registry !== e.registry) ||
+      observations.identity.username !== e.username || observations.identity.registry !== e.registry ||
+      observations.access.kind !== "access" || observations.access.subject !== e.username ||
+      observations.access.registry !== e.registry || !object(observations.access.packages) ||
+      typeof e.username !== "string" || !/^[a-z0-9][a-z0-9._-]*$/.test(e.username) ||
+      e.requirements.registry !== e.registry || e.requirements.requiredRegistryAccess !== "read-write" ||
+      e.requirements.existingPackageVisibility !== "public") {
+    fail("READINESS_EVIDENCE_INVALID", "readiness provenance is incomplete or contradictory");
+  }
+  try {
+    const registry = new URL(e.registry);
+    if (typeof e.registry !== "string" || registry.protocol !== "https:" || registry.username || registry.password ||
+        registry.search || registry.hash || registry.href !== e.registry) throw new Error();
+  } catch {
+    fail("READINESS_EVIDENCE_INVALID", "readiness registry must be an explicit canonical HTTPS URL");
+  }
+  const manifest = e.manifest;
+  if (!object(manifest) || manifest.manifestVersion !== MANIFEST_VERSION ||
+      !Array.isArray(manifest.packages) || manifest.packages.length === 0) {
+    fail("READINESS_EVIDENCE_INVALID", "a supported nonempty release manifest is required");
+  }
+  if (typeof manifest.releaseId !== "string" || !/^[0-9a-f]{40}$/.test(manifest.releaseId) ||
+      manifest.sourceRevision !== manifest.releaseId || e.releaseState?.releaseId !== manifest.releaseId) {
+    fail("RELEASE_IDENTITY_MISMATCH", "manifest/source/state release identities must agree");
+  }
+  if (typeof manifest.manifestIntegrity !== "string" || !/^sha256:[0-9a-f]{64}$/.test(manifest.manifestIntegrity)) {
+    fail("READINESS_EVIDENCE_INVALID", "recorded manifest integrity is missing or malformed");
+  }
+  const names = manifest.packages.map((p) => p?.package);
+  const sameSet = (other) => Array.isArray(other) && other.length === names.length &&
+    new Set(other).size === other.length && other.every((name) => names.includes(name));
+  if (new Set(names).size !== names.length || !sameSet(e.packagesEvaluated) ||
+      !Array.isArray(e.localPrecheck.discovered) || !sameSet(e.localPrecheck.discovered.map((p) => p?.name)) ||
+      !sameSet(observations.packages.map((p) => p?.packageName))) {
+    fail("PACKAGE_SET_MISMATCH", "readiness and manifest must contain exactly the same unique package set");
+  }
+  const orders = new Set(), paths = new Set();
+  for (const p of manifest.packages) {
+    if (!object(p) || typeof p.package !== "string" || !/^(?:@[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]*$/.test(p.package) ||
+        typeof p.version !== "string" || typeof p.releaseLine !== "string" ||
+        typeof p.integrity !== "string" || !/^sha512-[A-Za-z0-9+/]{86}==$/.test(p.integrity) ||
+        e.localPrecheck.discovered.find((d) => d.name === p.package)?.manifest?.version !== p.version) {
+      fail("PACKAGE_METADATA_INVALID", "package identity/version/release line/integrity must match the supplied receipts");
+    }
+    if (!Number.isSafeInteger(p.publishOrder) || orders.has(p.publishOrder)) {
+      fail("PUBLICATION_ORDER_INVALID", "publishOrder must be a unique safe integer for every package");
+    }
+    orders.add(p.publishOrder);
+    // Lexical containment only. No filesystem lookup or symlink claim is made.
+    // PACK produces relative paths; reject both POSIX and Windows escape forms.
+    if (typeof p.tarball !== "string" || !p.tarball.endsWith(".tgz") ||
+        path.isAbsolute(p.tarball) || path.win32.isAbsolute(p.tarball) || /[\\:\x00-\x1f\x7f]/.test(p.tarball) ||
+        p.tarball.split("/").some((part) => !part || part === "." || part === "..")) {
+      fail("UNSAFE_TARBALL_PATH", "tarball must be a contained relative .tgz path without traversal");
+    }
+    if (paths.has(p.tarball)) fail("PACKAGE_METADATA_INVALID", "distinct packages must not share a tarball reference");
+    paths.add(p.tarball);
+  }
+  // Reuse the existing release-line/version invariant, solely over frozen
+  // manifest metadata; do not discover packages or consult workspace manifests.
+  try {
+    assertReleaseMetadataConsistency(Object.fromEntries(manifest.packages.map((p) => [p.package, p])));
+  } catch {
+    fail("PACKAGE_METADATA_INVALID", "manifest release-line/version metadata is inconsistent");
+  }
+  try { validateState(manifest, e.releaseState); }
+  catch { fail("PUBLICATION_PLANNING_STATE_INVALID", "release state is malformed or inconsistent"); }
+  if (e.releaseState.phase !== "VERIFIED_LOCAL" || e.releaseState.history.at(-1)?.phase !== "VERIFIED_LOCAL" ||
+      Object.values(e.releaseState.packages).some((p) => p.publishStatus !== "pending") || Object.hasOwn(e.releaseState, "blocker")) {
+    fail("PUBLICATION_PLANNING_STATE_INVALID", "planning requires VERIFIED_LOCAL, all packages pending, and no blocker");
+  }
+  // Current publishOrder values are intentionally sparse. No contiguous-slot
+  // rule exists. Sort only a copy; input array order must not influence output.
+  const ordered = [...manifest.packages].sort((a, b) => a.publishOrder - b.publishOrder);
+  return {
+    kind: "publication-plan", releaseId: manifest.releaseId, registry: e.registry, tag: "next", access: "public",
+    operations: ordered.map((p, index) => ({
+      index, releaseId: manifest.releaseId, package: p.package, version: p.version,
+      releaseLine: p.releaseLine, publishOrder: p.publishOrder, tarball: p.tarball, integrity: p.integrity,
+      registry: e.registry, tag: "next", access: "public",
+      command: buildPublishCommandData(p, releaseDir, { registry: e.registry }),
+    })),
+    evidence: {
+      readinessState: readiness.state, manifestIntegrity: manifest.manifestIntegrity,
+      sourceRevision: manifest.sourceRevision, packagesEvaluated: [...names].sort(),
+      username: e.username, requirements: {
+        registry: e.registry, requiredRegistryAccess: e.requirements.requiredRegistryAccess,
+        existingPackageVisibility: e.requirements.existingPackageVisibility,
+      },
+    },
   };
 }
 
