@@ -25,7 +25,7 @@
 // and `promotionTransport` — there is no default transport in this file
 // that shells out to a real registry. `buildPublishCommandData()` and
 // `buildPromotionPlan()` return the intended command as DATA ONLY; nothing in
-// this file executes that data. A future, separately authorized change may
+// this file shell-executes that data. A future, separately authorized change may
 // wire a real transport; doing so is explicitly out of scope for this file.
 //
 // Single source of truth: package discovery and release metadata (version,
@@ -717,7 +717,7 @@ export function resume({ releaseDir, registryTransport }) {
   return { manifest, state, toPublish };
 }
 
-// Both resume entry points must observe the full set before trusting local status.
+// Explicit resume reconciles the full set without any publication effect.
 function reconcilePartialNext({ manifest, state, releaseDir, registryTransport }) {
   validateState(manifest, state);
   assertPhase(state, "PARTIAL_NEXT");
@@ -757,7 +757,7 @@ function persistPublicationBlocker({ manifest, state, releaseDir, error, activeP
   saveState(releaseDir, state);
 }
 
-// ── PUBLISH_NEXT (planning/decision logic; never executes) ──────────────
+// ── Publication command data ──────────────────────────────────────────
 
 export function buildPublishCommandData(p, releaseDir, { registry } = {}) {
   return {
@@ -893,64 +893,144 @@ export function derivePublicationPlan(inputs = {}) {
 // registryTransport: { getRegistryVersion(name, version), publish(commandData) }
 // `publish()` returns { ok, error? } and MUST be supplied by the caller —
 // there is no default implementation here that invokes a real `npm publish`.
-export function publishNext({ manifest, state, releaseDir, registryTransport }) {
-  validateState(manifest, state);
-  assertPhase(state, "VERIFIED_LOCAL", "PARTIAL_NEXT");
-  if (!registryTransport || typeof registryTransport.publish !== "function") {
-    throw new ReleaseOrchestratorError("publishNext requires an injected registryTransport with publish()");
-  }
-  if (state.phase === "PARTIAL_NEXT") {
-    requireOriginalTarballs(releaseDir, manifest);
-    reconcilePartialNext({ manifest, state, releaseDir, registryTransport });
-  }
-  transition(state, "PUBLISHING_NEXT", manifest);
-  delete state.blocker;
+export function publishNext() {
+  throw new ReleaseOrchestratorError(
+    "publishNext batch execution is retired; explicitly select one operation with publishPlannedOperation()",
+    { code: "PUBLICATION_OPERATION_NOT_FOUND" }
+  );
+}
 
-  const ordered = [...manifest.packages].sort((a, b) => a.publishOrder - b.publishOrder);
-
-  let activePackage;
+// Step 6: one explicit selection, at most one injected publish call. A plan
+// binds data; it is neither real-effect authorization nor fresh auth evidence.
+export function publishPlannedOperation(inputs = {}) {
+  const object = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
+  const fail = (code, message) => { throw new ReleaseOrchestratorError(message, { code }); };
+  if (!object(inputs)) fail("PUBLICATION_PLAN_INVALID", "publication inputs must be an object");
+  const { plan, operationIndex, manifest, state, releaseDir, registryTransport } = inputs;
+  if (!object(plan) || plan.kind !== "publication-plan" || !Array.isArray(plan.operations) ||
+      !object(manifest) || manifest.manifestVersion !== MANIFEST_VERSION ||
+      !Array.isArray(manifest.packages) || manifest.packages.length === 0 ||
+      plan.operations.length !== manifest.packages.length || !object(plan.evidence)) {
+    fail("PUBLICATION_PLAN_INVALID", "a complete publication plan and manifest are required");
+  }
+  if (!Number.isSafeInteger(operationIndex) || operationIndex < 0 || operationIndex >= plan.operations.length) {
+    fail("PUBLICATION_OPERATION_NOT_FOUND", "an explicit valid operationIndex is required");
+  }
+  if (typeof releaseDir !== "string" || !path.isAbsolute(releaseDir) || /[\\\x00-\x1f\x7f]/.test(releaseDir)) {
+    fail("UNSAFE_TARBALL_PATH", "releaseDir must be explicit and absolute");
+  }
+  const e = plan.evidence;
+  if (typeof manifest.releaseId !== "string" || !/^[0-9a-f]{40}$/.test(manifest.releaseId) ||
+      plan.releaseId !== manifest.releaseId || manifest.sourceRevision !== manifest.releaseId ||
+      e.sourceRevision !== manifest.sourceRevision || e.manifestIntegrity !== manifest.manifestIntegrity ||
+      computeManifestIntegrity(manifest) !== manifest.manifestIntegrity || e.readinessState !== "READY_FOR_PUBLISH" ||
+      typeof e.username !== "string" || !/^[a-z0-9][a-z0-9._-]*$/.test(e.username) ||
+      e.requirements?.registry !== plan.registry || e.requirements?.requiredRegistryAccess !== "read-write" ||
+      e.requirements?.existingPackageVisibility !== "public" || plan.tag !== "next" || plan.access !== "public") {
+    fail("PUBLICATION_PLAN_INVALID", "plan provenance, manifest digest and release identity must agree");
+  }
   try {
-    for (const p of ordered) {
-      activePackage = p.package;
-      if (state.packages[p.package]?.publishStatus === "published") continue;
-
-      // Pre-publish check: version already exists on the registry?
-      const pre = reconcileAgainstRegistry(p, registryTransport); // throws on conflict
-      if (pre.status === "already-published") {
-        state.packages[p.package] = { publishStatus: "published", registryIntegrity: pre.integrity };
-        continue;
-      }
-
-      const commandData = buildPublishCommandData(p, releaseDir);
-      const result = registryTransport.publish(commandData);
-      if (result.ok) {
-        state.packages[p.package] = { publishStatus: "published", registryIntegrity: p.integrity };
-        continue;
-      }
-
-      // Ambiguous failure: the exit code alone is not authoritative (a network
-      // failure may occur after the registry accepted the package). Re-query.
-      const recheck = reconcileAgainstRegistry(p, registryTransport); // throws on conflict
-      if (recheck.status === "already-published") {
-        state.packages[p.package] = { publishStatus: "published", registryIntegrity: recheck.integrity };
-        continue;
-      }
-
-      // Genuinely missing after an ambiguous error => this package did not
-      // publish. Persist PARTIAL_NEXT and stop; already-published versions
-      // remain published (no rollback, no unpublish, no promotion).
-      state.blocker = { code: "PUBLICATION_FAILED", package: p.package, message: String(result.error ?? "registry version missing after publication") };
-      transition(state, "PARTIAL_NEXT", manifest);
-      saveState(releaseDir, state);
-      return state;
+    const registry = new URL(plan.registry);
+    if (typeof plan.registry !== "string" || registry.protocol !== "https:" || registry.username || registry.password ||
+        registry.search || registry.hash || registry.href !== plan.registry) throw new Error();
+  } catch { fail("PUBLICATION_PLAN_INVALID", "registry must be a canonical HTTPS URL"); }
+  const ordered = [...manifest.packages].sort((a, b) => a?.publishOrder - b?.publishOrder);
+  const names = new Set(), orders = new Set(), paths = new Set();
+  // Validate the complete data binding before effects, never execute the plan
+  // as a batch. Command comparison rejects disagreement rather than repairing it.
+  for (const [index, p] of ordered.entries()) {
+    if (!object(p) || typeof p.package !== "string" || !/^(?:@[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]*$/.test(p.package) ||
+        names.has(p.package) || !Number.isSafeInteger(p.publishOrder) || orders.has(p.publishOrder) ||
+        typeof p.integrity !== "string" || !/^sha512-[A-Za-z0-9+/]{86}==$/.test(p.integrity)) {
+      fail("PUBLICATION_PLAN_INVALID", "manifest package identities, orders and integrities must be unambiguous");
     }
-
+    if (typeof p.tarball !== "string" || !p.tarball.endsWith(".tgz") ||
+        path.isAbsolute(p.tarball) || path.win32.isAbsolute(p.tarball) || /[\\:\x00-\x1f\x7f]/.test(p.tarball) ||
+        p.tarball.split("/").some(part => !part || part === "." || part === "..") || paths.has(p.tarball)) {
+      fail("UNSAFE_TARBALL_PATH", "tarball must be a unique contained relative .tgz path");
+    }
+    names.add(p.package); orders.add(p.publishOrder); paths.add(p.tarball);
+    const expected = {
+      index, releaseId: manifest.releaseId, package: p.package, version: p.version,
+      releaseLine: p.releaseLine, publishOrder: p.publishOrder, tarball: p.tarball, integrity: p.integrity,
+      registry: plan.registry, tag: "next", access: "public",
+      command: buildPublishCommandData(p, releaseDir, { registry: plan.registry }),
+    };
+    if (canonicalStringify(plan.operations[index]) !== canonicalStringify(expected)) {
+      fail("PUBLICATION_OPERATION_MISMATCH", "operation and command must exactly match the frozen plan/manifest binding");
+    }
+  }
+  if (!Array.isArray(e.packagesEvaluated) || e.packagesEvaluated.length !== names.size ||
+      new Set(e.packagesEvaluated).size !== names.size || e.packagesEvaluated.some(name => !names.has(name))) {
+    fail("PUBLICATION_PLAN_INVALID", "plan evidence package set must match the manifest");
+  }
+  try { assertReleaseMetadataConsistency(Object.fromEntries(ordered.map(p => [p.package, p]))); }
+  catch { fail("PUBLICATION_PLAN_INVALID", "release metadata is inconsistent"); }
+  // Explicit selection must respect the frozen plan order, using recorded
+  // predecessor evidence only. Reject before reading artifacts or consulting a transport.
+  for (let index = 0; index < operationIndex; index++) {
+    const predecessor = plan.operations[index];
+    const recorded = state?.packages?.[predecessor.package];
+    if (!object(recorded) || recorded.publishStatus !== "published" ||
+        recorded.registryIntegrity !== predecessor.integrity) {
+      fail("PUBLICATION_ORDER_NOT_SATISFIED", `predecessor ${predecessor.package} must be published with its planned integrity`);
+    }
+  }
+  try { validateState(manifest, state); }
+  catch { fail("PUBLICATION_STATE_INVALID", "invalid release state"); }
+  const p = structuredClone(plan.operations[operationIndex]);
+  if (!["VERIFIED_LOCAL", "PARTIAL_NEXT"].includes(state.phase) ||
+      Object.values(state.packages).some(s => s.registryVerified === true || s.externalInstallVerified === true) ||
+      ordered.some(entry => {
+        const s = state.packages[entry.package];
+        return s.publishStatus === "published" ? s.registryIntegrity !== entry.integrity || state.phase === "VERIFIED_LOCAL"
+          : s.registryIntegrity !== undefined;
+      }) || (Object.hasOwn(state, "blocker") &&
+        (state.phase !== "PARTIAL_NEXT" || !object(state.blocker) || state.blocker.package !== p.package))) {
+    fail("PUBLICATION_STATE_INVALID", "publication state or unresolved blocker is incompatible with this selection");
+  }
+  if (!registryTransport || typeof registryTransport.getRegistryVersion !== "function" ||
+      typeof registryTransport.publish !== "function") {
+    fail("PUBLICATION_TRANSPORT_INVALID", "an injected synchronous observation and publication transport is required");
+  }
+  // Only the selected original artifact is read. No reconstruction or packing.
+  requireOriginalTarballs(releaseDir, { packages: [p] });
+  const observe = () => {
+    const reg = registryTransport.getRegistryVersion(p.package, p.version);
+    if (!object(reg) || typeof reg.exists !== "boolean" ||
+        (reg.exists && (typeof reg.integrity !== "string" || !reg.integrity))) {
+      fail("REGISTRY_STATE_UNDETERMINED", "selected registry observation is indeterminate");
+    }
+    if (reg.exists && reg.integrity !== p.integrity) {
+      throw new RegistryIntegrityConflictError(p.package, p.version, p.integrity, reg.integrity);
+    }
+    return reg.exists;
+  };
+  transition(state, "PUBLISHING_NEXT", manifest);
+  saveState(releaseDir, state);
+  try {
+    let published = observe();
+    if (!published) {
+      state.packages[p.package] = { publishStatus: "pending" };
+      let result, publicationError;
+      try { result = registryTransport.publish(structuredClone(p.command)); }
+      catch (error) { publicationError = error; }
+      published = (object(result) && result.ok === true) || observe();
+      if (!published) {
+        if (publicationError) throw publicationError;
+        persistPublicationBlocker({ manifest, state, releaseDir, activePackage: p.package,
+          error: new ReleaseOrchestratorError(String(result?.error ?? "registry version missing after publication")) });
+        return state;
+      }
+    }
   } catch (error) {
-    persistPublicationBlocker({ manifest, state, releaseDir, error, activePackage });
+    persistPublicationBlocker({ manifest, state, releaseDir, error, activePackage: p.package });
     throw error;
   }
-
-  transition(state, "PUBLISHED_NEXT", manifest);
+  state.packages[p.package] = { publishStatus: "published", registryIntegrity: p.integrity };
+  delete state.blocker;
+  transition(state, ordered.every(entry => state.packages[entry.package].publishStatus === "published")
+    ? "PUBLISHED_NEXT" : "PARTIAL_NEXT", manifest);
   saveState(releaseDir, state);
   return state;
 }
