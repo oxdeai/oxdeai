@@ -49,72 +49,136 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), ".."
 //                     on purpose: catches "nothing resolves" and "the one
 //                     symbol everyone depends on vanished", not every export)
 //   cliCheck        — "help" | "conformance-count" | null
-const POLICY = {
+//
+// Release metadata (#292) — extends this SAME table rather than maintaining a
+// second publishable-package list that could drift independently:
+//   releaseLine     — "2.0" (the nine 2.0.0 packages) | "cli" (@oxdeai/cli,
+//                     which tracks its own pre-1.0 contract, not the 2.0 line)
+//   version         — the declared release version for this package. NEVER
+//                     hardcoded per-entry: derived from RELEASE_LINE_VERSIONS
+//                     so a package's version and its release-line membership
+//                     cannot be edited independently into an inconsistent pair.
+//   publishOrder    — declared publish order. assertPublishOrderMatchesDependencyGraph()
+//                     (scripts/release-2.0/orchestrator.mjs) validates this against
+//                     the REAL @oxdeai/* dependency graph; it is never trusted
+//                     on its own.
+const RELEASE_LINE_VERSIONS = Object.freeze({
+  "2.0": "2.0.0",
+  "cli": "0.3.0",
+});
+
+export const POLICY = {
   "@oxdeai/core": {
     kind: "library",
     expectMain: true, expectTypes: true, expectExports: true, expectBin: null,
     expectedSymbols: ["PolicyEngine", "verifyAuthorization", "verifyTrustedTime"],
     cliCheck: null,
+    releaseLine: "2.0", version: RELEASE_LINE_VERSIONS["2.0"], publishOrder: 10,
   },
   "@oxdeai/guard": {
     kind: "library",
     expectMain: true, expectTypes: true, expectExports: false, expectBin: null,
     expectedSymbols: ["OxDeAIGuard"],
     cliCheck: null,
+    releaseLine: "2.0", version: RELEASE_LINE_VERSIONS["2.0"], publishOrder: 20,
   },
   "@oxdeai/sdk": {
     kind: "library",
     expectMain: true, expectTypes: true, expectExports: false, expectBin: null,
     expectedSymbols: ["buildState"],
     cliCheck: null,
+    releaseLine: "2.0", version: RELEASE_LINE_VERSIONS["2.0"], publishOrder: 30,
   },
   "@oxdeai/conformance": {
     kind: "library+cli",
     expectMain: true, expectTypes: true, expectExports: true, expectBin: "oxdeai-conformance",
     expectedSymbols: ["runTrustedTimeConformance", "parseTrustedTimeFile", "trustedTimeExitCode"],
     cliCheck: "conformance-count",
-  },
-  "@oxdeai/cli": {
-    kind: "cli",
-    expectMain: false, expectTypes: false, expectExports: false, expectBin: "oxdeai",
-    expectedSymbols: [],
-    cliCheck: "help",
+    releaseLine: "2.0", version: RELEASE_LINE_VERSIONS["2.0"], publishOrder: 40,
   },
   "@oxdeai/autogen": {
     kind: "adapter",
     expectMain: true, expectTypes: true, expectExports: false, expectBin: null,
     expectedSymbols: ["createAutoGenGuard"],
     cliCheck: null,
+    releaseLine: "2.0", version: RELEASE_LINE_VERSIONS["2.0"], publishOrder: 50,
   },
   "@oxdeai/crewai": {
     kind: "adapter",
     expectMain: true, expectTypes: true, expectExports: false, expectBin: null,
     expectedSymbols: ["createCrewAIGuard"],
     cliCheck: null,
+    releaseLine: "2.0", version: RELEASE_LINE_VERSIONS["2.0"], publishOrder: 60,
   },
   "@oxdeai/langgraph": {
     kind: "adapter",
     expectMain: true, expectTypes: true, expectExports: false, expectBin: null,
     expectedSymbols: ["createLangGraphGuard"],
     cliCheck: null,
+    releaseLine: "2.0", version: RELEASE_LINE_VERSIONS["2.0"], publishOrder: 70,
   },
   "@oxdeai/openai-agents": {
     kind: "adapter",
     expectMain: true, expectTypes: true, expectExports: false, expectBin: null,
     expectedSymbols: ["createOpenAIAgentsGuard"],
     cliCheck: null,
+    releaseLine: "2.0", version: RELEASE_LINE_VERSIONS["2.0"], publishOrder: 80,
   },
   "@oxdeai/openclaw": {
     kind: "adapter",
     expectMain: true, expectTypes: true, expectExports: false, expectBin: null,
     expectedSymbols: ["createOpenClawGuard"],
     cliCheck: null,
+    releaseLine: "2.0", version: RELEASE_LINE_VERSIONS["2.0"], publishOrder: 85,
+  },
+  // @oxdeai/cli is at 0.3.0 and stays there: its published history is 0.2.x
+  // and its own CHANGELOG declares a pre-1.0 SemVer regime. Its version
+  // reflects the stability of its own public/operator contract, not
+  // membership in the OxDeAI 2.0 release line. It is still part of the same
+  // publication batch (publishOrder 90 — after core, which it depends on).
+  "@oxdeai/cli": {
+    kind: "cli",
+    expectMain: false, expectTypes: false, expectExports: false, expectBin: "oxdeai",
+    expectedSymbols: [],
+    cliCheck: "help",
+    releaseLine: "cli", version: RELEASE_LINE_VERSIONS["cli"], publishOrder: 90,
   },
 };
 
+// Fail-closed, load-time invariant: makes "@oxdeai/cli@2.0.0" (or any
+// releaseLine/version pair that doesn't match RELEASE_LINE_VERSIONS)
+// unrepresentable the moment this module is imported by ANYTHING — the CLI,
+// the orchestrator, or a test — rather than relying on POLICY merely being
+// configured correctly today. Three independent layers guard this invariant:
+//   1. version is DERIVED from releaseLine via RELEASE_LINE_VERSIONS above,
+//      not duplicated per package, so the two fields can't drift by a typo;
+//   2. this function re-checks that derivation and throws on any mismatch;
+//   3. an explicit, named guard for @oxdeai/cli specifically — independent of
+//      the generic derivation — so the one state this table must never
+//      represent is checked by name, not only inferred.
+export function assertReleaseMetadataConsistency(policy) {
+  for (const [name, meta] of Object.entries(policy)) {
+    if (!meta.releaseLine || !(meta.releaseLine in RELEASE_LINE_VERSIONS)) {
+      throw new Error(`POLICY['${name}'].releaseLine must be one of: ${Object.keys(RELEASE_LINE_VERSIONS).join(", ")}`);
+    }
+    const requiredVersion = RELEASE_LINE_VERSIONS[meta.releaseLine];
+    if (meta.version !== requiredVersion) {
+      throw new Error(`POLICY['${name}'] declares version "${meta.version}" but releaseLine "${meta.releaseLine}" requires "${requiredVersion}"`);
+    }
+    if (!Number.isInteger(meta.publishOrder)) {
+      throw new Error(`POLICY['${name}'].publishOrder must be an integer`);
+    }
+  }
+  const cli = policy["@oxdeai/cli"];
+  if (cli && (cli.version === "2.0.0" || cli.releaseLine === "2.0")) {
+    throw new Error(`@oxdeai/cli must never be assigned version "2.0.0" or releaseLine "2.0" — its release line is "cli" at ${RELEASE_LINE_VERSIONS.cli}.`);
+  }
+}
+assertReleaseMetadataConsistency(POLICY);
+
 // ── Structured failure ───────────────────────────────────────────────────────
 
-class GateFailure extends Error {
+export class GateFailure extends Error {
   constructor({ pkg, phase, pm, command, exitCode, detail }) {
     super(
       `Packed Artifact Consumer Gate FAILURE\n` +
@@ -158,7 +222,7 @@ function runOrFail({ pkg = null, phase, pm = null, command, args, opts = {} }) {
 
 // ── Discovery ─────────────────────────────────────────────────────────────────
 
-function discoverPublishablePackages() {
+export function discoverPublishablePackages() {
   const packagesDir = path.join(repoRoot, "packages");
   const discovered = [];
   for (const entry of readdirSync(packagesDir).sort()) {
@@ -175,7 +239,7 @@ function discoverPublishablePackages() {
 // Amendment 2: a discovered publishable package with no explicit policy is a
 // fail-closed condition, not a silent skip and not a dynamically-inferred
 // default surface.
-function assertPolicyCoverage(discovered) {
+export function assertPolicyCoverage(discovered) {
   for (const { name } of discovered) {
     if (!POLICY[name]) {
       fail({
@@ -207,7 +271,7 @@ function buildPublishablePackages(discovered) {
 
 // ── Pack ──────────────────────────────────────────────────────────────────────
 
-function packPublishablePackages(discovered, tarballDir) {
+export function packPublishablePackages(discovered, tarballDir) {
   const packed = [];
   for (const { name, dir } of discovered) {
     const result = runOrFail({
@@ -311,7 +375,9 @@ function writeJson(file, obj) {
   writeFileSync(file, JSON.stringify(obj, null, 2));
 }
 
-function installNpmConsumer(consumerDir, packed) {
+// npm co-installs the supplied tarballs; the focused H2 test checks that
+// satisfying internal semver ranges resolve to these local bytes (no overrides).
+export function installNpmConsumer(consumerDir, packed) {
   mkdirSync(consumerDir, { recursive: true });
   writeJson(path.join(consumerDir, "package.json"), { name: "packed-gate-npm-consumer", version: "1.0.0", private: true, type: "module" });
   runOrFail({
@@ -327,19 +393,22 @@ function installNpmConsumer(consumerDir, packed) {
 // packages under test, so the npm consumer is never touched by pnpm (or vice
 // versa) — each consumer's toolchain stays single-package-manager throughout,
 // strictly inside its own temporary directory.
-function installTypeScriptTooling(consumerDir, pm) {
+// Release-gate evidence only; exact versions match the repository lockfile.
+const TYPESCRIPT_TOOLING = ["typescript@5.9.3", "@types/node@22.19.17"];
+
+export function installTypeScriptTooling(consumerDir, pm, runTool = runOrFail) {
   if (pm === "npm") {
-    runOrFail({
+    runTool({
       phase: "typescript-tooling-setup", pm,
       command: "npm",
-      args: ["install", "--save-dev", "--no-audit", "--no-fund", "typescript", "@types/node"],
+      args: ["install", "--save-dev", "--save-exact", "--no-audit", "--no-fund", ...TYPESCRIPT_TOOLING],
       opts: { cwd: consumerDir },
     });
   } else if (pm === "pnpm") {
-    runOrFail({
+    runTool({
       phase: "typescript-tooling-setup", pm,
       command: "pnpm",
-      args: ["add", "-D", "--ignore-workspace", "--no-lockfile", "typescript", "@types/node"],
+      args: ["add", "-D", "--save-exact", "--ignore-workspace", "--no-lockfile", ...TYPESCRIPT_TOOLING],
       opts: { cwd: consumerDir },
     });
   } else {
@@ -466,7 +535,7 @@ function runExternalConformanceCli(pkg, consumerDir, pm) {
   return Number(match[1]);
 }
 
-function getMonorepoConformanceCount() {
+export function getMonorepoConformanceCount() {
   const result = runOrFail({
     phase: "monorepo-baseline",
     command: "pnpm",
@@ -521,30 +590,38 @@ function runSmokeTestsForConsumer(packed, consumerDir, pm, monorepoConformanceCo
 // those dependencies for building, but packing did not, which is exactly the
 // class of gap this gate exists to catch, not to reintroduce for itself.
 
-async function main() {
-  console.log("Discovering publishable packages...");
-  const discovered = discoverPublishablePackages();
-  if (discovered.length === 0) {
-    fail({ phase: "discovery", detail: "no publishable packages discovered under packages/*" });
+// Verifies an already-packed tarball set (manifest scan + shipped-JS scan +
+// external npm/pnpm consumer install + smoke tests) WITHOUT packing anything
+// itself. `packed` must be `[{ name, tarballPath }]` for exactly the
+// discovered set. Extracted from `main()` (#292) so a caller that already
+// produced its own tarballs — e.g. the release orchestrator's PACK phase —
+// can run the identical consumer-verification semantics against those EXACT
+// files, never a repack. `main()` below calls this immediately after its own
+// `packPublishablePackages()` call, so default CLI behavior is unchanged.
+export function assertPackedBijection(discovered, packed) {
+  const expected = new Set(discovered.map((p) => p.name));
+  const seen = new Set();
+  for (const { name } of packed) {
+    if (seen.has(name)) throw new Error(`packed bijection: duplicate package ${name}`);
+    if (!expected.has(name)) throw new Error(`packed bijection: extra package ${name}`);
+    seen.add(name);
   }
-  console.log(discovered.map((p) => `  ${p.name}`).join("\n"));
+  const missing = [...expected].filter((name) => !seen.has(name));
+  if (missing.length || packed.length !== discovered.length || expected.size !== discovered.length) {
+    throw new Error(`packed bijection: missing package or cardinality mismatch: ${missing.join(", ")}`);
+  }
+}
 
+export function verifyPackedTarballs(discovered, packed, { baseDir } = {}) {
+  assertPackedBijection(discovered, packed);
   assertPolicyCoverage(discovered);
-  console.log("Policy coverage OK for all discovered packages.\n");
-
-  console.log("Building publishable packages (and their workspace dependencies)...");
-  buildPublishablePackages(discovered);
 
   console.log("Establishing monorepo conformance baseline...");
   const monorepoConformanceCount = getMonorepoConformanceCount();
   console.log(`  monorepo conformance: ${monorepoConformanceCount} assertions\n`);
 
-  const base = mkdtempSync(path.join(tmpdir(), "oxdeai-packed-gate-"));
-  const tarballDir = path.join(base, "tarballs");
-  mkdirSync(tarballDir, { recursive: true });
-
-  console.log(`Packing ${discovered.length} package(s) into ${tarballDir} ...`);
-  const packed = packPublishablePackages(discovered, tarballDir);
+  const base = baseDir ?? mkdtempSync(path.join(tmpdir(), "oxdeai-packed-gate-"));
+  mkdirSync(base, { recursive: true });
 
   console.log("Scanning packed manifests and shipped runtime JS...");
   for (const { name, tarballPath } of packed) {
@@ -569,14 +646,47 @@ async function main() {
   runSmokeTestsForConsumer(packed, pnpmConsumer, "pnpm", monorepoConformanceCount);
   console.log("  pnpm consumer: all checks passed.\n");
 
-  console.log(`Packed Artifact Consumer Gate: PASS (${discovered.length} package(s), npm + pnpm, temp dir: ${base})`);
+  return { base, monorepoConformanceCount };
 }
 
-main().catch((error) => {
-  if (error instanceof GateFailure) {
-    console.error(`\n${error.message}\n`);
-  } else {
-    console.error("\nPacked Artifact Consumer Gate: unexpected error\n", error);
+async function main() {
+  console.log("Discovering publishable packages...");
+  const discovered = discoverPublishablePackages();
+  if (discovered.length === 0) {
+    fail({ phase: "discovery", detail: "no publishable packages discovered under packages/*" });
   }
-  process.exit(1);
-});
+  console.log(discovered.map((p) => `  ${p.name}`).join("\n"));
+
+  assertPolicyCoverage(discovered);
+  console.log("Policy coverage OK for all discovered packages.\n");
+
+  console.log("Building publishable packages (and their workspace dependencies)...");
+  buildPublishablePackages(discovered);
+
+  const base = mkdtempSync(path.join(tmpdir(), "oxdeai-packed-gate-"));
+  const tarballDir = path.join(base, "tarballs");
+  mkdirSync(tarballDir, { recursive: true });
+
+  console.log(`Packing ${discovered.length} package(s) into ${tarballDir} ...`);
+  const packed = packPublishablePackages(discovered, tarballDir);
+
+  const { base: verifiedBase } = verifyPackedTarballs(discovered, packed, { baseDir: base });
+
+  console.log(`Packed Artifact Consumer Gate: PASS (${discovered.length} package(s), npm + pnpm, temp dir: ${verifiedBase})`);
+}
+
+// Guard so this module can be `import`ed for its exports (POLICY,
+// discoverPublishablePackages, verifyPackedTarballs, ...) — by the release
+// orchestrator (#292) or by tests — without unconditionally running the full
+// build+pack+verify CLI flow as a side effect of import. Running the file
+// directly (`node scripts/verify-packed-artifacts.mjs`) is unaffected.
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  main().catch((error) => {
+    if (error instanceof GateFailure) {
+      console.error(`\n${error.message}\n`);
+    } else {
+      console.error("\nPacked Artifact Consumer Gate: unexpected error\n", error);
+    }
+    process.exit(1);
+  });
+}
