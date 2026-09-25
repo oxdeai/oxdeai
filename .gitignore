@@ -37,3 +37,6 @@ security-evidence/
 .local/
 WhitePaper.md
 __pycache__/
+
+# Generated release artifacts and state
+.release-*/
