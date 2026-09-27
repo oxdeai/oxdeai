@@ -7,7 +7,7 @@ This project follows Semantic Versioning.
 
 ---
 
-## [0.3.0] - Unreleased
+## [0.3.0] - 2026-09-25
 
 **Baseline for this entry:** the published `@oxdeai/cli@0.2.4` npm artifact
 (2026-03-12). The Git tag `cli-v0.2.4` (`3614d94`) carries the same date, so the
