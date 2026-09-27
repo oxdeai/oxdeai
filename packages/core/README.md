@@ -4,8 +4,8 @@ Deterministic decision: (intent, state, policy) → ALLOW | DENY, emits Authoriz
 Fail-closed verification at the PEP; no valid authorization → no execution path.
 
 [![npm version](https://img.shields.io/npm/v/@oxdeai/core.svg)](https://www.npmjs.com/package/@oxdeai/core)
-[![license](https://img.shields.io/npm/l/@oxdeai/core.svg)](https://github.com/oxdeai/oxdeai-core/blob/main/packages/core/LICENSE)
-[![build](https://github.com/oxdeai/oxdeai-core/actions/workflows/ci.yml/badge.svg)](https://github.com/oxdeai/oxdeai-core/actions/workflows/ci.yml)
+[![license](https://img.shields.io/npm/l/@oxdeai/core.svg)](https://github.com/oxdeai/oxdeai/blob/main/packages/core/LICENSE)
+[![build](https://github.com/oxdeai/oxdeai/actions/workflows/ci.yml/badge.svg)](https://github.com/oxdeai/oxdeai/actions/workflows/ci.yml)
 
 **Package:** deterministic, fail-closed execution authorization layer that decides whether an agent action may execute *before* any side effect, emitting verifiable artifacts for allowed actions. Not an agent framework.
 
@@ -21,22 +21,53 @@ Prevents retries, loops, and unintended side effects from ever reaching executio
 
 ## Quickstart (minimal)
 
+ESM only (`"type": "module"` or `.mjs`/`.mts`), Node >= 20.
+
 ```ts
-import { PolicyEngine, verifyAuthorization, RECOMMENDED_TRUSTED_TIME_PROFILE } from "@oxdeai/core";
+import { createPublicKey } from "node:crypto";
+import {
+  PolicyEngine,
+  verifyAuthorization,
+  RECOMMENDED_TRUSTED_TIME_PROFILE,
+  type Intent,
+  type KeySet,
+  type State
+} from "@oxdeai/core";
+
+const ISSUER = "pdp.example";
+const KID = "2026-01";
+const signingKeyPem = process.env.OXDEAI_SIGNING_KEY_PEM!;
 
 const engine = new PolicyEngine({
-  policy_version: "v1.7",
+  policy_version: "v1",
   authorization_ttl_seconds: 60,
   authorization_signing_alg: "Ed25519",
-  authorization_private_key_pem: process.env.OXDEAI_SIGNING_KEY_PEM!,
+  authorization_private_key_pem: signingKeyPem,
+  authorization_issuer: ISSUER,
+  authorization_signing_kid: KID,
   engine_secret: process.env.OXDEAI_ENGINE_SECRET!,
   strictDeterminism: true,
   ...RECOMMENDED_TRUSTED_TIME_PROFILE // maxClockSkewSeconds / maxIntentAgeSeconds: required, no default
 });
 
+// Quickstart only: derive the public key locally so this example is self-contained.
+// In production, the PEP MUST receive trusted verification keys through an
+// independent trust/configuration channel; it must not receive the PDP private key.
+const trustedKeySet: KeySet = {
+  issuer: ISSUER,
+  version: "1",
+  keys: [{
+    kid: KID,
+    alg: "Ed25519",
+    public_key: createPublicKey(signingKeyPem)
+      .export({ type: "spki", format: "pem" })
+      .toString()
+  }]
+};
+
 const evaluationTime = 1_730_000_000; // trusted PEP clock, sampled once per evaluation, never derived from intent.timestamp
 
-const intent = {
+const intent: Intent = {
   intent_id: "intent-1",
   agent_id: "agent-123",
   type: "EXECUTE",
@@ -46,11 +77,12 @@ const intent = {
   nonce: 1n,
   amount: 100n,
   timestamp: 1_730_000_000,
-  depth: 0
+  depth: 0,
+  signature: "agent-intent-sig" // required by the Intent type; PolicyEngine does not verify it
 };
 
-const state = {
-  policy_version: "v1.7",
+const state: State = {
+  policy_version: "v1",
   period_id: "2026-02",
   kill_switch: { global: false, agents: {} },
   allowlists: {},
@@ -65,26 +97,33 @@ const state = {
 
 const decision = engine.evaluatePure(intent, state, evaluationTime);
 
-if (decision.decision === "DENY") {
-  throw new Error(decision.reasons.join(", "));
+if (decision.decision !== "ALLOW") {
+  throw new Error(`denied: ${decision.reasons.join(", ")}`); // tool never runs
 }
 
-// Allowed: authorization artifact is attached
-const auth = decision.authorization;
-const verified = verifyAuthorization(auth, {
-  now: evaluationTime, // trusted verifier time: never the ambient wall clock, never intent.timestamp
-  expectedPolicyId: engine.computePolicyId()
+const verified = verifyAuthorization(decision.authorization, {
+  mode: "strict",
+  trustedKeySets: [trustedKeySet],
+  expectedIssuer: ISSUER,
+  expectedPolicyId: engine.computePolicyId(),
+  now: evaluationTime // trusted verifier time: never the ambient wall clock, never intent.timestamp
 });
-if (verified.status !== "ok") throw new Error("authorization failed verification");
 
-if (decision.decision === "ALLOW") {
-  // execute tool
-} else {
-  // tool never runs
+if (verified.status !== "ok" || !verified.signatureVerified) {
+  throw new Error(
+    `authorization rejected: ${verified.violations.map(v => v.code).join(", ")}`
+  );
 }
 
-// persist decision.nextState and proceed to execution boundary
+// Signature, issuer, policy and expiry verified: execute the tool,
+// then persist decision.nextState.
 ```
+
+`verifyAuthorization` defaults to best-effort mode: without `mode: "strict"` and
+`trustedKeySets` it can return `status: "ok"` with `signatureVerified: false` and
+`verificationCoverage: "none"`, i.e. no cryptographic check ran. An execution
+boundary must use strict mode (or `createVerifier`) and must not treat
+`status === "ok"` alone as proof of authorization.
 
 ## Status
 
@@ -130,7 +169,7 @@ Preserved stateless verification surface (v1.2+):
 
 Validation status:
 
-- conformance suite: **continuously validated via CI** [![CI](https://github.com/oxdeai/oxdeai-core/actions/workflows/ci.yml/badge.svg)](https://github.com/oxdeai/oxdeai-core/actions/workflows/ci.yml)
+- conformance suite: **continuously validated via CI** [![CI](https://github.com/oxdeai/oxdeai/actions/workflows/ci.yml/badge.svg)](https://github.com/oxdeai/oxdeai/actions/workflows/ci.yml)
 - working demos (all produce `ALLOW`, `ALLOW`, `DENY`, `verifyEnvelope() => ok`):
   - `examples/openai-tools` (protocol reference)
   - `examples/langgraph`
