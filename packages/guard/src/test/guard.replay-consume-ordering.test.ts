@@ -28,11 +28,17 @@ import {
   createDelegation,
   stateSnapshotHash,
   intentHash,
+  verifyAuthorization,
+  verifyDelegationChain,
 } from "@oxdeai/core";
 import type { AuthorizationAuthority, AuthorizationV1, DelegationV1, KeySet, State } from "@oxdeai/core";
 import { buildState } from "@oxdeai/sdk";
 
 import { OxDeAIGuard } from "../guard.js";
+import { createSecureGuard } from "../secureGuard.js";
+import { createTrustedExecutionContext } from "../trustedContext.js";
+import { OxDeAIDelegationError, OxDeAINormalizationError } from "../errors.js";
+import type { GuardBoundaryAuditEvent } from "../boundaryEvent.js";
 import type { OxDeAIGuardConfig, ProposedAction } from "../types.js";
 import type { ReplayStore } from "../replayStore.js";
 import { defaultNormalizeAction } from "../normalizeAction.js";
@@ -81,11 +87,11 @@ function parentAuth(authId: string, key = TRUSTED, over: Partial<AuthorizationV1
   );
 }
 
-function child(parent: AuthorizationV1, over: Partial<{ expiry: number; tools: string[] }> = {}): DelegationV1 {
+function child(parent: AuthorizationV1, over: Partial<{ expiry: number; tools: string[]; delegatee: string }> = {}): DelegationV1 {
   return createDelegation(
     parent,
     {
-      delegatee: "agent-B", issuer: ISSUER,
+      delegatee: over.delegatee ?? "agent-B", issuer: ISSUER,
       scope: { tools: over.tools ?? ["provision_gpu"], max_amount: 500_000n },
       expiry: over.expiry ?? T_NOW + 300, kid: "ka",
     },
@@ -318,4 +324,97 @@ test("#320 direct path: a valid authorization with the same id is accepted after
   let executed = false;
   await mk(good)(DIRECT_ACTION, async () => { executed = true; return "ok"; });
   assert.equal(executed, true, "the corrected resubmission must not be denied as a replay");
+});
+
+// #350: recipient substitution must fail before replay or execution effects.
+for (const secure of [false, true]) {
+  test(`#350 ${secure ? "secure" : "low-level"} guard rejects a genuinely signed delegation for another agent`, async () => {
+    const { store, auth, deleg } = observableStore();
+    const calls: string[] = [];
+    const events: GuardBoundaryAuditEvent[] = [];
+    const cfg = config({
+      async consumeAuthId(id, opts) { calls.push("consumeAuthId"); return store.consumeAuthId(id, opts); },
+      async consumeDelegationId(id, opts) { calls.push("consumeDelegationId"); return store.consumeDelegationId!(id, opts); },
+    }, {
+      setState: () => { calls.push("setState"); return true; },
+      beforeExecute: () => { calls.push("beforeExecute"); },
+      onDecision: () => { calls.push("onDecision"); },
+      onBoundaryEvent: (event) => { events.push(event); },
+    });
+    cfg.engine.evaluatePure = () => { calls.push("evaluatePure"); throw new Error("delegation must not evaluate policy"); };
+    const parent = parentAuth(`AID-350-${secure}`);
+    // Sign for C from the outset: no signed field is modified afterward.
+    const delegation = child(parent, { delegatee: "agent-C" });
+    const signedBytes = JSON.stringify(delegation, (_, value) => typeof value === "bigint" ? value.toString() : value);
+    const parentResult = verifyAuthorization(parent, {
+      now: T_NOW, mode: "strict", trustedKeySets: [KEYSET],
+      expectedAudience: AUDIENCE, trustedAuthorizationAuthorities: AUTHORITIES,
+    });
+    assert.equal(parentResult.ok, true);
+    assert.equal(parentResult.signatureVerified, true);
+    assert.equal(verifyDelegationChain(delegation, parent, {
+      now: T_NOW, trustedKeySets: [KEYSET], requireSignatureVerification: true,
+      parentScope: PARENT_SCOPE, expectedDelegatee: "agent-C",
+    }).ok, true, "the signed chain must be valid for its actual recipient");
+    // The same chain presented for B fails on the recipient binding alone.
+    const substituted = verifyDelegationChain(delegation, parent, {
+      now: T_NOW, trustedKeySets: [KEYSET], requireSignatureVerification: true,
+      parentScope: PARENT_SCOPE, expectedDelegatee: "agent-B",
+    });
+    assert.equal(substituted.ok, false);
+    assert.deepEqual(substituted.violations.map((v) => v.code), ["DELEGATION_AUDIENCE_MISMATCH"]);
+    const opts = { delegation: { delegation, parentAuth: parent, parentScope: PARENT_SCOPE } };
+    const execute = async () => { calls.push("execute"); return "ok"; };
+    const secureGuard = createSecureGuard(cfg, { tenancy: "single-tenant" });
+    const lowLevelGuard = OxDeAIGuard(cfg);
+    // No proposer identity on the secure path: the normalized identity must
+    // come from TrustedExecutionContext through reconciliation.
+    const action = secure ? { ...ACTION, context: { target: "gpu-pool" } } : ACTION;
+    const context = (agentId: string) => createTrustedExecutionContext({
+      principalId: "authenticated-principal", agentId, adapterId: "test-pep", depth: 0,
+    });
+    await assert.rejects(
+      secure ? secureGuard(context("agent-B"), action, execute, opts) : lowLevelGuard(action, execute, opts),
+      (err: unknown) => {
+        assert.ok(err instanceof OxDeAIDelegationError);
+        // The guard reports exactly the core's recipient-mismatch violation.
+        assert.deepEqual(err.violations, substituted.violations.map((v) => v.message ?? v.code));
+        return true;
+      }
+    );
+    assert.deepEqual(calls, []);
+    assert.equal(auth.size, 0);
+    assert.equal(deleg.size, 0);
+    assert.equal(events.length, 1);
+    assert.equal(events[0].boundaryFailure, "DELEGATION_VERIFICATION_FAILED");
+    assert.equal(events[0].policyEvaluated, false);
+    assert.equal(events[0].authorizationConsumed, false);
+    assert.equal(events[0].delegationConsumed, false);
+    assert.equal(events[0].stateCommitted, false);
+    assert.equal(events[0].executionStarted, false);
+    assert.equal(JSON.stringify(delegation, (_, value) => typeof value === "bigint" ? value.toString() : value), signedBytes);
+    // The identical artifact remains usable by C after B's rejected attempt.
+    if (secure) await secureGuard(context("agent-C"), action, execute, opts);
+    else await lowLevelGuard({ ...action, context: { ...action.context, agent_id: "agent-C" } }, execute, opts);
+    assert.deepEqual(calls, ["consumeDelegationId", "consumeAuthId", "beforeExecute", "execute", "onDecision"]);
+    assert.equal(auth.has(parent.auth_id), true);
+    assert.equal(deleg.has(delegation.delegation_id), true);
+  });
+}
+
+test("#350 custom normalizer cannot omit or invalidate the delegation recipient expectation", async () => {
+  for (const agentId of [undefined, null, "", 42]) {
+    const { store, auth, deleg } = observableStore();
+    const cfg = config(store, {
+      mapActionToIntent: (action) => ({ ...defaultNormalizeAction(action), agent_id: agentId } as unknown as ReturnType<typeof defaultNormalizeAction>),
+      beforeExecute: () => { assert.fail("beforeExecute must remain unreachable"); },
+      setState: () => { assert.fail("state must not be committed"); },
+    });
+    const parent = parentAuth("AID-350-invalid");
+    const result = await callDelegation(cfg, parent, child(parent));
+    assert.ok(result.error instanceof OxDeAINormalizationError);
+    assert.equal(result.executed, false);
+    assert.equal(auth.size, 0);
+    assert.equal(deleg.size, 0);
+  }
 });

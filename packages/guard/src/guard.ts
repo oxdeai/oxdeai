@@ -190,6 +190,10 @@ export function OxDeAIGuard(config: OxDeAIGuardConfig) {
     let intent: Intent;
     try {
       intent = normalize(action);
+      // Custom normalizers must not disable the optional core recipient check.
+      if (opts?.delegation && (typeof intent?.agent_id !== "string" || intent.agent_id.length === 0)) {
+        throw new OxDeAINormalizationError("Delegation requires a non-empty normalized intent.agent_id.");
+      }
     } catch (err) {
       if (err instanceof OxDeAINormalizationError) {
         throw reject("NORMALIZATION", "NORMALIZATION_FAILURE", err);
@@ -370,6 +374,7 @@ export function OxDeAIGuard(config: OxDeAIGuardConfig) {
         trustedKeySets: config.trustedKeySets,
         requireSignatureVerification: true,
         parentScope,
+        expectedDelegatee: intent.agent_id,
       });
 
       if (!chainResult.ok) {
