@@ -7,7 +7,7 @@ This project follows Semantic Versioning.
 
 ---
 
-## [2.0.0] - Unreleased
+## [2.0.0] - 2026-09-25
 
 **Baseline for this entry:** the published `@oxdeai/sdk@1.3.3` npm artifact
 (2026-04-23), compared file-by-file against the current candidate.

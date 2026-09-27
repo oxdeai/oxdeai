@@ -7,7 +7,7 @@ This project follows Semantic Versioning.
 
 ---
 
-## [2.0.0] - Unreleased
+## [2.0.0] - 2026-09-25
 
 **Baseline for this entry:** the published `@oxdeai/conformance@1.3.1` npm artifact
 (2026-03-08).

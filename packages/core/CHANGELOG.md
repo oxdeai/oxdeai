@@ -7,7 +7,7 @@ This project follows Semantic Versioning.
 
 ---
 
-## [2.0.0] - Unreleased
+## [2.0.0] - 2026-09-25
 
 **Baseline for this entry:** the published `@oxdeai/core@1.7.0` npm artifact
 (2026-04-01). Its packed public surface matches the source at tag `core-v1.7.0`

@@ -11,7 +11,7 @@ This project follows Semantic Versioning.
 
 ---
 
-## [2.0.0] - Unreleased
+## [2.0.0] - 2026-09-25
 
 **Baseline for this entry:** the published `@oxdeai/openai-agents@1.0.1` npm artifact
 (2026-03-19). The version was set to `1.0.1` at `8797931`; the packed
