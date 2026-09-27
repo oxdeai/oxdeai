@@ -394,13 +394,20 @@
           </div>
           <div class="proof-block">
             <div class="proof-icon">✓</div>
-            <div class="proof-title">Signed audit trail</div>
+            <div class="proof-title">Verifiable audit trail</div>
             <div class="proof-body">
               Hash-chained audit log built into the engine. Decisions are
               serialized to a verification envelope (<code class="mono"
                 >VerificationEnvelopeV1</code
               >
-              draft) with state snapshots and event sequences.
+              draft) with state snapshots and event sequences. Envelope
+              signatures are optional: an envelope is authenticated only when
+              the verifier sets
+              <code class="mono">requireSignatureVerification</code> with
+              <code class="mono">trustedKeySets</code>. Without it, verification
+              proves structure, not origin. By contrast, the guard always
+              verifies <code class="mono">AuthorizationV1</code> signatures in
+              strict mode before execution.
             </div>
           </div>
           <div class="proof-block">
@@ -430,9 +437,13 @@
           execute only after authorization succeeds.
         </p>
         <div class="arch-note" style="margin-bottom: 24px">
-          Current integration surface on <code class="mono">main</code>. OxDeAI
-          2.0 packages are being prepared for publication — see the note below
-          the examples for current npm availability.
+          Examples track <code class="mono">main</code>. The guard setup and
+          strict verification examples run on the published
+          <code class="mono">@oxdeai/core@2.0.0</code> and
+          <code class="mono">@oxdeai/guard@2.0.0</code>. Guard-enforced
+          delegation recipient binding is on <code class="mono">main</code> only
+          and is not in <code class="mono">@oxdeai/guard@2.0.0</code>; the
+          delegation example shows the explicit check 2.0.0 requires.
         </div>
 
         <div class="code-block">
@@ -453,8 +464,9 @@
 
           <!-- Guard setup -->
           <div id="tab-guard" class="code-panel active">
-            <pre><code><span class="kw">import</span> { <span class="ty">PolicyEngine</span>, <span class="fn">RECOMMENDED_TRUSTED_TIME_PROFILE</span> } <span class="kw">from</span> <span class="str">"@oxdeai/core"</span>;
-<span class="kw">import</span> { <span class="fn">createSecureGuard</span>, <span class="fn">createTrustedExecutionContext</span>, <span class="ty">OxDeAIProvenanceConflictError</span>, <span class="ty">OxDeAIDenyError</span> } <span class="kw">from</span> <span class="str">"@oxdeai/guard"</span>;
+            <pre><code><span class="kw">import</span> { <span class="ty">PolicyEngine</span>, <span class="fn">RECOMMENDED_TRUSTED_TIME_PROFILE</span>, <span class="kw">type</span> <span class="ty">Intent</span> } <span class="kw">from</span> <span class="str">"@oxdeai/core"</span>;
+<span class="kw">import</span> { <span class="fn">createSecureGuard</span>, <span class="fn">createTrustedExecutionContext</span>, <span class="fn">defaultNormalizeAction</span>, <span class="kw">type</span> <span class="ty">ProposedAction</span>,
+         <span class="ty">OxDeAINormalizationError</span>, <span class="ty">OxDeAIProvenanceConflictError</span>, <span class="ty">OxDeAIDenyError</span> } <span class="kw">from</span> <span class="str">"@oxdeai/guard"</span>;
 
 <span class="cm">// 1. Initialize the Policy Decision Point (PDP)</span>
 <span class="kw">const</span> engine = <span class="kw">new</span> <span class="ty">PolicyEngine</span>({
@@ -468,7 +480,18 @@
   ...RECOMMENDED_TRUSTED_TIME_PROFILE,   <span class="cm">// required trusted-time bounds</span>
 });
 
-<span class="cm">// 2. Create the secure guard — tenancy posture is explicit, never assumed</span>
+<span class="cm">// 2. Map the action explicitly: the amount and type the policy evaluates are</span>
+<span class="cm">//    read from the same args the callback executes. Nothing is inferred or</span>
+<span class="cm">//    defaulted. Amounts are fixed-point with 6 decimals: 1 USD = 1_000_000n.</span>
+<span class="kw">function</span> <span class="fn">toIntent</span>(action: <span class="ty">ProposedAction</span>): <span class="ty">Intent</span> {
+  <span class="kw">const</span> amount = action.args[<span class="str">"amount_micros"</span>];
+  <span class="kw">if</span> (action.name !== <span class="str">"charge_wallet"</span> || <span class="kw">typeof</span> amount !== <span class="str">"string"</span> || !<span class="str">/^[1-9][0-9]*$/</span>.<span class="fn">test</span>(amount)) {
+    <span class="kw">throw new</span> <span class="ty">OxDeAINormalizationError</span>(<span class="str">"charge_wallet requires a positive integer amount_micros"</span>);
+  }
+  <span class="kw">return</span> { ...<span class="fn">defaultNormalizeAction</span>(action), <span class="prop">action_type</span>: <span class="str">"PAYMENT"</span>, <span class="prop">amount</span>: <span class="fn">BigInt</span>(amount) };
+}
+
+<span class="cm">// 3. Create the secure guard. Tenancy posture is explicit, never assumed.</span>
 <span class="kw">const</span> guard = <span class="fn">createSecureGuard</span>(
   {
     engine,
@@ -476,13 +499,14 @@
     <span class="prop">setState</span>:        (s, v) =&gt; <span class="fn">setAgentState</span>(s, v),  <span class="cm">// CAS: returns boolean</span>
     <span class="prop">trustedKeySets</span>:   [myKeySet],
     <span class="prop">expectedAudience</span>: <span class="str">"agent-001"</span>,  <span class="cm">// must match authorization_audience above</span>
+    <span class="prop">mapActionToIntent</span>: toIntent,     <span class="cm">// explicit amount and type, no estimatedCost default of 0</span>
     <span class="prop">onDecision</span>:      (record) =&gt; <span class="fn">auditLog</span>(record),
     <span class="prop">onBoundaryEvent</span>: (event) =&gt; <span class="fn">auditBoundary</span>(event),  <span class="cm">// identity/tool conflicts, CAS conflicts</span>
   },
   { tenancy: <span class="str">"single-tenant"</span> }
 );
 
-<span class="cm">// 3. The PEP builds trusted context AFTER authenticating the caller —</span>
+<span class="cm">// 4. The PEP builds trusted context AFTER authenticating the caller,</span>
 <span class="cm">//    never by trusting a field on the incoming request body.</span>
 <span class="kw">const</span> trustedContext = <span class="fn">createTrustedExecutionContext</span>({
   principalId: authenticatedPrincipalId,
@@ -491,15 +515,14 @@
   depth:       <span class="num">0</span>,   <span class="cm">// derived from the real call chain, never proposer-supplied</span>
 });
 
-<span class="cm">// 4. The proposed action carries no identity claim — identity came from step 3</span>
+<span class="cm">// 5. Validate once, then authorize and execute the same frozen value.</span>
+<span class="cm">//    The action carries no identity claim: identity came from step 4.</span>
+<span class="kw">const</span> charge = Object.<span class="fn">freeze</span>({ wallet_id: walletId, amount_micros: <span class="str">"100000000"</span>, currency: <span class="str">"usd"</span> });  <span class="cm">// 100.00 USD</span>
 <span class="kw">try</span> {
   <span class="kw">await</span> <span class="fn">guard</span>(
     trustedContext,
-    {
-      <span class="prop">name</span>: <span class="str">"charge_wallet"</span>,
-      <span class="prop">args</span>: { amount: <span class="num">100</span>, currency: <span class="str">"usd"</span> },
-    },
-    <span class="kw">async</span> () =&gt; <span class="fn">chargeWallet</span>(<span class="num">100</span>)   <span class="cm">// only runs if ALLOW</span>
+    { <span class="prop">name</span>: <span class="str">"charge_wallet"</span>, <span class="prop">args</span>: charge },
+    <span class="kw">async</span> () =&gt; <span class="fn">chargeWallet</span>(charge)   <span class="cm">// only runs if ALLOW, with the authorized amount</span>
   );
 } <span class="kw">catch</span> (err) {
   <span class="kw">if</span> (err <span class="kw">instanceof</span> <span class="ty">OxDeAIProvenanceConflictError</span>) {
@@ -516,12 +539,15 @@
           <div id="tab-verify" class="code-panel">
             <pre><code><span class="kw">import</span> { <span class="fn">verifyAuthorization</span>, <span class="fn">createVerifier</span>, <span class="fn">verifyEnvelope</span> } <span class="kw">from</span> <span class="str">"@oxdeai/core"</span>;
 
-<span class="cm">// Inline: strict mode requires trustedKeySets</span>
+<span class="cm">// Authorization: strict mode requires trustedKeySets and a verified Ed25519 signature</span>
 <span class="kw">const</span> result = <span class="fn">verifyAuthorization</span>(artifact, {
   <span class="prop">mode</span>:             <span class="str">"strict"</span>,
   <span class="prop">trustedKeySets</span>:   [myKeySet],
   <span class="prop">expectedPolicyId</span>: <span class="str">"policy-production-v1"</span>,
 });
+<span class="kw">if</span> (result.status !== <span class="str">"ok"</span> || !result.signatureVerified) {
+  <span class="kw">throw new</span> <span class="ty">Error</span>(<span class="str">"Authorization not verified"</span>);   <span class="cm">// fail closed</span>
+}
 <span class="cm">// A valid signature from an unknown issuer → still fails closed</span>
 <span class="cm">// Missing trustedKeySets in strict mode → TRUSTED_KEYSETS_REQUIRED</span>
 
@@ -531,62 +557,98 @@
   <span class="prop">expectedIssuer</span>: <span class="str">"oxdeai-pdp"</span>,
 });
 
-<span class="cm">// Verify envelope produced by the engine after a run</span>
+<span class="cm">// Envelope: structural checks (snapshot, hash-chained audit, policy id) always run.</span>
+<span class="cm">// Envelope signatures are optional: strict mode with trustedKeySets alone still</span>
+<span class="cm">// accepts an UNSIGNED envelope. requireSignatureVerification makes it mandatory.</span>
 <span class="kw">const</span> envelopeResult = <span class="fn">verifyEnvelope</span>(envelopeBytes, {
-  <span class="prop">mode</span>:             <span class="str">"strict"</span>,
-  <span class="prop">trustedKeySets</span>:   [myKeySet],
-  <span class="prop">expectedPolicyId</span>: <span class="str">"policy-production-v1"</span>,
+  <span class="prop">mode</span>:                         <span class="str">"strict"</span>,
+  <span class="prop">trustedKeySets</span>:               [myKeySet],
+  <span class="prop">expectedIssuer</span>:               <span class="str">"oxdeai-pdp"</span>,
+  <span class="prop">requireSignatureVerification</span>: <span class="kw">true</span>,   <span class="cm">// unsigned → ENVELOPE_SIGNATURE_MISSING</span>
+  <span class="prop">expectedPolicyId</span>:             <span class="str">"policy-production-v1"</span>,
 });
 
-<span class="kw">if</span> (envelopeResult.status === <span class="str">"ok"</span>) {
-  <span class="cm">// audit trail is intact and cryptographically verified</span>
-}</code></pre>
+<span class="kw">if</span> (envelopeResult.status !== <span class="str">"ok"</span>) {
+  <span class="kw">throw new</span> <span class="ty">Error</span>(<span class="str">"Audit envelope not verified"</span>);   <span class="cm">// fail closed</span>
+}
+<span class="cm">// With requireSignatureVerification, "ok" means the audit trail is structurally</span>
+<span class="cm">// intact AND signed by a trusted key for expectedIssuer. Without it, "ok" proves</span>
+<span class="cm">// structure only.</span></code></pre>
           </div>
 
           <!-- Delegation -->
           <div id="tab-delegation" class="code-panel">
             <pre><code><span class="kw">import</span> { <span class="fn">createDelegation</span> } <span class="kw">from</span> <span class="str">"@oxdeai/core"</span>;
-<span class="kw">import</span> { <span class="fn">OxDeAIGuard</span> } <span class="kw">from</span> <span class="str">"@oxdeai/guard"</span>;
+<span class="kw">import</span> { <span class="fn">createSecureGuard</span>, <span class="fn">createTrustedExecutionContext</span> } <span class="kw">from</span> <span class="str">"@oxdeai/guard"</span>;
 
-<span class="cm">// Parent agent narrows authority to a child agent</span>
+<span class="cm">// Parent agent ("agent-001", the audience of parentAuth) narrows its authority</span>
+<span class="cm">// for exactly one child agent. Amounts are fixed-point: 1 USD = 1_000_000n.</span>
 <span class="kw">const</span> delegation = <span class="fn">createDelegation</span>(
   parentAuth,
   {
-    <span class="prop">delegatee</span>: <span class="str">"child-agent-002"</span>,
+    <span class="prop">delegatee</span>: <span class="str">"child-agent-002"</span>,   <span class="cm">// the only agent this artifact is issued to</span>
     <span class="prop">scope</span>: {
       <span class="prop">tools</span>:      [<span class="str">"provision_gpu"</span>],
-      <span class="prop">max_amount</span>: <span class="num">300n</span>,     <span class="cm">// strictly narrowed from parent</span>
+      <span class="prop">max_amount</span>: <span class="num">300_000_000n</span>,     <span class="cm">// 300 USD, strictly narrowed from parent</span>
     },
     <span class="prop">expiry</span>: parentAuth.expiry,   <span class="cm">// cannot exceed parent</span>
-    <span class="prop">kid</span>:    <span class="str">"key-001"</span>,
+    <span class="prop">kid</span>:    <span class="str">"agent-001-k1"</span>,     <span class="cm">// signed by the parent agent (issuer "agent-001")</span>
   },
-  signingKey   <span class="cm">// private key passed separately, never inside params</span>
+  parentAgentKeyPem   <span class="cm">// private key passed separately, never inside params</span>
 );
 
-<span class="cm">// Child guard verifies chain + scope before execution</span>
+<span class="cm">// Child-side PEP. DelegationV1 is a signed grant; it does not prove who presents it.</span>
+<span class="kw">const</span> guard = <span class="fn">createSecureGuard</span>(
+  {
+    engine, getState, setState,
+    <span class="prop">trustedKeySets</span>:   [pdpKeySet, parentAgentKeySet],   <span class="cm">// parentAuth and delegation signers</span>
+    <span class="prop">expectedAudience</span>: <span class="str">"agent-001"</span>,   <span class="cm">// parentAuth.audience, the delegator</span>
+    <span class="prop">trustedDelegationAuthorities</span>: [   <span class="cm">// required: which (issuer, policyId) may root a delegation</span>
+      { <span class="prop">issuer</span>: <span class="str">"oxdeai.policy-engine"</span>, <span class="prop">policyId</span>: <span class="str">"policy-production-v1"</span> },
+    ],
+    <span class="prop">mapActionToIntent</span>: toGpuIntent,   <span class="cm">// explicit amount, as in the guard setup tab</span>
+  },
+  { tenancy: <span class="str">"single-tenant"</span> }
+);
+
+<span class="cm">// The acting identity comes from authentication, never from the request body.</span>
+<span class="kw">const</span> childContext = <span class="fn">createTrustedExecutionContext</span>({
+  principalId: authenticatedPrincipalId,
+  agentId:     <span class="fn">resolveAgentId</span>(authenticatedPrincipalId),   <span class="cm">// e.g. "child-agent-002"</span>
+  adapterId:   <span class="str">"http-pep"</span>,
+  depth:       <span class="num">1</span>,   <span class="cm">// derived from the real call chain</span>
+});
+
+<span class="cm">// Recipient binding: delegatee must equal the authenticated acting agent.</span>
+<span class="cm">// On main (#350, not yet published) the guard enforces this itself, before replay</span>
+<span class="cm">// consumption, state mutation or execution. @oxdeai/guard@2.0.0 does NOT check it,</span>
+<span class="cm">// so on 2.0.0 this explicit check is required.</span>
+<span class="kw">if</span> (delegation.delegatee !== childContext.agentId) {
+  <span class="kw">throw new</span> <span class="ty">Error</span>(<span class="str">"Delegation was not issued to this agent"</span>);
+}
+
 <span class="kw">await</span> <span class="fn">guard</span>(
-  action,
-  <span class="kw">async</span> () =&gt; <span class="fn">provisionGpu</span>(),
+  childContext,
+  { <span class="prop">name</span>: <span class="str">"provision_gpu"</span>, <span class="prop">args</span>: gpuRequest },
+  <span class="kw">async</span> () =&gt; <span class="fn">provisionGpu</span>(gpuRequest),   <span class="cm">// only runs if the chain and scope verify</span>
   {
     <span class="prop">delegation</span>: {
       delegation,
-      parentAuth,
-      <span class="prop">parentScope</span>: { tools: [<span class="str">"provision_gpu"</span>], max_amount: <span class="num">1000n</span> },   <span class="cm">// parent's own ceiling</span>
+      parentAuth,   <span class="cm">// single hop: the parent is an AuthorizationV1, never another delegation</span>
+      <span class="prop">parentScope</span>: { tools: [<span class="str">"provision_gpu"</span>], max_amount: <span class="num">1_000_000_000n</span> },   <span class="cm">// parent's ceiling, from deployer config</span>
     },
-    <span class="cm">// Replay prevention via pluggable ReplayStore</span>
-    <span class="cm">// (default: in-memory; swap for Redis)</span>
   }
 );
-<span class="cm">// delegation_id consumed atomically — replay → OxDeAIAuthorizationError</span></code></pre>
+<span class="cm">// delegation_id and parent auth_id consumed atomically; replay → OxDeAIAuthorizationError</span></code></pre>
           </div>
         </div>
         <!-- end code-block -->
 
         <div class="install-strip">
           <span class="install-code">
-            OxDeAI 2.0 — including the secure guard surface shown above — is in
-            preparation for npm publication. Current source and integration
-            examples are available on GitHub.
+            @oxdeai/core@2.0.0 and @oxdeai/guard@2.0.0 are published on npm.
+            Guard-enforced delegation recipient binding (#350) is on main and
+            not yet in a published release.
           </span>
           <a
             class="btn btn-secondary"

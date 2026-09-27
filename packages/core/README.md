@@ -388,8 +388,22 @@ const engine = new PolicyEngine({ ...RECOMMENDED_TRUSTED_TIME_PROFILE, /* ... */
 const decision = engine.evaluatePure(intent, state, evaluationTime);
 if (decision.decision !== "ALLOW") throw new Error(decision.reasons.join(", "));
 
-const result = verifyEnvelope(envelopeBytes);
-if (result.status === "ok") console.log("artifact verified");
+// Envelope signatures are optional. Without requireSignatureVerification, an
+// unsigned envelope can return status "ok": that proves structure (snapshot,
+// hash-chained audit events, policy id), not who produced the envelope.
+const result = verifyEnvelope(envelopeBytes, {
+  mode: "strict",
+  trustedKeySets: [trustedKeySet],
+  expectedIssuer: ISSUER,
+  requireSignatureVerification: true, // unsigned -> ENVELOPE_SIGNATURE_MISSING
+  expectedPolicyId: engine.computePolicyId(),
+});
+if (result.status !== "ok") {
+  throw new Error(`envelope rejected: ${result.violations.map(v => v.code).join(", ")}`);
+}
+// Structure intact AND signed by a trusted key for expectedIssuer.
+// verifyEnvelope does not return signatureVerified; with the options above,
+// status "ok" is the signal.
 // status === "ok" only when the envelope contains a STATE_CHECKPOINT.
 // Set checkpoint_every_n_events: 1 (or N) in the engine options to emit one.
 ```
