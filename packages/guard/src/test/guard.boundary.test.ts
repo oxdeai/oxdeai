@@ -264,7 +264,7 @@ test("delegation tool widening is denied", async () => {
   const delegation = createDelegation(
     parentAuth as AuthorizationV1,
     {
-      delegatee: "child",
+      delegatee: "agent-1", // the acting agent (makeAction); #350 binds delegatee to intent.agent_id
       scope: { tools: ["read", "write"], max_amount: 100n },
       expiry: parentAuth.expiry,
       kid: "k1",
@@ -316,7 +316,7 @@ test("delegation amount widening is denied", async () => {
   const delegation = createDelegation(
     parentAuth as AuthorizationV1,
     {
-      delegatee: "child",
+      delegatee: "agent-1",
       scope: { tools: ["read"], max_amount: 1000n },
       expiry: parentAuth.expiry,
       kid: "k1",
@@ -368,7 +368,7 @@ test("delegation narrowing is allowed", async () => {
   const delegation = createDelegation(
     parentAuth as AuthorizationV1,
     {
-      delegatee: "child",
+      delegatee: "agent-1",
       scope: { tools: ["pay", "read"], max_amount: 100n },
       expiry: parentAuth.expiry,
       kid: "k1",
@@ -419,7 +419,7 @@ test("delegation replay is denied", async () => {
   const delegation = createDelegation(
     parentAuth as AuthorizationV1,
     {
-      delegatee: "child",
+      delegatee: "agent-1",
       scope: { tools: ["pay", "read"], max_amount: 100n },
       expiry: parentAuth.expiry,
       kid: "k1",
@@ -478,7 +478,7 @@ test("unsigned delegation is denied", async () => {
   const unsignedDelegation = createDelegation(
     parentAuth as AuthorizationV1,
     {
-      delegatee: "child",
+      delegatee: "agent-1",
       scope: { tools: ["read"], max_amount: 100n },
       expiry: parentAuth.expiry,
       kid: "k1",
@@ -530,7 +530,7 @@ test("tampered delegation signature is denied", async () => {
   const delegation = createDelegation(
     parentAuth as AuthorizationV1,
     {
-      delegatee: "child",
+      delegatee: "agent-1",
       scope: { tools: ["read"], max_amount: 100n },
       expiry: parentAuth.expiry,
       kid: "k1",
