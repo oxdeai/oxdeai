@@ -5,6 +5,7 @@
   "scripts": {
     "serve": "pnpm dlx serve .",
     "dev": "pnpm dlx serve . --listen 3000",
-    "lint": "pnpm dlx prettier@3.2.5 --check index.html style.css"
+    "lint": "pnpm dlx prettier@3.2.5 --check index.html style.css",
+    "test": "node --test identity.test.mjs"
   }
 }

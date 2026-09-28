@@ -10,7 +10,7 @@
     />
     <meta name="robots" content="index,follow" />
     <meta name="theme-color" content="#0f172a" />
-    <link rel="canonical" href="https://github.com/oxdeai/oxdeai" />
+    <link rel="canonical" href="https://www.oxdeai.dev/" />
     <meta
       property="og:title"
       content="OxDeAI — Control What AI Agents Can Execute"
@@ -21,10 +21,13 @@
     />
     <meta
       property="og:image"
-      content="https://raw.githubusercontent.com/oxdeai/oxdeai/main/docs/media/non-bypassable-split-v2.gif"
+      content="https://www.oxdeai.dev/assets/og-image.png"
     />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="OxDeAI logo" />
     <meta property="og:type" content="website" />
-    <meta property="og:url" content="https://github.com/oxdeai/oxdeai" />
+    <meta property="og:url" content="https://www.oxdeai.dev/" />
     <meta name="twitter:card" content="summary_large_image" />
     <meta
       name="twitter:title"
@@ -36,21 +39,47 @@
     />
     <meta
       name="twitter:image"
-      content="https://raw.githubusercontent.com/oxdeai/oxdeai/main/docs/media/non-bypassable-split-v2.gif"
+      content="https://www.oxdeai.dev/assets/og-image.png"
     />
-    <link rel="icon" type="image/svg+xml" href="favicon.svg" />
-    <link rel="icon" type="image/png" sizes="32x32" href="favicon.png" />
+    <link rel="icon" type="image/svg+xml" href="assets/logo-mark.svg" />
+    <link
+      rel="icon"
+      type="image/png"
+      sizes="512x512"
+      href="assets/logo-mark.png"
+    />
     <link rel="stylesheet" href="style.css" />
     <script type="application/ld+json">
       {
         "@context": "https://schema.org",
-        "@type": "Organization",
-        "name": "OxDeAI",
-        "url": "https://github.com/oxdeai/oxdeai",
-        "logo": "https://raw.githubusercontent.com/oxdeai/oxdeai/main/website/favicon.png",
-        "sameAs": [
-          "https://github.com/oxdeai/oxdeai",
-          "https://www.npmjs.com/package/@oxdeai/core"
+        "@graph": [
+          {
+            "@type": "WebSite",
+            "@id": "https://www.oxdeai.dev/#website",
+            "name": "OxDeAI",
+            "url": "https://www.oxdeai.dev/",
+            "publisher": { "@id": "https://www.oxdeai.dev/#organization" }
+          },
+          {
+            "@type": "Organization",
+            "@id": "https://www.oxdeai.dev/#organization",
+            "name": "OxDeAI",
+            "url": "https://www.oxdeai.dev/",
+            "logo": "https://www.oxdeai.dev/assets/logo-mark.png",
+            "sameAs": ["https://github.com/oxdeai"]
+          },
+          {
+            "@type": "SoftwareSourceCode",
+            "@id": "https://www.oxdeai.dev/#source",
+            "name": "OxDeAI",
+            "codeRepository": "https://github.com/oxdeai/oxdeai",
+            "author": { "@id": "https://www.oxdeai.dev/#organization" },
+            "targetProduct": {
+              "@type": "SoftwareApplication",
+              "name": "@oxdeai/core",
+              "downloadUrl": "https://www.npmjs.com/package/@oxdeai/core"
+            }
+          }
         ]
       }
     </script>
