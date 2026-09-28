@@ -93,6 +93,38 @@ test("head metadata does not hotlink raw.githubusercontent.com", () => {
   assert.doesNotMatch(head, /raw\.githubusercontent\.com/);
 });
 
+test("navbar shows the approved local lockups, switched by the existing theme class", () => {
+  const link = html.match(/<a href="#" class="nav-logo">([\s\S]*?)<\/a>/);
+  assert.ok(link, "missing navbar logo link");
+  // The visible identity is the lockup image, not text styled into "OxDeAI".
+  assert.equal(link[1].replace(/<[^>]*>/g, "").trim(), "", "navbar logo contains text");
+
+  const imgs = [...link[1].matchAll(/<img\s[^>]*>/g)].map((m) => m[0].replace(/\s+/g, " "));
+  const byClass = Object.fromEntries(imgs.map((el) => [value(el, "class"), el]));
+  assert.deepEqual(Object.keys(byClass).sort(), ["nav-logo-dark", "nav-logo-light"]);
+  assert.equal(value(byClass["nav-logo-dark"], "src"), "assets/logo-lockup-dark.svg");
+  assert.equal(value(byClass["nav-logo-light"], "src"), "assets/logo-lockup-light.svg");
+  for (const el of imgs) {
+    const src = value(el, "src");
+    assert.doesNotMatch(src, /^(?:[a-z]+:)?\/\//i, `navbar logo is hotlinked: ${src}`);
+    assert.ok(existsSync(root + src), `missing navbar logo ${src}`);
+    assert.equal(value(el, "alt"), "OxDeAI");
+
+    // The lockup canvas is transparent: no rect may cover the whole viewBox.
+    const svg = readFileSync(root + src, "utf8");
+    const [, , vbW, vbH] = svg.match(/viewBox="([^"]+)"/)[1].split(/\s+/).map(Number);
+    for (const [rect] of svg.matchAll(/<rect\s[^>]*>/g)) {
+      const covers = Number(value(rect, "width")) >= vbW && Number(value(rect, "height")) >= vbH;
+      assert.ok(!covers, `${src} has a full-canvas background: ${rect}`);
+    }
+  }
+
+  // Dark is the default theme; html.light swaps to the light lockup.
+  const css = readFileSync(root + "style.css", "utf8").replace(/\s+/g, " ");
+  assert.match(css, /\.nav-logo \.nav-logo-light, html\.light \.nav-logo \.nav-logo-dark \{ display: none; \}/);
+  assert.match(css, /html\.light \.nav-logo \.nav-logo-light \{ display: block; \}/);
+});
+
 test("GitHub and npm links target the OxDeAI repository, organization and packages", () => {
   const urls = [...html.matchAll(/https?:\/\/[^"'<>\s]+/g)].map((m) => m[0]);
   const github = urls.filter((u) => u.includes("github.com"));

@@ -90,16 +90,24 @@ nav {
 }
 
 .nav-logo {
-  font-family: var(--font-mono);
-  font-size: 1.15rem;
-  font-weight: 700;
-  color: var(--text);
-  text-decoration: none;
-  letter-spacing: -0.02em;
+  display: flex;
+  align-items: center;
 }
 
-.nav-logo span {
-  color: var(--green);
+/* Approved lockups (880x256); width follows the intrinsic aspect ratio. */
+.nav-logo img {
+  display: block;
+  height: 32px;
+  width: auto;
+}
+
+.nav-logo .nav-logo-light,
+html.light .nav-logo .nav-logo-dark {
+  display: none;
+}
+
+html.light .nav-logo .nav-logo-light {
+  display: block;
 }
 
 .nav-links {
