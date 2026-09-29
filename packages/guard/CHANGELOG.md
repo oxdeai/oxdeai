@@ -7,6 +7,35 @@ This project follows Semantic Versioning.
 
 ---
 
+## [Unreleased]
+
+### Security
+
+- Delegated execution binds `DelegationV1.delegatee` to the normalized acting
+  `intent.agent_id` (#350). A genuinely signed delegation presented by any other
+  agent is rejected with `OxDeAIDelegationError` before replay consumption, state
+  mutation or execution, and the artifact remains usable by its real delegatee.
+  Delegation calls also require a non-empty normalized `agent_id`, including when
+  a custom `mapActionToIntent` is configured. `@oxdeai/guard@2.0.0` does not
+  perform this check.
+
+### Documentation
+
+- README: the delegation section no longer claims the chain is verified "before
+  policy evaluation". The delegation path does not evaluate the `PolicyEngine`;
+  the delegation chain and effective delegation scope are its constraints. The
+  example now uses `createSecureGuard`, `createTrustedExecutionContext`,
+  `trustedDelegationAuthorities` and the required `parentScope`.
+- README: the custom mapper example derives identity from the trusted context,
+  prices the action from a deployer-controlled table, binds all arguments through
+  `metadata_hash`, and executes the same validated arguments it authorized. The
+  low-level path documents that `action.context.agent_id` is trusted only when the
+  integration sets it from an authenticated source, and that a missing
+  `estimatedCost` evaluates at amount `0n`.
+- CHANGELOG: corrected the 2.0.0 enforcement-ordering entry below.
+
+---
+
 ## [2.0.0] - 2026-09-25
 
 **Baseline for this entry:** the published `@oxdeai/guard@1.0.1` npm artifact
@@ -97,10 +126,15 @@ This project follows Semantic Versioning.
 ### Security hardening
 
 - Execution is gated on an ordered fail-closed sequence: state load → normalize →
-  evaluate → require authorization and `nextState` → consume `auth_id` → strict
-  verification → `intent_hash` binding → `state_hash` binding → CAS commit →
-  `beforeExecute` → `execute()`. Any failure blocks execution with no side effects
-  committed.
+  evaluate → require authorization and `nextState` → strict verification →
+  `intent_hash` binding → `state_hash` binding → consume `auth_id` → CAS commit →
+  `beforeExecute` → `execute()`. A failure before the `auth_id` consume leaves no
+  replay entry, state commit or side effect. Consumption is irreversible: a
+  failure after it (CAS conflict, `beforeExecute` error, or a failure inside
+  `execute()`) leaves the `auth_id` spent, and a failure inside `execute()` does
+  not roll back the CAS commit. *(Corrected after release: this entry originally
+  listed the `auth_id` consume before verification and claimed no side effects on
+  any failure; the ordering above is what 2.0.0 implements.)*
 - `intent_hash` is recomputed from the normalized intent and compared with the
   artifact commitment. A canonicalization failure and a computed mismatch are
   treated as the same audit fact.
@@ -108,8 +142,10 @@ This project follows Semantic Versioning.
   uncomputable and unequal are all a binding failure.
 - CAS commit happens **before** `execute()`, so a concurrent state change blocks the
   side effect rather than being detected after it.
-- `auth_id` and `delegation_id` are consumed atomically before execution; a replay
-  store that is unavailable throws and the guard denies.
+- `auth_id` and `delegation_id` are each consumed with an atomic check-and-set
+  before execution, after every verification they depend on; a replay store that
+  is unavailable throws and the guard denies. On the delegation path
+  `delegation_id` is consumed first, then the parent `auth_id`.
 - Authorization verification runs in strict mode with
   `requireSignatureVerification`, bound to `expectedAudience`, `expectedIssuer` and
   `expectedPolicyId`.

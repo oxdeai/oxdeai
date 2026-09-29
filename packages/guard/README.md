@@ -57,25 +57,42 @@ const guard = OxDeAIGuard({
   trustedKeySets: [myKeySet],    // required: KeySets used to verify Ed25519 signatures
 });
 
-// Call it before every tool execution.
+// Call it before every tool execution. The callback executes the same
+// arguments object that was authorized.
+const request = Object.freeze({ asset: "a100", region: "us-east-1" });
 const result = await guard(
   {
     name: "provision_gpu",
-    args: { asset: "a100", region: "us-east-1" },
+    args: request,
     estimatedCost: 500,
     resourceType: "gpu",
     context: {
-      agent_id: "agent-xyz",
+      agent_id: "agent-xyz", // trusted only if your code sets it; see below
       target: "gpu-pool-us-east-1",
     },
   },
-  async () => provisionGpu("a100", "us-east-1")
+  async () => provisionGpu(request)
 );
 ```
 
-The `execute` callback is **only invoked when the policy engine returns ALLOW
-and the authorization artifact passes cryptographic verification**. On DENY,
-`OxDeAIDenyError` is thrown and execution never reaches the callback.
+On this (non-delegation) path, the `execute` callback is **only invoked when the
+policy engine returns ALLOW and the authorization artifact passes cryptographic
+verification**. On DENY, `OxDeAIDenyError` is thrown and execution never reaches
+the callback.
+
+**Identity on the low-level path.** `OxDeAIGuard` evaluates whatever
+`action.context.agent_id` it receives. That value is a trusted identity only if
+your integration sets it from an authenticated, server-side source (the
+framework adapters set it from their deployment `agentId`). A value taken from a
+request body, tool call, or model output is a proposer claim, not an identity.
+When the caller can be authenticated, use
+[`createSecureGuard`](#tier-1-secure-path) instead.
+
+**Cost.** The default normalizer turns `estimatedCost` into the evaluated
+`amount`. When `estimatedCost` is absent the amount is `0n`, so budget and
+per-action caps do not constrain the call. For cost-bearing actions, derive the
+amount explicitly and fail closed when it is missing (see
+[Custom action-to-intent mapping](#custom-action-to-intent-mapping)).
 
 **Ordering:** the CAS `setState(nextState, expectedVersion)` commit happens
 before `execute()` is invoked, not after. This blocks execution on a
@@ -91,32 +108,63 @@ back. See [Known limits](#known-limits).
 The default normalizer converts a `ProposedAction` to an OxDeAI `Intent` using
 heuristics (cost → amount, resourceType → action_type, etc.). For production
 deployments you should supply a custom mapper that expresses your domain model
-precisely:
+precisely. The mapper must make authorization and execution operate on the
+**same validated arguments**: the amount comes from those arguments or from a
+trusted pricing source, never from a separate proposer-supplied estimate, and a
+missing or unknown cost-bearing value fails closed.
 
 ```typescript
-import { OxDeAIGuard } from "@oxdeai/guard";
-import { buildIntent } from "@oxdeai/sdk";
+import type { Intent } from "@oxdeai/core";
+import {
+  createSecureGuard,
+  defaultNormalizeAction,
+  OxDeAINormalizationError,
+  type ProposedAction,
+} from "@oxdeai/guard";
 
-const guard = OxDeAIGuard({
-  engine,
-  getState,
-  setState,
-  expectedAudience: "agent-xyz",
-  trustedKeySets: [myKeySet],
-  mapActionToIntent(action) {
-    return buildIntent({
-      agent_id: action.context?.agent_id as string,
-      action_type: "PROVISION",
-      asset: action.args.asset as string,
-      target: action.args.region as string,
-      amount: BigInt(Math.round((action.estimatedCost ?? 0) * 1_000_000)),
-      nonce: BigInt(Math.floor(Math.random() * Number.MAX_SAFE_INTEGER)),
-      intent_id: crypto.randomUUID(),
-      timestamp: action.timestampSeconds ?? Math.floor(Date.now() / 1000),
-    });
+// Deployer-controlled pricing in fixed-point micro-units (1 unit = 1_000_000n).
+// Never read from the request.
+const GPU_PRICE_MICROS = new Map<string, bigint>([
+  ["a100", 2_500_000_000n],
+  ["h100", 4_000_000_000n],
+]);
+const REGIONS = new Set(["us-east-1", "eu-west-1"]);
+
+export function toIntent(action: ProposedAction): Intent {
+  const { asset, region } = action.args;
+  const price = typeof asset === "string" ? GPU_PRICE_MICROS.get(asset) : undefined;
+  if (action.name !== "provision_gpu" || price === undefined || typeof region !== "string" || !REGIONS.has(region)) {
+    throw new OxDeAINormalizationError("provision_gpu requires a known asset and region");
+  }
+  // defaultNormalizeAction supplies agent_id (reconciled against the
+  // TrustedExecutionContext by createSecureGuard), a fresh intent_id and nonce,
+  // and metadata_hash = sha256 of the sorted args, which binds every argument.
+  return { ...defaultNormalizeAction(action), action_type: "PROVISION", amount: price, target: region };
+}
+
+const guard = createSecureGuard(
+  {
+    engine,
+    getState,
+    setState,
+    expectedAudience: "agent-xyz",
+    trustedKeySets: [myKeySet],
+    mapActionToIntent: toIntent,
   },
-});
+  { tenancy: "single-tenant" }
+);
+
+// Validate once, freeze, then authorize and execute the same object.
+const request = Object.freeze({ asset: "a100", region: "us-east-1" });
+await guard(trustedContext, { name: "provision_gpu", args: request }, async () => provisionGpu(request));
 ```
+
+An unknown asset or region throws `OxDeAINormalizationError` before the policy
+engine runs, and `execute` is never called. There is no zero-cost fallback.
+Identity comes from `trustedContext` (see [Tier 1 secure path](#tier-1-secure-path)):
+`createSecureGuard` fills `agent_id` from it and rejects a conflicting proposer
+claim. Do not derive `agent_id` from `action.context` in a mapper used with the
+low-level `OxDeAIGuard` unless your code, not the proposer, set that value.
 
 ---
 
@@ -196,16 +244,17 @@ const trustedContext = createTrustedExecutionContext({
   depth: currentCallDepth, // required, never defaulted: no implicit "root call" fallback
 });
 
+const request = Object.freeze({ asset: "a100", region: "us-east-1" });
 const result = await guard(
   trustedContext,
   {
     name: "provision_gpu",
-    args: { asset: "a100", region: "us-east-1" },
+    args: request,
     estimatedCost: 500,
     resourceType: "gpu",
     context: { target: "gpu-pool-us-east-1" },
   },
-  async () => provisionGpu("a100", "us-east-1")
+  async () => provisionGpu(request)
 );
 ```
 
@@ -242,7 +291,9 @@ evaluated intent's provenance is established.
 | `evaluatePure` throws | `OxDeAIAuthorizationError` thrown (fail-closed) |
 | Delegation chain verification fails | `OxDeAIDelegationError` thrown, execute not called |
 | Delegation scope widens or expiry exceeds parent | `OxDeAIDelegationError` thrown |
-| In-scope delegation action | `execute` called; `setState` not called on delegation path |
+| `delegation.delegatee` differs from the acting `agent_id` (guard ≥ 2.0.1) | `OxDeAIDelegationError` thrown, execute not called, nothing consumed |
+| No `trustedDelegationAuthorities` configured on a delegation call | `OxDeAIGuardConfigurationError` thrown, execute not called |
+| In-scope delegation action | `execute` called; `PolicyEngine` not evaluated; `setState` not called on delegation path |
 | (Tier 1 only) proposer claim conflicts with `TrustedExecutionContext` | `OxDeAIProvenanceConflictError` thrown, execute not called |
 
 **There is no code path that executes without a valid, verified authorization.**
@@ -377,23 +428,108 @@ const myStore: ReplayStore = {
 
 ## Delegation execution path
 
-When a sub-agent presents a `DelegationV1` chain, pass it in `opts.delegation`:
+A parent agent holding an `AuthorizationV1` can delegate a narrower scope to
+exactly one child agent with a `DelegationV1`. The child presents both artifacts
+through `opts.delegation`. A `DelegationV1` is a signed grant; it does not prove
+who is presenting it. The acting identity must come from a
+`TrustedExecutionContext`, and the guard requires:
+
+```text
+delegation.delegatee === trusted execution identity (intent.agent_id)
+```
 
 ```typescript
-const result = await guard(action, execute, {
-  delegation: { delegation: delegationChain, parentAuth },
+import { createDelegation } from "@oxdeai/core";
+import { createSecureGuard, createTrustedExecutionContext } from "@oxdeai/guard";
+
+// Parent side: agent-A (the audience of parentAuth) delegates to agent-B only.
+// The delegation is signed by agent-A's own key; its issuer defaults to parentAuth.audience.
+const delegation = createDelegation(
+  parentAuth,
+  {
+    delegatee: "agent-B",
+    scope: { tools: ["provision_gpu"], max_amount: 3_000_000_000n }, // strictly narrower than parentScope
+    expiry: parentAuth.expiry, // cannot exceed the parent
+    kid: "agent-A-k1",
+  },
+  agentAPrivateKeyPem
+);
+
+// Child side: the PEP that executes on agent-B's behalf.
+const guard = createSecureGuard(
+  {
+    engine,
+    getState,
+    setState,
+    expectedAudience: "agent-A", // parentAuth.audience, i.e. the delegator
+    trustedKeySets: [pdpKeySet, agentAKeySet], // parentAuth signer and delegation signer
+    trustedDelegationAuthorities: [{ issuer: "oxdeai.policy-engine", policyId }], // required
+    mapActionToIntent: toIntent, // explicit amount; see "Custom action-to-intent mapping"
+  },
+  { tenancy: "single-tenant" }
+);
+
+// Built after authenticating the caller. Never taken from the request body.
+const childContext = createTrustedExecutionContext({
+  principalId: authenticatedPrincipal.id,
+  agentId: authenticatedPrincipal.agentId, // must equal delegation.delegatee
+  adapterId: "http-adapter",
+  depth: currentCallDepth,
+});
+
+const request = Object.freeze({ asset: "a100", region: "us-east-1" });
+await guard(childContext, { name: "provision_gpu", args: request }, async () => provisionGpu(request), {
+  delegation: {
+    delegation,
+    parentAuth,
+    // The parent's own authority ceiling, from deployer configuration, not from the request.
+    parentScope: { tools: ["provision_gpu"], max_amount: 10_000_000_000n },
+  },
 });
 ```
 
-The guard verifies the full delegation chain before policy evaluation:
+**What the delegation path does**, in order, when `opts.delegation` is present:
 
-- Parent `auth_id` hash matches `delegationParentHash`
-- Scope does not widen relative to parent (budget, tools, expiry)
-- Signatures are valid at every link
+1. Reads state (`getState()`) and normalizes the action; delegation requires a
+   non-empty normalized `agent_id`.
+2. Fails closed if `trustedDelegationAuthorities` is not configured
+   (`OxDeAIGuardConfigurationError`). An empty list is valid configuration that
+   authorizes no delegation root.
+3. Fails closed if `parentScope` is missing or malformed.
+4. Verifies `parentAuth` in strict mode: signature against `trustedKeySets`,
+   `expectedAudience`, expiry, and its `(issuer, policy_id)` pair against
+   `trustedDelegationAuthorities` (`OxDeAIAuthorityError` when authority is the
+   only defect).
+5. Verifies the delegation chain: parent hash binding, parent and delegation
+   expiry, delegation expiry not exceeding the parent, `delegator` equal to
+   `parentAuth.audience`, policy binding, delegation signature, scope narrowing
+   against `parentScope`, single hop, and (guard ≥ 2.0.1) `delegatee` equal to
+   the acting `agent_id`.
+6. Checks the action against the effective delegation scope: `action.name` must
+   be in `scope.tools`, and the normalized `amount` must not exceed
+   `scope.max_amount`.
+7. Consumes `delegation_id` (when the replay store supports it), then the parent
+   `auth_id`.
+8. Runs `beforeExecute`, then `execute()`, then reports `onDecision` (ALLOW).
 
-On any violation, `OxDeAIDelegationError` is thrown and `execute` is never
-called. `setState` is also not called on the delegation path: the scope is
-committed by the parent authorization.
+Any failure in steps 1 to 6 throws before replay consumption, state mutation, or
+execution. After a rejected presentation (for example by the wrong agent), the
+unconsumed artifacts remain usable by the real delegatee.
+
+**What the delegation path does not do.** It does **not** evaluate the
+`PolicyEngine`: kill switches, budgets, action-type allowlists, velocity and the
+other policy modules are not applied to delegated execution, and no policy
+decision or authorization is issued for it. The delegation chain and the
+effective delegation scope are the constraints. `setState` is not called, so no
+policy state is committed. Because the parent `auth_id` is consumed, a parent
+authorization backs at most one delegated execution within a replay domain.
+
+**Versions.** `@oxdeai/guard@2.0.0` does not bind `delegatee` to the acting
+agent: any presenter holding valid artifacts can execute. Upgrade to 2.0.1 or
+later. On the low-level `OxDeAIGuard`, the binding compares against the
+normalized `action.context.agent_id`, which is a trusted identity only if your
+code set it from an authenticated source (see
+[Basic usage](#basic-usage)); prefer `createSecureGuard` for delegation.
 
 Property-based coverage: G-D1 (allow path), G-D2 (all invalid classes fail
 closed), G-D3 (wrong parent hash mismatch).
@@ -413,6 +549,14 @@ closed), G-D3 (wrong parent hash mismatch).
 | `context.intent_id` | `intent_id` | random hex |
 | `context.nonce` | `nonce` | random bigint |
 | `args` (sorted JSON) | `metadata_hash` (sha256 hex) | - |
+
+The fallbacks above are silent. An action without `estimatedCost` is evaluated
+at amount `0n`, and a name that matches no heuristic (for example
+`charge_wallet`) is classified `PROVISION`, not `PAYMENT`. `args` are bound
+through `metadata_hash` but are never read as the amount. For cost-bearing or
+payment actions, supply a `mapActionToIntent` that sets `action_type` and
+`amount` explicitly from the validated arguments and throws when they are
+missing.
 
 ---
 
