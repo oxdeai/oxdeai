@@ -1,6 +1,6 @@
 {
   "name": "@oxdeai/guard",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "description": "Universal execution authorization guard (PEP boundary) for OxDeAI",
   "license": "Apache-2.0",
   "keywords": [

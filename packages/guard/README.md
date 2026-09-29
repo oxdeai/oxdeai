@@ -1,12 +1,12 @@
 # @oxdeai/guard
 Policy Enforcement Point for the OxDeAI execution-time authorization protocol.
 Verifies AuthorizationV1 locally, fail-closed.
-No valid authorization, no execution through the reviewed enforcement boundary.
+No valid authorization, no execution through the configured enforcement boundary.
 
-Current `@oxdeai/guard` package line: **2.0.0**. See [`CHANGELOG.md`](./CHANGELOG.md)
-for the full breaking-change list. `expectedAudience` and `trustedKeySets` are
-now required, `getState`/`setState` are versioned/CAS, and `createSecureGuard`
-is new in this release.
+Current `@oxdeai/guard` package line: **2.0.1**. See [`CHANGELOG.md`](./CHANGELOG.md)
+for release details. 2.0.1 binds `DelegationV1.delegatee` to the acting agent;
+the 2.0 line requires `expectedAudience` and `trustedKeySets`, uses
+versioned/CAS `getState`/`setState`, and introduced `createSecureGuard`.
 
 This package exposes two entry points:
 

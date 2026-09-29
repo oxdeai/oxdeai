@@ -7,7 +7,11 @@ This project follows Semantic Versioning.
 
 ---
 
-## [Unreleased]
+## [2.0.1] - 2026-09-29
+
+Patch release of `@oxdeai/guard`. It packs against `@oxdeai/core@2.0.0` (exact
+dependency) and does not change the public API or type declarations. The only
+runtime behavior change since 2.0.0 is the delegation recipient binding below.
 
 ### Security
 
