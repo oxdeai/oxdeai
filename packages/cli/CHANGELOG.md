@@ -7,6 +7,17 @@ This project follows Semantic Versioning.
 
 ---
 
+## [0.3.1] - 2026-10-04
+
+Dependency release of `@oxdeai/cli`. It packs against `@oxdeai/core@2.0.1`
+(exact dependency). No CLI source change.
+
+### Security
+
+- Pins `@oxdeai/core@2.0.1` (GHSA-48xw-c298-546r). The CLI constructs its own
+  `PolicyEngine`, so `@oxdeai/cli@0.3.0` evaluates with the affected
+  `core@2.0.0`.
+
 ## [0.3.0] - 2026-09-25
 
 **Baseline for this entry:** the published `@oxdeai/cli@0.2.4` npm artifact

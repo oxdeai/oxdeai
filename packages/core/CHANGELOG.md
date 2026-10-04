@@ -7,6 +7,64 @@ This project follows Semantic Versioning.
 
 ---
 
+## [2.0.1] - 2026-10-04
+
+Security patch release of `@oxdeai/core`. No public API, type declaration,
+reason-code, AuthorizationV1, DelegationV1, canonicalization, signing, hashing
+or wire-format change: the packed public API report is identical to 2.0.0.
+
+### Security
+
+- **Replay nonce capacity eviction could permit duplicate authorization and
+  execution (GHSA-48xw-c298-546r).** Affected: `@oxdeai/core >=0.2.2, <2.0.1`.
+  Replay protection could forget a nonce while the same intent was still
+  admissible, so one intent could receive a second `ALLOW` with a new `auth_id`
+  (which a downstream `auth_id` replay store does not recognise). Three paths
+  are closed:
+  - **Retention.** A nonce is now retained for
+    `max(replay.window_seconds, maxIntentAgeSeconds + maxClockSkewSeconds)`
+    seconds of trusted evaluation time (inclusive bound). A configured window
+    shorter than the trusted-time freshness horizon is widened, never trusted
+    as-is. If that sum is not a safe integer, nothing is pruned.
+  - **Capacity.** A still-retained nonce is never evicted to make room. When
+    retained nonces for an agent reach `replay.max_nonces_per_agent`, the new
+    intent is denied (fail closed) and replay state is left unchanged.
+  - **Configuration.** `replay.max_nonces_per_agent` below 1 (including `0`),
+    and a negative `replay.window_seconds`, previously disabled replay
+    protection; evaluation now denies with `STATE_INVALID`.
+
+  Any `DENY` leaves replay state exactly as it was, so a failed competing
+  intent cannot weaken protection of retained nonces.
+
+### Changed
+
+- **Replay-capacity exhaustion is reported as `VELOCITY_EXCEEDED`.** To keep the
+  public `ReasonCode` union unchanged in a patch release, 2.0.1 reuses this
+  existing code. In 2.0.1 a `VELOCITY_EXCEEDED` denial may therefore mean
+  either the velocity limit or replay-capacity exhaustion; operators should not
+  treat it as a velocity signal alone.
+- **Availability / sizing.** `replay.max_nonces_per_agent` is now an
+  availability limit, not a memory hint. An agent that reaches it is denied
+  until retained nonces leave the retention interval above. Size it to at least
+  the maximum number of accepted evaluations per agent (EXECUTE and RELEASE both
+  consume a nonce) within that interval. With the documented defaults
+  (`window_seconds: 3600`, `max_nonces_per_agent: 256`), more than 256 accepted
+  evaluations per agent per hour are now denied where 2.0.0 silently evicted.
+  Persisted states carrying a cap below 1 deny every evaluation after upgrade.
+- **Multi-PEP deployments.** 2.0.1 widens retention to the freshness horizon
+  only; it has no inter-PEP skew option. Deployments with more than one PEP
+  sharing replay state must set `replay.window_seconds` to at least
+  `maxIntentAgeSeconds + maxClockSkewSeconds + ` the maximum inter-PEP clock
+  disagreement.
+
+### Upgrade notes
+
+- No 0.x or 1.x backport is currently planned. Those lines must migrate to 2.0.1.
+- `@oxdeai/guard`, `@oxdeai/sdk`, `@oxdeai/conformance` and `@oxdeai/cli` pin
+  `@oxdeai/core` exactly; upgrade to their releases that pin `2.0.1`. The Guard
+  uses the caller's `PolicyEngine`, so make sure that engine comes from
+  `@oxdeai/core@2.0.1` (`npm ls @oxdeai/core`).
+
 ## [2.0.0] - 2026-09-25
 
 **Baseline for this entry:** the published `@oxdeai/core@1.7.0` npm artifact

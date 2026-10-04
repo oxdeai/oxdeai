@@ -7,6 +7,15 @@ This project follows Semantic Versioning.
 
 ---
 
+## [2.0.1] - 2026-10-04
+
+Dependency release of `@oxdeai/conformance`. It packs against
+`@oxdeai/core@2.0.1` (exact dependency). The vector corpus is unchanged.
+
+### Security
+
+- Pins `@oxdeai/core@2.0.1` (GHSA-48xw-c298-546r).
+
 ## [2.0.0] - 2026-09-25
 
 **Baseline for this entry:** the published `@oxdeai/conformance@1.3.1` npm artifact

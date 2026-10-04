@@ -6,14 +6,12 @@ Runs local verification and artifact inspection; no valid authorization means ex
 
 ## Version and registry status
 
-The published npm package (`npm view @oxdeai/cli version`) is `0.2.4`. This
-repository's current `packages/cli/package.json` version is `0.3.0`
-(unreleased). The two differ in behavior, not just number: per
-[`CHANGELOG.md`](./CHANGELOG.md), `0.3.0` enforces a valid `engine_secret` on
-the validation path and requires an explicit `--trusted-keyset` (or
-`--mode best-effort`) on strict `verify` entry points; the published `0.2.4`
-does neither. Commands below and their env-var requirements describe this
-repository's `0.3.0` behavior, not the currently published `0.2.4` artifact.
+This repository's `packages/cli/package.json` version is `0.3.1`, which pins
+`@oxdeai/core@2.0.1` (see [`CHANGELOG.md`](./CHANGELOG.md)). Since `0.3.0` the
+CLI enforces a valid `engine_secret` on the validation path and requires an
+explicit `--trusted-keyset` (or `--mode best-effort`) on strict `verify` entry
+points; `0.2.4` and earlier do neither. Commands below describe the `0.3.x`
+behavior.
 
 ## Quickstart
 
@@ -25,9 +23,9 @@ Install the CLI:
 npm install -g @oxdeai/cli
 ```
 
-This installs the published `0.2.4` line, not the `0.3.0` behavior described
-below. To run the behavior in this repository, use the local monorepo
-workflow instead (see "Local monorepo contributors").
+This installs the latest published version. To run the behavior in this
+repository, use the local monorepo workflow instead (see "Local monorepo
+contributors").
 
 `build`, `verify auth`, and `launch dry-run` require a trusted engine secret:
 
@@ -188,8 +186,7 @@ oxdeai launch dry-run PROVISION 100 us-east-1 --agent agent-1 --nonce 1 --json
 
 Protocol-aware stub. The current implementation (`packages/cli/src/main.ts`)
 reports itself as `@oxdeai/cli v0.2.x` in this message; that string has not
-been updated to match this package's own `package.json` version (`0.3.0`,
-unreleased). It returns a clear unsupported response and points users to
+been updated to match this package's own `package.json` version (`0.3.1`). It returns a clear unsupported response and points users to
 deterministic audit verification (`verify --kind audit`).
 
 ## Output and Exit Codes
