@@ -35,6 +35,7 @@
 
 import { createHash } from "node:crypto";
 import { observeRegistryPrecheck, RELEASE_REGISTRY_REQUIREMENTS } from "./auth-precheck.mjs";
+import { assertReleaseToolchain, observeReleaseToolchain, readReleaseToolchain } from "./toolchain.mjs";
 import { spawnSync } from "node:child_process";
 import {
   existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync,
@@ -512,11 +513,62 @@ export function defaultPackTransport() {
   };
 }
 
+// ── PACK source identity (#344) ───────────────────────────────────────────
+//
+// The manifest states "these bytes were packed from sourceRevision". PACK
+// itself observes the checkout it packs from, through an injected
+// `sourceTransport.snapshot(): { root, revision, clean }`, once before packing
+// and again after the last tarball is written. A clean worktree check by an
+// earlier step (PRECHECK) does not cover programmatic callers or changes made
+// while packing, e.g. by a prepack build.
+export function gitSourceTransport(root = ROOT) {
+  const git = (args) => spawnSync("git", args, { cwd: root, encoding: "utf8" });
+  return {
+    snapshot() {
+      const head = git(["rev-parse", "HEAD"]);
+      const status = git(["status", "--porcelain", "--untracked-files=normal"]);
+      if (head.status !== 0 || status.status !== 0) {
+        throw new ReleaseOrchestratorError(`PACK source: git could not describe ${root}`);
+      }
+      return { root, revision: head.stdout.trim(), clean: status.stdout.trim().length === 0 };
+    },
+  };
+}
+
+function observePackSource(sourceTransport, sourceRevision, discovered, stage) {
+  if (!sourceTransport || typeof sourceTransport.snapshot !== "function") {
+    throw new ReleaseOrchestratorError("PACK source: pack() requires an injected sourceTransport with snapshot()");
+  }
+  const observed = sourceTransport.snapshot();
+  if (!observed || typeof observed.root !== "string" || !path.isAbsolute(observed.root) ||
+      typeof observed.revision !== "string" || typeof observed.clean !== "boolean") {
+    throw new ReleaseOrchestratorError(`PACK source (${stage}): malformed source observation`);
+  }
+  if (observed.revision !== sourceRevision) {
+    throw new ReleaseOrchestratorError(
+      `PACK source (${stage}): checkout is at ${observed.revision}, not sourceRevision ${sourceRevision}`
+    );
+  }
+  if (!observed.clean) {
+    throw new ReleaseOrchestratorError(
+      `PACK source (${stage}): checkout ${observed.root} is not clean; packed bytes would not be attributable to ${sourceRevision}`
+    );
+  }
+  for (const d of discovered) {
+    const rel = path.relative(observed.root, d.dir);
+    if (rel === "" || rel.startsWith("..") || path.isAbsolute(rel)) {
+      throw new ReleaseOrchestratorError(`PACK source (${stage}): ${d.name} at ${d.dir} is outside the observed checkout ${observed.root}`);
+    }
+  }
+  return observed;
+}
+
 export function pack({
   discovered,
   policy = POLICY,
   releaseDir,
   sourceRevision,
+  sourceTransport,
   determinismProbePackage,
   packTransport = defaultPackTransport(),
   now = () => new Date().toISOString(),
@@ -534,6 +586,7 @@ export function pack({
   }
   assertReleaseMetadataConsistency(policy);
   assertPolicyCoverage(discovered);
+  const before = observePackSource(sourceTransport, sourceRevision, discovered, "before packing");
 
   const probeTarget = discovered.find((d) => d.name === (determinismProbePackage ?? discovered[0]?.name));
   if (!probeTarget) throw new ReleaseOrchestratorError("no package available for the determinism probe");
@@ -558,6 +611,24 @@ export function pack({
       integrity,
     };
   });
+
+  // Fail closed if the checkout moved or became dirty while packing. The
+  // tarballs already written stay unrecorded, and the existing-evidence guard
+  // above makes this release directory unusable for any later PACK.
+  let after;
+  try {
+    after = observePackSource(sourceTransport, sourceRevision, discovered, "after packing");
+  } catch (error) {
+    throw new ReleaseOrchestratorError(
+      `PACK source changed while packing; no release identity recorded in ${releaseDir}. ${error.message}`
+    );
+  }
+  if (after.root !== before.root) {
+    throw new ReleaseOrchestratorError(
+      `PACK source changed while packing; no release identity recorded in ${releaseDir}. ` +
+      `Observed checkout moved from ${before.root} to ${after.root}`
+    );
+  }
 
   const manifestSansIntegrity = {
     manifestVersion: MANIFEST_VERSION,
@@ -1204,8 +1275,9 @@ async function main() {
     const discovered = discoverPublishablePackages();
     precheck({ discovered, gitTransport: realGitTransport() });
     reportLocalPrecheck();
+    assertReleaseToolchain(observeReleaseToolchain(ROOT), readReleaseToolchain(ROOT));
     const sourceRevision = currentSourceRevision();
-    const { manifest } = pack({ discovered, releaseDir: releaseDirArg, sourceRevision });
+    const { manifest } = pack({ discovered, releaseDir: releaseDirArg, sourceRevision, sourceTransport: gitSourceTransport() });
     console.log(`PACK (local): PASS — ${manifest.packages.length} package(s) recorded in ${releaseDirArg}/${MANIFEST_FILENAME}`);
     console.log("Registry auth/rights/public-scope checks: NOT RUN");
     return;

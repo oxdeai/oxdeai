@@ -160,10 +160,10 @@ jobs:
       - name: Enable Corepack
         run: corepack enable
 
-      - name: Setup Node 22
+      - name: Setup pinned release Node
         uses: actions/setup-node@v4
         with:
-          node-version: "22"
+          node-version-file: .node-version
           cache: "pnpm"
 
       - name: Install
@@ -171,6 +171,38 @@ jobs:
 
       - name: Packed Artifact Consumer Gate
         run: pnpm run verify:packed-artifacts
+
+  release-reproducibility:
+    # #344: release tooling regression tests and byte-for-byte reproducible
+    # packing from the checked-out revision, on the pinned release toolchain
+    # (Node from .node-version, pnpm from packageManager). Packs into a
+    # temporary directory only; nothing is published.
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Setup pinned release Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+          cache: "pnpm"
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Release tooling regression tests
+        run: pnpm test:release
+
+      - name: Reproducible pack (3 packs per publishable package)
+        run: pnpm verify:reproducible-pack --runs 3
 
   rust-verifier:
     runs-on: ubuntu-latest

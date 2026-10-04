@@ -53,7 +53,7 @@
     "typescript": "^5.0.0"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json && node scripts/build-evidence-metadata.mjs",
+    "build": "rm -rf dist && tsc -p tsconfig.json && node scripts/build-evidence-metadata.mjs",
     "prepack": "pnpm build",
     "extract": "pnpm -C ../core build && pnpm build && node dist/scripts/extract-vectors.js",
     "validate": "pnpm -C ../core build && pnpm build && node dist/src/validate.js",

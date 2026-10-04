@@ -17,6 +17,8 @@ overrides:
   js-yaml: '>=5.2.2'
   ip-address: '>=10.3.1'
 
+pnpmfileChecksum: sha256-4yUvhAdYXfPj+TpApOIJfGPJAkCvu11eyE/ncsTvuQk=
+
 importers:
 
   .:
