@@ -302,6 +302,16 @@ export class PolicyEngine {
   }
 
   /**
+   * Interval during which one intent remains admissible under the trusted-time
+   * freshness gate. Replay retention must cover it in full; an unrepresentable
+   * sum retains every entry rather than pruning any.
+   */
+  private freshnessHorizonSeconds(): number {
+    const horizon = this.opts.maxIntentAgeSeconds + this.opts.maxClockSkewSeconds;
+    return Number.isSafeInteger(horizon) ? horizon : Number.POSITIVE_INFINITY;
+  }
+
+  /**
    * `evaluationTime` is the trusted PEP clock (unix seconds), sampled once
    * per evaluation by the caller (docs/spec/core/trusted-time-v1.md §2.1).
    * It is REQUIRED and never defaulted or derived from `intent.timestamp` or
@@ -504,7 +514,10 @@ export class PolicyEngine {
 
       // ── Decision phase ──────────────────────────────────────────────────
       // (intent + state + module policies) → ALLOW | DENY + nextState
-      const decisionResult = runDecisionModules({ intent, state, evaluationTime, mode }, modules);
+      const decisionResult = runDecisionModules(
+        { intent, state, evaluationTime, freshnessHorizonSeconds: this.freshnessHorizonSeconds(), mode },
+        modules
+      );
 
       if (decisionResult.decision === "DENY") {
         this.emitAudit({
