@@ -130,6 +130,22 @@ guard-v1.0.2
 
 Those tags on one commit mean the releases were coordinated. They do not mean the packages share a version line.
 
+### Core dependency compatibility
+
+A release of `@oxdeai/core` MAY ship independently only when every supported
+published integration remains compatible with the new Core version under the
+dependency ranges consumers actually receive.
+
+If a supported package pins Core to an exact version and exchanges Core-owned
+public types across its package boundary, a Core release that would otherwise
+cause consumers to install incompatible Core copies MUST be coordinated with
+that dependent package.
+
+Before releasing Core independently, maintainers MUST verify the packed
+dependency topology and a consumer-level integration using the documented
+public API. Dependency compatibility MUST be selected explicitly; it must not
+be inferred from workspace protocol declarations alone.
+
 ## 6. Changelog Requirements
 
 Every released package must have a changelog entry before tagging.
