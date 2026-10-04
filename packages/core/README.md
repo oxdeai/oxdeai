@@ -131,7 +131,8 @@ boundary must use strict mode (or `createVerifier`) and must not treat
 
 Release policy note: OxDeAI uses package-scoped versions and package-scoped tags. `@oxdeai/core` has its own package version line; coordinated release commits do not imply shared package versions across `core`, `sdk`, or `conformance`. See [`docs/release/RELEASE.md`](../../docs/release/RELEASE.md).
 
-Current `@oxdeai/core` package line: **2.0.0**.
+Current `@oxdeai/core` package line: **2.0.1**. 2.0.1 is a security patch
+(GHSA-48xw-c298-546r); see [`CHANGELOG.md`](./CHANGELOG.md) for replay sizing notes.
 
 v2.0.0 is a breaking release. See [`CHANGELOG.md`](./CHANGELOG.md) for the full
 list; the changes that affect every call site are:

@@ -1,6 +1,6 @@
 {
   "name": "@oxdeai/guard",
-  "version": "2.0.1",
+  "version": "2.0.2",
   "description": "Universal execution authorization guard (PEP boundary) for OxDeAI",
   "license": "Apache-2.0",
   "keywords": [
@@ -48,6 +48,6 @@
     "build": "rm -rf dist && tsc -p tsconfig.json",
     "prepack": "pnpm build",
     "build:test": "rm -rf dist && tsc -p tsconfig.test.json",
-    "test": "pnpm build:test && node --test \"dist/test/guard.test.js\" \"dist/test/guard.property.test.js\" \"dist/test/guard.delegation.test.js\" \"dist/test/guard.delegation.matrix.test.js\" \"dist/test/guard.delegation.property.test.js\" \"dist/test/guard.toctou.test.js\" \"dist/test/guard.boundary.test.js\" \"dist/test/guard.replay-store.test.js\" \"dist/test/guard.replay-store.redis.test.js\" \"dist/test/guard.authorization.test.js\" \"dist/test/guard.state-binding.test.js\" \"dist/test/guard.cas.test.js\" \"dist/test/guard.pep-conformance.test.js\" \"dist/test/guard.intent-binding.test.js\" \"dist/test/guard.provenance.test.js\" \"dist/test/guard.provenance.property.test.js\" \"dist/test/guard.boundary-audit.test.js\" \"dist/test/gateway.enforcement.test.js\" \"dist/test/gateway.vectors.test.js\" \"dist/test/gateway.authority.test.js\" \"dist/test/guard.delegation.authority.test.js\" \"dist/test/authorizationAuthority.test.js\" \"dist/test/guard.replay-consume-ordering.test.js\" \"dist/test/website-examples.test.js\" \"dist/test/guard.readme-examples.test.js\""
+    "test": "pnpm build:test && node --test \"dist/test/guard.test.js\" \"dist/test/guard.property.test.js\" \"dist/test/guard.delegation.test.js\" \"dist/test/guard.delegation.matrix.test.js\" \"dist/test/guard.delegation.property.test.js\" \"dist/test/guard.toctou.test.js\" \"dist/test/guard.boundary.test.js\" \"dist/test/guard.replay-store.test.js\" \"dist/test/guard.replay-store.redis.test.js\" \"dist/test/guard.authorization.test.js\" \"dist/test/guard.state-binding.test.js\" \"dist/test/guard.cas.test.js\" \"dist/test/guard.pep-conformance.test.js\" \"dist/test/guard.intent-binding.test.js\" \"dist/test/guard.provenance.test.js\" \"dist/test/guard.provenance.property.test.js\" \"dist/test/guard.boundary-audit.test.js\" \"dist/test/gateway.enforcement.test.js\" \"dist/test/gateway.vectors.test.js\" \"dist/test/gateway.authority.test.js\" \"dist/test/guard.delegation.authority.test.js\" \"dist/test/authorizationAuthority.test.js\" \"dist/test/guard.replay-consume-ordering.test.js\" \"dist/test/guard.replay-capacity-retention.test.js\" \"dist/test/website-examples.test.js\" \"dist/test/guard.readme-examples.test.js\""
   }
 }

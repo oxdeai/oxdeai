@@ -21,6 +21,8 @@ export interface DecisionInput {
    * `intent.timestamp`, which is attacker-controlled.
    */
   evaluationTime: number;
+  /** Trusted-time freshness horizon (maxIntentAgeSeconds + maxClockSkewSeconds). */
+  freshnessHorizonSeconds?: number;
   mode:   "fail-fast" | "collect-all";
 }
 

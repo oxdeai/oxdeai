@@ -7,6 +7,17 @@ This project follows Semantic Versioning.
 
 ---
 
+## [2.0.1] - 2026-10-04
+
+Dependency release of `@oxdeai/sdk`. It packs against `@oxdeai/core@2.0.1`
+(exact dependency). No SDK source, public API or type declaration change.
+
+### Security
+
+- Pins `@oxdeai/core@2.0.1` (GHSA-48xw-c298-546r). Because the SDK re-exports
+  `@oxdeai/core`, a `PolicyEngine` imported from `@oxdeai/sdk@2.0.0` is the
+  affected `core@2.0.0` engine; upgrade to this release.
+
 ## [2.0.0] - 2026-09-25
 
 **Baseline for this entry:** the published `@oxdeai/sdk@1.3.3` npm artifact

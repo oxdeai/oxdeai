@@ -46,7 +46,10 @@ export function runDecisionModules(
   // delta propagation during evaluation is intentionally not supported.
   // The trusted evaluator context is built once and shared by every module,
   // so all modules in one evaluation observe the same clock value.
-  const context: PolicyEvaluationContext = { evaluationTime: input.evaluationTime };
+  const context: PolicyEvaluationContext & { freshnessHorizonSeconds?: number } =
+    input.freshnessHorizonSeconds === undefined
+      ? { evaluationTime: input.evaluationTime }
+      : { evaluationTime: input.evaluationTime, freshnessHorizonSeconds: input.freshnessHorizonSeconds };
 
   const results = modules.map((m) => m.evaluate(input.intent, working, context));
 

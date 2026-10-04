@@ -1,8 +1,29 @@
 // SPDX-License-Identifier: Apache-2.0
 import type { Intent } from "../../types/intent.js";
 import type { State } from "../../types/state.js";
-import type { PolicyEvaluationContext, PolicyResult } from "../../types/policy.js";
+import type { PolicyEvaluationContext, PolicyResult, ReasonCode } from "../../types/policy.js";
 import { statelessModuleCodec } from "./_codec.js";
+
+/**
+ * Internal evaluation context for the replay module. The engine adds the
+ * trusted-time freshness horizon so retention can never be shorter than the
+ * interval during which the same intent remains admissible. Not part of the
+ * public `PolicyEvaluationContext` type in the 2.0.x line.
+ *
+ * @internal
+ */
+export type ReplayEvaluationContext = PolicyEvaluationContext & {
+  freshnessHorizonSeconds?: number;
+};
+
+/**
+ * Reason emitted when live replay entries exhaust `max_nonces_per_agent`.
+ * The 2.0.x line reuses an existing code so the public `ReasonCode` union is
+ * unchanged in a patch release.
+ *
+ * @internal
+ */
+export const REPLAY_CAPACITY_EXHAUSTED_REASON: ReasonCode = "VELOCITY_EXCEEDED";
 
 function nonceKey(intent: Intent): string {
   // keep consistent formatting across versions
@@ -43,7 +64,7 @@ function nonceKey(intent: Intent): string {
 export function ReplayModule(
   intent: Intent,
   state: State,
-  context: PolicyEvaluationContext,
+  context: ReplayEvaluationContext,
 ): PolicyResult {
   const agent = intent.agent_id;
 
@@ -51,13 +72,28 @@ export function ReplayModule(
   if (!cfg || typeof cfg.window_seconds !== "number" || typeof cfg.max_nonces_per_agent !== "number") {
     return { decision: "DENY", reasons: ["STATE_INVALID"] };
   }
+  // Fail closed on configurations that would silently disable replay
+  // protection: a NaN or negative window prunes every entry, and a capacity
+  // below 1 (or NaN) retains nothing.
+  if (Number.isNaN(cfg.window_seconds) || cfg.window_seconds < 0) {
+    return { decision: "DENY", reasons: ["STATE_INVALID"] };
+  }
+  if (Number.isNaN(cfg.max_nonces_per_agent) || cfg.max_nonces_per_agent < 1) {
+    return { decision: "DENY", reasons: ["STATE_INVALID"] };
+  }
 
   const now = context.evaluationTime;
-  const windowStart = now - cfg.window_seconds;
+  // A nonce must stay retained for as long as the same intent can still pass
+  // the trusted-time freshness gate. The engine supplies that horizon
+  // (maxIntentAgeSeconds + maxClockSkewSeconds); a configured window shorter
+  // than it is widened, never trusted as-is.
+  const horizon = context.freshnessHorizonSeconds;
+  const retention = horizon === undefined ? cfg.window_seconds : Math.max(cfg.window_seconds, horizon);
+  const windowStart = now - retention;
 
   const list = state.replay.nonces[agent] ?? [];
 
-  // prune deterministically
+  // prune deterministically: only entries outside the retention interval
   const pruned = list.filter((x) => x.ts >= windowStart);
 
   const n = nonceKey(intent);
@@ -65,11 +101,14 @@ export function ReplayModule(
     return { decision: "DENY", reasons: ["REPLAY_NONCE"] };
   }
 
-  const next = [...pruned, { nonce: n, ts: now }];
+  // Never evict a still-retained nonce to make room. When capacity is
+  // exhausted by live entries, fail closed; the DENY carries no state delta,
+  // so every retained entry stays protected.
+  if (pruned.length >= cfg.max_nonces_per_agent) {
+    return { decision: "DENY", reasons: [REPLAY_CAPACITY_EXHAUSTED_REASON] };
+  }
 
-  // cap size
-  const capped =
-    next.length <= cfg.max_nonces_per_agent ? next : next.slice(next.length - cfg.max_nonces_per_agent);
+  const next = [...pruned, { nonce: n, ts: now }];
 
   return {
     decision: "ALLOW",
@@ -79,7 +118,7 @@ export function ReplayModule(
         ...state.replay,
         nonces: {
           ...state.replay.nonces,
-          [agent]: capped
+          [agent]: next
         }
       }
     }

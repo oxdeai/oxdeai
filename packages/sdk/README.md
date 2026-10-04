@@ -6,7 +6,7 @@ Builds intents/states and guard boundaries that fail closed at execution.
 
 Release policy note: OxDeAI uses package-scoped versions and package-scoped tags. `@oxdeai/sdk` has its own package version line; coordinated release commits do not imply shared package versions across `core`, `sdk`, or `conformance`. See [`docs/release/RELEASE.md`](../../docs/release/RELEASE.md).
 
-Current `@oxdeai/sdk` package line: **2.0.0**. `export * from "@oxdeai/core"`
+Current `@oxdeai/sdk` package line: **2.0.1**. `export * from "@oxdeai/core"`
 re-exports core's 2.0 surface, so every core 2.0 breaking change (in particular
 the required `evaluationTime` argument and the now-required
 `maxClockSkewSeconds` / `maxIntentAgeSeconds` engine options) is a consumer-visible

@@ -7,6 +7,21 @@ This project follows Semantic Versioning.
 
 ---
 
+## [2.0.2] - 2026-10-04
+
+Dependency release of `@oxdeai/guard`. It packs against `@oxdeai/core@2.0.1`
+(exact dependency). No runtime source, public API or type declaration change
+since 2.0.1.
+
+### Security
+
+- Pins `@oxdeai/core@2.0.1`, which fixes replay nonce retention and capacity
+  eviction (GHSA-48xw-c298-546r). The guard evaluates with the caller-supplied
+  `PolicyEngine`, so the fix applies only when that engine comes from
+  `@oxdeai/core@2.0.1`; check with `npm ls @oxdeai/core`.
+- In 2.0.1 Core reports replay-capacity exhaustion as `VELOCITY_EXCEEDED`; the
+  guard surfaces it unchanged through `OxDeAIDenyError.reasons`.
+
 ## [2.0.1] - 2026-09-29
 
 Patch release of `@oxdeai/guard`. It packs against `@oxdeai/core@2.0.0` (exact
