@@ -52,20 +52,16 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), ".."
 //
 // Release metadata (#292) — extends this SAME table rather than maintaining a
 // second publishable-package list that could drift independently:
-//   releaseLine     — "2.0" (the nine 2.0.0 packages) | "cli" (@oxdeai/cli,
-//                     which tracks its own pre-1.0 contract, not the 2.0 line)
-//   version         — the declared release version for this package. NEVER
-//                     hardcoded per-entry: derived from RELEASE_LINE_VERSIONS
-//                     so a package's version and its release-line membership
-//                     cannot be edited independently into an inconsistent pair.
-//   publishOrder    — declared publish order. assertPublishOrderMatchesDependencyGraph()
-//                     (scripts/release-2.0/orchestrator.mjs) validates this against
-//                     the REAL @oxdeai/* dependency graph; it is never trusted
-//                     on its own.
-const RELEASE_LINE_VERSIONS = Object.freeze({
-  "2.0": "2.0.0",
-  "cli": "0.3.0",
-});
+//   releaseLine     — compatibility/release family: "2.0" | "cli".
+//                     Packages in a family may have different patch versions.
+//   version         — explicit exact expected version for each package,
+//                     independent of package.json; PRECHECK requires equality.
+//   publishOrder    — declared order, validated against the real dependency
+//                     graph by validatePublishOrder() in the orchestrator.
+const RELEASE_LINES = Object.freeze(["2.0", "cli"]);
+// Exact SemVer only: no ranges, tags, leading zeroes, or numeric prerelease
+// identifiers with leading zeroes. Build metadata is allowed by SemVer.
+const EXACT_VERSION = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-(?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*))*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
 
 export const POLICY = {
   "@oxdeai/core": {
@@ -73,105 +69,93 @@ export const POLICY = {
     expectMain: true, expectTypes: true, expectExports: true, expectBin: null,
     expectedSymbols: ["PolicyEngine", "verifyAuthorization", "verifyTrustedTime"],
     cliCheck: null,
-    releaseLine: "2.0", version: RELEASE_LINE_VERSIONS["2.0"], publishOrder: 10,
+    releaseLine: "2.0", version: "2.0.1", publishOrder: 10,
   },
   "@oxdeai/guard": {
     kind: "library",
     expectMain: true, expectTypes: true, expectExports: false, expectBin: null,
     expectedSymbols: ["OxDeAIGuard"],
     cliCheck: null,
-    releaseLine: "2.0", version: RELEASE_LINE_VERSIONS["2.0"], publishOrder: 20,
+    releaseLine: "2.0", version: "2.0.2", publishOrder: 20,
   },
   "@oxdeai/sdk": {
     kind: "library",
     expectMain: true, expectTypes: true, expectExports: false, expectBin: null,
     expectedSymbols: ["buildState"],
     cliCheck: null,
-    releaseLine: "2.0", version: RELEASE_LINE_VERSIONS["2.0"], publishOrder: 30,
+    releaseLine: "2.0", version: "2.0.1", publishOrder: 30,
   },
   "@oxdeai/conformance": {
     kind: "library+cli",
     expectMain: true, expectTypes: true, expectExports: true, expectBin: "oxdeai-conformance",
     expectedSymbols: ["runTrustedTimeConformance", "parseTrustedTimeFile", "trustedTimeExitCode"],
     cliCheck: "conformance-count",
-    releaseLine: "2.0", version: RELEASE_LINE_VERSIONS["2.0"], publishOrder: 40,
+    releaseLine: "2.0", version: "2.0.1", publishOrder: 40,
   },
   "@oxdeai/autogen": {
     kind: "adapter",
     expectMain: true, expectTypes: true, expectExports: false, expectBin: null,
     expectedSymbols: ["createAutoGenGuard"],
     cliCheck: null,
-    releaseLine: "2.0", version: RELEASE_LINE_VERSIONS["2.0"], publishOrder: 50,
+    releaseLine: "2.0", version: "2.0.0", publishOrder: 50,
   },
   "@oxdeai/crewai": {
     kind: "adapter",
     expectMain: true, expectTypes: true, expectExports: false, expectBin: null,
     expectedSymbols: ["createCrewAIGuard"],
     cliCheck: null,
-    releaseLine: "2.0", version: RELEASE_LINE_VERSIONS["2.0"], publishOrder: 60,
+    releaseLine: "2.0", version: "2.0.0", publishOrder: 60,
   },
   "@oxdeai/langgraph": {
     kind: "adapter",
     expectMain: true, expectTypes: true, expectExports: false, expectBin: null,
     expectedSymbols: ["createLangGraphGuard"],
     cliCheck: null,
-    releaseLine: "2.0", version: RELEASE_LINE_VERSIONS["2.0"], publishOrder: 70,
+    releaseLine: "2.0", version: "2.0.0", publishOrder: 70,
   },
   "@oxdeai/openai-agents": {
     kind: "adapter",
     expectMain: true, expectTypes: true, expectExports: false, expectBin: null,
     expectedSymbols: ["createOpenAIAgentsGuard"],
     cliCheck: null,
-    releaseLine: "2.0", version: RELEASE_LINE_VERSIONS["2.0"], publishOrder: 80,
+    releaseLine: "2.0", version: "2.0.0", publishOrder: 80,
   },
   "@oxdeai/openclaw": {
     kind: "adapter",
     expectMain: true, expectTypes: true, expectExports: false, expectBin: null,
     expectedSymbols: ["createOpenClawGuard"],
     cliCheck: null,
-    releaseLine: "2.0", version: RELEASE_LINE_VERSIONS["2.0"], publishOrder: 85,
+    releaseLine: "2.0", version: "2.0.0", publishOrder: 85,
   },
-  // @oxdeai/cli is at 0.3.0 and stays there: its published history is 0.2.x
-  // and its own CHANGELOG declares a pre-1.0 SemVer regime. Its version
-  // reflects the stability of its own public/operator contract, not
-  // membership in the OxDeAI 2.0 release line. It is still part of the same
-  // publication batch (publishOrder 90 — after core, which it depends on).
+  // CLI tracks its own public/operator contract in the "cli" family.
+  // It remains part of the same publication batch, after its dependencies.
   "@oxdeai/cli": {
     kind: "cli",
     expectMain: false, expectTypes: false, expectExports: false, expectBin: "oxdeai",
     expectedSymbols: [],
     cliCheck: "help",
-    releaseLine: "cli", version: RELEASE_LINE_VERSIONS["cli"], publishOrder: 90,
+    releaseLine: "cli", version: "0.3.1", publishOrder: 90,
   },
 };
 
-// Fail-closed, load-time invariant: makes "@oxdeai/cli@2.0.0" (or any
-// releaseLine/version pair that doesn't match RELEASE_LINE_VERSIONS)
-// unrepresentable the moment this module is imported by ANYTHING — the CLI,
-// the orchestrator, or a test — rather than relying on POLICY merely being
-// configured correctly today. Three independent layers guard this invariant:
-//   1. version is DERIVED from releaseLine via RELEASE_LINE_VERSIONS above,
-//      not duplicated per package, so the two fields can't drift by a typo;
-//   2. this function re-checks that derivation and throws on any mismatch;
-//   3. an explicit, named guard for @oxdeai/cli specifically — independent of
-//      the generic derivation — so the one state this table must never
-//      represent is checked by name, not only inferred.
+// Fail closed at module load and when validating supplied release metadata.
+// Family membership, exact version syntax, and publish order are independent.
+// PRECHECK and readiness separately enforce exact expected-version equality.
 export function assertReleaseMetadataConsistency(policy) {
   for (const [name, meta] of Object.entries(policy)) {
-    if (!meta.releaseLine || !(meta.releaseLine in RELEASE_LINE_VERSIONS)) {
-      throw new Error(`POLICY['${name}'].releaseLine must be one of: ${Object.keys(RELEASE_LINE_VERSIONS).join(", ")}`);
+    if (!RELEASE_LINES.includes(meta.releaseLine)) {
+      throw new Error(`POLICY['${name}'].releaseLine must be one of: ${RELEASE_LINES.join(", ")}`);
     }
-    const requiredVersion = RELEASE_LINE_VERSIONS[meta.releaseLine];
-    if (meta.version !== requiredVersion) {
-      throw new Error(`POLICY['${name}'] declares version "${meta.version}" but releaseLine "${meta.releaseLine}" requires "${requiredVersion}"`);
+    if (typeof meta.version !== "string" || (meta.version.match(EXACT_VERSION)?.[0] !== meta.version)) {
+      throw new Error(`POLICY['${name}'].version must be an explicit exact SemVer version`);
     }
     if (!Number.isInteger(meta.publishOrder)) {
       throw new Error(`POLICY['${name}'].publishOrder must be an integer`);
     }
   }
   const cli = policy["@oxdeai/cli"];
-  if (cli && (cli.version === "2.0.0" || cli.releaseLine === "2.0")) {
-    throw new Error(`@oxdeai/cli must never be assigned version "2.0.0" or releaseLine "2.0" — its release line is "cli" at ${RELEASE_LINE_VERSIONS.cli}.`);
+  if (cli && cli.releaseLine !== "cli") {
+    throw new Error('@oxdeai/cli must use releaseLine "cli", never releaseLine "2.0".');
   }
 }
 assertReleaseMetadataConsistency(POLICY);

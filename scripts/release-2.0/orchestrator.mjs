@@ -926,7 +926,7 @@ export function derivePublicationPlan(inputs = {}) {
     if (paths.has(p.tarball)) fail("PACKAGE_METADATA_INVALID", "distinct packages must not share a tarball reference");
     paths.add(p.tarball);
   }
-  // Reuse the existing release-line/version invariant, solely over frozen
+  // Validate release family, exact version syntax, and publish order over frozen
   // manifest metadata; do not discover packages or consult workspace manifests.
   try {
     assertReleaseMetadataConsistency(Object.fromEntries(manifest.packages.map((p) => [p.package, p])));

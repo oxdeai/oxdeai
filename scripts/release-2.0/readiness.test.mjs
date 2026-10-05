@@ -67,7 +67,7 @@ test("positive receipts derive structured READY_FOR_PUBLISH with provenance, wit
   assert.deepEqual(result.evidence.localPrecheck, f.localPrecheck);
   assert.deepEqual(result.evidence.authPrecheck, f.authPrecheck);
   assert.deepEqual(result.evidence.packagesEvaluated, Object.keys(POLICY).sort());
-  assert.equal(result.evidence.manifest.packages.find(p => p.package === "@oxdeai/cli").version, "0.3.0");
+  assert.equal(result.evidence.manifest.packages.find(p => p.package === "@oxdeai/cli").version, "0.3.1");
   assert.equal(f.state.phase, "VERIFIED_LOCAL");
   assert.deepEqual(f, before);
   result.evidence.manifest.packages[0].version = "changed output";
