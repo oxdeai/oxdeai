@@ -29,6 +29,13 @@ Global `vX.Y.Z` tags are legacy for package releases. Do not create them for nor
 
 Multiple package tags may point to the same commit when the releases are coordinated. That does not imply shared package versions.
 
+## Reproducible Packaging
+
+Release tarballs must be byte-for-byte reproducible from a clean revision on the
+pinned toolchain (Node in `.node-version`, pnpm in `packageManager`). Inputs, the
+`pnpm verify:reproducible-pack` procedure, cross-environment comparison and the
+no-repack rule are defined in [`REPRODUCIBLE-BUILDS.md`](./REPRODUCIBLE-BUILDS.md).
+
 ## Preflight
 
 From the repository root:

@@ -74,7 +74,7 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "prepack": "pnpm build",
+    "prepack": "rm -rf dist && pnpm build",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test:node": "node --test \"dist/test/*.test.js\"",
     "test": "pnpm build && pnpm test:node",

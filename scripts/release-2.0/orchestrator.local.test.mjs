@@ -8,19 +8,31 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { discoverPublishablePackages } from "../verify-packed-artifacts.mjs";
-import { ROOT, STATE_FILENAME, pack, verifyLocal, loadState } from "./orchestrator.mjs";
+import { ROOT, STATE_FILENAME, gitSourceTransport, pack, verifyLocal, loadState } from "./orchestrator.mjs";
 
-test("verifyLocal persists VERIFIED_LOCAL after real artifact verification; failed artifact scan cannot persist it", () => {
+test("verifyLocal persists VERIFIED_LOCAL after real artifact verification; failed artifact scan cannot persist it", (t) => {
   const base = mkdtempSync(path.join(tmpdir(), "oxdeai-local-persistence-"));
   try {
     const discovered = discoverPublishablePackages();
+    // PACK observes this real checkout; it records an identity only for a clean
+    // checkout at exactly the revision it is given (#344).
+    const sourceTransport = gitSourceTransport(ROOT);
+    const { revision, clean } = sourceTransport.snapshot();
+    if (!clean) {
+      assert.throws(
+        () => pack({ discovered, releaseDir: path.join(base, "dirty"), sourceRevision: revision, sourceTransport }),
+        /PACK source.*not clean/,
+      );
+      t.skip("checkout has uncommitted changes: verified that PACK refuses it; real artifact verification needs a clean checkout");
+      return;
+    }
     const build = spawnSync("pnpm", [...discovered.flatMap(({ name }) => ["--filter", `${name}...`]), "build"], {
       cwd: ROOT, encoding: "utf8",
     });
     assert.ifError(build.error);
     assert.equal(build.status, 0, build.stdout + build.stderr);
     const releaseDir = path.join(base, "release");
-    const { manifest, state } = pack({ discovered, releaseDir, sourceRevision: "a".repeat(40) });
+    const { manifest, state } = pack({ discovered, releaseDir, sourceRevision: revision, sourceTransport });
     const result = verifyLocal({ discovered, manifest, state, releaseDir, baseDir: path.join(base, "consumer-checks") });
     assert.equal(result.phase, "VERIFIED_LOCAL");
     const saved = loadState(releaseDir);
@@ -32,7 +44,7 @@ test("verifyLocal persists VERIFIED_LOCAL after real artifact verification; fail
     // real artifact verifier without recording a successful local verification.
     const badDir = path.join(base, "invalid-release");
     const bad = pack({
-      discovered, releaseDir: badDir, sourceRevision: "b".repeat(40),
+      discovered, releaseDir: badDir, sourceRevision: revision, sourceTransport,
       packTransport: {
         packToDir(pkg, destDir) {
           // The fake archive is confined to this negative test; no subprocess.

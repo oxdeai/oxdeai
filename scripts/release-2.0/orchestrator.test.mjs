@@ -10,7 +10,7 @@
 
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { createHash } from "node:crypto";
@@ -45,7 +45,9 @@ import {
   verifyRegistry,
   verifyLocal,
   validateState,
+  gitSourceTransport,
 } from "./orchestrator.mjs";
+import { assertReleaseToolchain } from "./toolchain.mjs";
 
 import { fixturePlan } from "./publication-fixture.mjs";
 
@@ -101,6 +103,21 @@ function fakePackTransport({ deterministic = true, generation = { n: 0 } } = {})
   };
 }
 
+// The checkout PACK reads from: fakeDiscovered() lives under /fake. Each call
+// to snapshot() is one observation, so a test can change the answer between
+// the observation before packing and the one after it.
+function fakeSource({ root = "/fake", revision = SHA, clean = true, sequence } = {}) {
+  let calls = 0;
+  return {
+    get calls() { return calls; },
+    snapshot() {
+      const observed = sequence ? sequence[Math.min(calls, sequence.length - 1)] : { root, revision, clean };
+      calls += 1;
+      return { ...observed };
+    },
+  };
+}
+
 function packFixture(overrides = {}) {
   const releaseDir = tmpDir("oxdeai-release-");
   const discovered = fakeDiscovered();
@@ -108,6 +125,7 @@ function packFixture(overrides = {}) {
     discovered,
     releaseDir,
     sourceRevision: SHA,
+    sourceTransport: fakeSource(),
     packTransport: fakePackTransport(),
     now: () => "2026-09-13T00:00:00.000Z",
     ...overrides,
@@ -403,7 +421,7 @@ test("14. non-deterministic PRECHECK probe result is recorded, but original tarb
   const releaseDir = tmpDir("oxdeai-release-");
   const discovered = fakeDiscovered();
   const { manifest } = pack({
-    discovered, releaseDir, sourceRevision: SHA,
+    discovered, releaseDir, sourceRevision: SHA, sourceTransport: fakeSource(),
     packTransport: fakePackTransport({ deterministic: false }),
   });
   assert.equal(manifest.determinismProbe.deterministic, false);
@@ -915,6 +933,25 @@ for (const mode of ["missing", "matching", "divergent"]) {
   });
 }
 
+const PINNED_TOOLCHAIN = { node: "22.9.0", pnpm: "10.34.5" };
+
+// Runs the extracted CLI functions with every free identifier injected: a
+// fixture git runner and a fixture toolchain observation (default: the pin).
+function runCli(cli, base, command, releaseDir, output, observedToolchain = { node: "v22.9.0", pnpm: "10.34.5" }) {
+  const run = new Function("spawnSync", "ROOT", "process", "console", "path", "discoverPublishablePackages",
+    "precheck", "pack", "MANIFEST_FILENAME", "ReleaseOrchestratorError",
+    "assertReleaseToolchain", "observeReleaseToolchain", "readReleaseToolchain", "gitSourceTransport",
+    cli + "\nreturn main();");
+  return run((exe, args) => {
+    assert.equal(exe, "git");
+    assert.ok(["status", "rev-parse"].includes(args[0]));
+    return { status: 0, stdout: args[0] === "status" ? "" : SHA };
+  }, base, { argv: ["node", "orchestrator.mjs", command, "--release-dir", releaseDir] },
+  { log: line => output.push(line), error: assert.fail }, path, fakeDiscovered, precheck, pack,
+  MANIFEST_FILENAME, ReleaseOrchestratorError,
+  assertReleaseToolchain, () => observedToolchain, () => PINNED_TOOLCHAIN, gitSourceTransport);
+}
+
 for (const command of ["precheck", "pack"]) {
   test(`CLI ${command} reports local-only precheck and authorization checks NOT RUN`, async () => {
     const base = tmpDir("oxdeai-cli-reporting-");
@@ -927,15 +964,7 @@ for (const command of ["precheck", "pack"]) {
       // No Node/shell subprocess is needed for the reporting assertions.
       const source = readFileSync(new URL("./orchestrator.mjs", import.meta.url), "utf8");
       const cli = source.slice(source.indexOf("function realGitTransport()"), source.indexOf("\nif (process.argv[1]"));
-      const run = new Function("spawnSync", "ROOT", "process", "console", "path", "discoverPublishablePackages",
-        "precheck", "pack", "MANIFEST_FILENAME", "ReleaseOrchestratorError", cli + "\nreturn main();");
-      const invoke = () => run((exe, args) => {
-        assert.equal(exe, "git");
-        assert.ok(["status", "rev-parse"].includes(args[0]));
-        return { status: 0, stdout: args[0] === "status" ? "" : SHA };
-      }, base, { argv: ["node", "orchestrator.mjs", command, "--release-dir", releaseDir] },
-      { log: line => output.push(line), error: assert.fail }, path, fakeDiscovered, precheck, pack,
-      MANIFEST_FILENAME, ReleaseOrchestratorError);
+      const invoke = () => runCli(cli, base, command, releaseDir, output);
       if (command === "pack") await assert.rejects(invoke, /Repacking\/reconstruction.*forbidden/);
       else await invoke();
       assert.deepEqual(output, ["PRECHECK (local): PASS", "Registry auth/rights/public-scope checks: NOT RUN"]);
@@ -945,3 +974,97 @@ for (const command of ["precheck", "pack"]) {
     }
   });
 }
+
+// ── PACK source identity (#344): packed bytes must come from a clean checkout
+// at exactly sourceRevision, observed by PACK itself, not by an earlier step ──
+
+function packWith(sourceTransport, extra = {}) {
+  const releaseDir = tmpDir("oxdeai-release-");
+  let packCalls = 0;
+  const inner = fakePackTransport();
+  const run = () => pack({
+    discovered: fakeDiscovered(), releaseDir, sourceRevision: SHA,
+    ...(sourceTransport === undefined ? {} : { sourceTransport }),
+    packTransport: { packToDir(pkg, dest) { packCalls += 1; return inner.packToDir(pkg, dest); } },
+    ...extra,
+  });
+  return { releaseDir, run, get packCalls() { return packCalls; } };
+}
+
+test("PACK refuses to record a source identity without observing the source checkout", () => {
+  const p = packWith(undefined);
+  assert.throws(p.run, /sourceTransport/);
+  assert.equal(p.packCalls, 0, "nothing may be packed before the source is observed");
+  assert.equal(existsSync(path.join(p.releaseDir, MANIFEST_FILENAME)), false);
+});
+
+test("PACK refuses a dirty source checkout before packing anything", () => {
+  const p = packWith(fakeSource({ clean: false }));
+  assert.throws(p.run, /PACK source.*not clean/);
+  assert.equal(p.packCalls, 0);
+  assert.equal(existsSync(path.join(p.releaseDir, MANIFEST_FILENAME)), false);
+});
+
+test("PACK refuses a checkout that is not at exactly sourceRevision", () => {
+  const p = packWith(fakeSource({ revision: "b".repeat(40) }));
+  assert.throws(p.run, new RegExp(`PACK source.*${"b".repeat(40)}.*${SHA}`));
+  assert.equal(p.packCalls, 0);
+  assert.equal(existsSync(path.join(p.releaseDir, MANIFEST_FILENAME)), false);
+});
+
+test("PACK refuses a malformed source observation", () => {
+  for (const observed of [null, {}, { root: "relative", revision: SHA, clean: true }, { root: "/fake", revision: SHA, clean: "yes" }]) {
+    const p = packWith({ snapshot: () => observed });
+    assert.throws(p.run, /PACK source/);
+    assert.equal(p.packCalls, 0);
+  }
+});
+
+test("PACK refuses packages that are not inside the observed source checkout", () => {
+  const p = packWith(fakeSource({ root: "/elsewhere" }));
+  assert.throws(p.run, /PACK source.*outside/);
+  assert.equal(p.packCalls, 0);
+});
+
+test("PACK fails closed when the checkout changes while packing, and writes no manifest", () => {
+  for (const after of [
+    { root: "/fake", revision: SHA, clean: false },          // a prepack build dirtied the tree
+    { root: "/fake", revision: "c".repeat(40), clean: true }, // HEAD moved underneath PACK
+  ]) {
+    const source = fakeSource({ sequence: [{ root: "/fake", revision: SHA, clean: true }, after] });
+    const p = packWith(source);
+    assert.throws(p.run, /PACK source changed while packing/);
+    assert.ok(p.packCalls > 0, "the change is only observable after packing started");
+    assert.equal(existsSync(path.join(p.releaseDir, MANIFEST_FILENAME)), false, "no release identity may be recorded");
+    assert.equal(existsSync(path.join(p.releaseDir, STATE_FILENAME)), false);
+    // The partial release directory can never be completed by a second PACK.
+    assert.throws(() => pack({
+      discovered: fakeDiscovered(), releaseDir: p.releaseDir, sourceRevision: SHA,
+      sourceTransport: fakeSource(), packTransport: fakePackTransport(),
+    }), /Repacking\/reconstruction.*forbidden/);
+  }
+});
+
+test("PACK records the identity only after observing a clean exact source before and after packing", () => {
+  const source = fakeSource();
+  const p = packWith(source);
+  const { manifest } = p.run();
+  assert.equal(manifest.sourceRevision, SHA);
+  assert.equal(source.calls, 2, "observed once before and once after packing");
+});
+
+test("CLI pack refuses an unpinned toolchain before PACK observes or packs anything", async () => {
+  const base = tmpDir("oxdeai-cli-toolchain-");
+  try {
+    const releaseDir = path.join(base, "release");
+    const output = [];
+    const source = readFileSync(new URL("./orchestrator.mjs", import.meta.url), "utf8");
+    const cli = source.slice(source.indexOf("function realGitTransport()"), source.indexOf("\nif (process.argv[1]"));
+    for (const observed of [{ node: "v22.9.0", pnpm: "9.12.0" }, { node: "v22.22.0", pnpm: "10.34.5" }]) {
+      await assert.rejects(runCli(cli, base, "pack", releaseDir, output, observed), /release toolchain/);
+      assert.equal(existsSync(releaseDir), false, "nothing may be packed on an unpinned toolchain");
+    }
+  } finally {
+    rmSync(base, { recursive: true, force: true });
+  }
+});
