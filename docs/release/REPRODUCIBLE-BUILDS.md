@@ -45,7 +45,7 @@ Established by experiment on 2bdbb33 (issue #344 evidence):
 | Input | Status | Control |
 |---|---|---|
 | Source files at the revision | required input | clean exact revision, checked by PACK before and after packing |
-| `dist/` build output | **was** nondeterministic: `core` and `conformance` built without clearing `dist/`, so leftover gitignored files (including `dist/tsdoc-metadata.json` from an earlier `api:check`) were packed | every publishable build now starts with `rm -rf dist`; `prepack: pnpm build` regenerates it |
+| `dist/` build output | **was** nondeterministic: `core` and `conformance` built without clearing `dist/`, so leftover gitignored files (including `dist/tsdoc-metadata.json` from an earlier `api:check`) were packed | every publishable package's `prepack` (the lifecycle `pnpm pack` runs) starts from an empty `dist/` and rebuilds it. `core` and `conformance` clear `dist/` in `prepack` rather than `build`, so a parallel `pnpm -r` run that rebuilds them never deletes declarations other packages are compiling against |
 | Order of rewritten `workspace:` dependencies | **was** nondeterministic: pnpm 10 inserts rewritten dependencies in async completion order, so packages with two workspace dependencies (all adapters) were packed as `{core, guard}` or `{guard, core}` | `.pnpmfile.cjs` `beforePacking` restores the source manifest order; fails the pack if names differ |
 | `packages/conformance/dist/evidence-metadata.json` | intended repository metadata, see below | revision and dirty state are inputs, not noise |
 | pnpm tar headers | normalized by pnpm: fixed mtime (1985-10-26), mode 0644, uid/gid 0, deterministic entry order (by extension, then path; independent of directory order) | none needed |
