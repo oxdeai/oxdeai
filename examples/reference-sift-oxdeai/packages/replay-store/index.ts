@@ -54,14 +54,14 @@ export class MemoryReplayStore implements ReplayStore {
   }
 }
 
-// ─── Map-backed implementation (durable across restarts when map is shared) ───
+// ─── Map-backed implementation (shared only within one process) ───
 
 /**
  * A `ReplayStore` backed by an external `Map<string, number>`.
  *
  * Passing the same `Map` instance to multiple `MapBackedReplayStore` instances
- * (e.g. after a simulated process restart) provides durability within a single
- * process — any auth_id consumed by the first instance is visible to the second.
+ * (e.g. after a simulated process restart) preserves records within a single
+ * process, not across process restarts — any auth_id consumed by the first instance is visible to the second.
  *
  * This implementation is a stand-in for a Redis `SET NX EX` backend:
  * - First call for an auth_id: writes the entry and returns `true`.

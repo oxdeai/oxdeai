@@ -22,7 +22,15 @@ export interface UpstreamConfig {
   internalToken: string;
 }
 
+export type CounterSnapshot = {
+  counter: number;
+};
+
 export interface UpstreamHandle {
+  /** Detached snapshot of the actual synthetic execution store. */
+  readCounter(): CounterSnapshot;
+  /** Trusted test-only mutation; never exposed through HTTP. */
+  setCounterForTest(value: number): void;
   url: string;
   close(): Promise<void>;
 }
@@ -48,6 +56,7 @@ function readBody(req: IncomingMessage): Promise<string> {
 }
 
 export function startUpstream(config: UpstreamConfig): Promise<UpstreamHandle> {
+  let counter = 0;
   return new Promise((resolve, reject) => {
     const server = createServer(async (req: IncomingMessage, res: ServerResponse) => {
       // ── Invariant: non-bypassable execution boundary ───────────────────────
@@ -63,10 +72,16 @@ export function startUpstream(config: UpstreamConfig): Promise<UpstreamHandle> {
         });
       }
 
-      // Token valid — execute the request.
+      if (req.method !== "POST" || req.url !== "/execute") {
+        return jsonResponse(res, 404, { ok: false, code: "NOT_FOUND" });
+      }
+
+      // Sequential synthetic effect only: no atomic state-check/effect commit.
       try {
         await readBody(req); // consume body
-        return jsonResponse(res, 200, { ok: true, executed: true });
+        if (!Number.isSafeInteger(counter + 1)) throw new Error("Counter exhausted");
+        counter += 1;
+        return jsonResponse(res, 200, { ok: true, executed: true, counter });
       } catch (e) {
         return jsonResponse(res, 500, {
           ok: false,
@@ -86,6 +101,13 @@ export function startUpstream(config: UpstreamConfig): Promise<UpstreamHandle> {
       }
       resolve({
         url: `http://127.0.0.1:${addr.port}`,
+        readCounter: () => ({ counter }),
+        setCounterForTest(value: number): void {
+          if (!Number.isSafeInteger(value) || value < 0) {
+            throw new TypeError("Counter must be a non-negative safe integer");
+          }
+          counter = value;
+        },
         close(): Promise<void> {
           return new Promise((res, rej) =>
             server.close((e) => (e ? rej(e) : res()))

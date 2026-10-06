@@ -3,10 +3,10 @@
  * Policy Enforcement Point (PEP) Gateway.
  *
  * The PEP is the non-bypassable execution boundary. No request reaches the
- * upstream without passing all 9 verification steps below. Every failure is
- * a hard 403 — no fallback, no partial authorization, no implicit defaults.
+ * upstream without passing all 10 verification steps below. Failures stop
+ * forwarding; replay-store errors return 500, upstream failures 502.
  *
- * 9-step AuthorizationV1 verification (in order):
+ * 10-step AuthorizationV1 verification (in order):
  *   1. Parse         — structural validation of request body
  *   2. Signature     — Ed25519 verification of the signing payload
  *   3. Issuer        — must be in the known-issuers set
@@ -15,8 +15,8 @@
  *   6. Expiry        — expires_at must be in the future
  *   7. Policy        — policy_id must be in the known-policies set
  *   8. Intent hash   — SHA-256(siftCanonical(intent)) must equal intent_hash
- *   9. State hash    — SHA-256(siftCanonical(state)) must equal state_hash
- *  10. Replay        — auth_id consumed atomically (LAST — no partial state)
+ *   9. State hash    — SHA-256(siftCanonical(normalized live state)) must equal state_hash
+ *  10. Replay        — auth_id consumed (LAST; not transactional with effect)
  *
  * Only after all 10 checks pass does the PEP forward to upstream.
  */
@@ -24,6 +24,7 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { verify as nodeVerify } from "node:crypto";
 import type { KeyObject } from "node:crypto";
+import { normalizeState } from "@oxdeai/sift";
 import type { ReplayStore } from "../../packages/replay-store/index.js";
 import {
   siftCanonicalJsonBytes,
@@ -46,8 +47,10 @@ export interface PepConfig {
   upstreamUrl: string;
   /** Internal token forwarded to the protected execution target via x-internal-executor-token. */
   internalToken: string;
-  /** Durable, atomic replay protection store. */
+  /** Example replay protection; the default harness store is in-memory only. */
   replayStore: ReplayStore;
+  /** Deployer-owned accessor; request state is never authoritative. */
+  getExecutionState: () => unknown | Promise<unknown>;
   /** Set of policy IDs this PEP accepts. */
   knownPolicies: Set<string>;
 }
@@ -158,6 +161,9 @@ function parseAuthorization(raw: unknown): AuthorizationV1Payload | null {
 // ─── Server ───────────────────────────────────────────────────────────────────
 
 export function startPepGateway(config: PepConfig): Promise<PepHandle> {
+  if (typeof config.getExecutionState !== "function") {
+    throw new TypeError("getExecutionState is required");
+  }
   return new Promise((resolve, reject) => {
     const server = createServer(async (req: IncomingMessage, res: ServerResponse) => {
       if (req.method !== "POST" || req.url !== "/execute") {
@@ -226,7 +232,7 @@ export function startPepGateway(config: PepConfig): Promise<PepHandle> {
 
       // ── 5. Decision ───────────────────────────────────────────────────────
       // parseAuthorization already enforces decision === "ALLOW", but this
-      // guard remains explicit so the 9-step ordering is code-verifiable.
+      // guard remains explicit so the verification ordering is code-verifiable.
       if (auth.decision !== "ALLOW") {
         return deny(res, "INVALID_DECISION", "Authorization decision is not ALLOW");
       }
@@ -266,15 +272,18 @@ export function startPepGateway(config: PepConfig): Promise<PepHandle> {
       // ── 9. State hash ─────────────────────────────────────────────────────
       let stateHash: string;
       try {
-        stateHash = siftCanonicalJsonHash(parsed.state);
+        const liveState = await config.getExecutionState();
+        const normalized = normalizeState({ state: liveState });
+        if (!normalized.ok) throw new Error(normalized.message);
+        stateHash = siftCanonicalJsonHash(normalized.state);
       } catch {
-        return deny(res, "STATE_HASH_MISMATCH", "Failed to canonicalize state");
+        return deny(res, "STATE_HASH_MISMATCH", "Failed to obtain or normalize trusted execution state");
       }
       if (stateHash !== auth.state_hash) {
         return deny(
           res,
           "STATE_HASH_MISMATCH",
-          "state_hash does not match the provided state"
+          "state_hash does not match trusted execution state"
         );
       }
 
@@ -300,6 +309,8 @@ export function startPepGateway(config: PepConfig): Promise<PepHandle> {
         );
       }
 
+      // State read and this effect are separate: there is a race window.
+      // Replay consumption is not rolled back if the upstream fails.
       // ── All checks passed — forward to upstream ───────────────────────────
       try {
         const upstreamRes = await fetch(config.upstreamUrl, {

@@ -13,7 +13,7 @@ import { MemoryReplayStore, type ReplayStore } from "../packages/replay-store/in
 import { KNOWN_POLICIES, KNOWN_ISSUERS } from "../packages/policy/index.js";
 import { startMockSift } from "../mock-sift/server.js";
 import { startPepGateway } from "../apps/pep-gateway/server.js";
-import { startUpstream } from "../apps/upstream/server.js";
+import { startUpstream, type CounterSnapshot } from "../apps/upstream/server.js";
 import { siftCanonicalJsonBytes, b64uEncode } from "../shared/canonical.js";
 import type { AuthorizationV1Payload } from "../shared/types.js";
 
@@ -28,6 +28,8 @@ export interface TestContext {
   pepUrl: string;
   /** Base URL of the upstream (e.g. http://127.0.0.1:{port}). */
   upstreamUrl: string;
+  /** Existing upstream token, exposed only to in-process adversarial tests. */
+  internalToken: string;
   /** Configured adapter instance. */
   adapter: SiftAdapter;
   /**
@@ -35,13 +37,15 @@ export interface TestContext {
    * Exposed here so tests can re-sign tampered payloads.
    */
   adapterPrivateKey: KeyObject;
+  readCounter(): CounterSnapshot;
+  setCounterForTest(value: number): void;
   /** Tears down all servers. */
   close(): Promise<void>;
 }
 
 // ─── Startup ──────────────────────────────────────────────────────────────────
 
-export async function startTestHarness(options?: { replayStore?: ReplayStore }): Promise<TestContext> {
+export async function startTestHarness(options?: { replayStore?: ReplayStore; getExecutionState?: () => unknown | Promise<unknown> }): Promise<TestContext> {
   // ── Key generation ──────────────────────────────────────────────────────────
   const siftKeyPair = generateKeyPairSync("ed25519");
   const adapterKeyPair = generateKeyPairSync("ed25519");
@@ -66,6 +70,7 @@ export async function startTestHarness(options?: { replayStore?: ReplayStore }):
     upstreamUrl: `${upstream.url}/execute`,
     internalToken,
     replayStore,
+    getExecutionState: options?.getExecutionState ?? (() => upstream.readCounter()),
     knownPolicies: new Set(KNOWN_POLICIES),
   });
 
@@ -85,8 +90,11 @@ export async function startTestHarness(options?: { replayStore?: ReplayStore }):
     mockSiftKid: siftKid,
     pepUrl: pep.url,
     upstreamUrl: upstream.url,
+    internalToken,
     adapter,
     adapterPrivateKey: adapterKeyPair.privateKey,
+    readCounter: () => upstream.readCounter(),
+    setCounterForTest: (value) => upstream.setCounterForTest(value),
     async close() {
       await Promise.all([mockSift.close(), pep.close(), upstream.close()]);
     },

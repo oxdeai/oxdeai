@@ -2,7 +2,7 @@
 /**
  * Replay store tests.
  *
- * Unit: MapBackedReplayStore semantics (NX, durability via shared Map).
+ * Unit: MapBackedReplayStore semantics (NX, records shared within one process).
  * Integration: PEP fail-closed on replay store error (REPLAY_STORE_ERROR, HTTP 500).
  */
 
@@ -29,15 +29,15 @@ test("MapBackedReplayStore: second consume with same auth_id returns false", asy
   assert.equal(second, false, "Replay must return false");
 });
 
-test("MapBackedReplayStore: new instance with shared Map still denies (durability)", async () => {
+test("MapBackedReplayStore: new instance with shared Map still denies (same process)", async () => {
   const sharedMap = new Map<string, number>();
   const first = new MapBackedReplayStore(sharedMap);
   await first.consumeAuthId("auth-003", FUTURE);
 
-  // Simulate restart: new instance, same backing Map.
+  // New wrapper in the same process; this does not simulate durable restart.
   const second = new MapBackedReplayStore(sharedMap);
   const result = await second.consumeAuthId("auth-003", FUTURE);
-  assert.equal(result, false, "Replay must be denied even after simulated restart");
+  assert.equal(result, false, "Replay must be denied across same-process wrappers");
 });
 
 test("MapBackedReplayStore: different auth_ids are independent", async () => {
@@ -72,7 +72,7 @@ test("REPLAY_STORE_ERROR: store failure causes PEP to return 500 (fail-closed)",
   const authResult = await ctx.adapter.adapt({
     kidAndReceipt: envelope,
     params: { amount: 100, destination: "safe_account" },
-    state: { session_active: true, account_status: "active" },
+    state: ctx.readCounter(),
   });
   assert.ok(authResult.ok, "Adapter must succeed for REPLAY_STORE_ERROR setup");
   if (!authResult.ok) return;
@@ -83,6 +83,7 @@ test("REPLAY_STORE_ERROR: store failure causes PEP to return 500 (fail-closed)",
     authResult.state,
     authResult.authorization
   );
+  assert.deepEqual(ctx.readCounter(), { counter: 0 }, "Store failure must have no effect");
   assert.equal(status, 500, `Store error must return 500 — got ${status}`);
   assert.equal(
     (body as { code?: string }).code,
