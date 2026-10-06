@@ -13,6 +13,14 @@
       "scope": "examples/langgraph",
       "reason": "Resolved via pnpm.overrides uuid@14.0.0; exception retained as guard against lockfile drift re-introducing uuid@10.x via @langchain/langgraph-checkpoint@^1.0.2",
       "expires_on": "2026-09-01"
+    },
+    {
+      "id": 1241202,
+      "package": "sprintf-js",
+      "severity": "moderate",
+      "path": "packages__core>@microsoft/api-extractor>@rushstack/ts-command-line>argparse>sprintf-js",
+      "reason": "Transitive dev-tooling dependency through API Extractor for API report/check tooling; no patched sprintf-js release currently exists; no attacker-controlled format-string reachability has been demonstrated in OxDeAI use. Temporary exception pending upstream remediation.",
+      "expires_on": "2026-10-20"
     }
   ]
 }
