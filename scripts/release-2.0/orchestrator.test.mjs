@@ -229,7 +229,7 @@ test("3. publishOrder violating the real dependency graph fails PRECHECK", () =>
   // guard depends on core; force guard to publish before core.
   badPolicy["@oxdeai/guard"].publishOrder = 1;
   badPolicy["@oxdeai/core"].publishOrder = 99;
-  assertReleaseMetadataConsistency(badPolicy); // still internally consistent re: releaseLine/version
+  assertReleaseMetadataConsistency(badPolicy); // still valid metadata; dependency order is checked separately
   assert.throws(
     () => precheck({ discovered, policy: badPolicy, gitTransport: cleanGit() }),
     /must publish strictly before its dependents/
@@ -260,37 +260,34 @@ test("4. a discovered package with no POLICY entry fails closed at PRECHECK", ()
   );
 });
 
-// ── 5 & 6. @oxdeai/cli cannot become 2.0.0 / releaseLine "2.0" ──────────────
-
-test("5. @oxdeai/cli cannot be assigned version 2.0.0 by any supported configuration", () => {
-  const badPolicy = structuredClone(POLICY);
-  badPolicy["@oxdeai/cli"].version = "2.0.0";
-  // Rejected by the generic releaseLine/version derivation check before it
-  // even reaches the named cli guard (releaseLine stays "cli", which
-  // requires "0.3.0" — "2.0.0" is simply the wrong version for that line).
-  assert.throws(() => assertReleaseMetadataConsistency(badPolicy), /releaseLine "cli" requires "0\.3\.0"/);
+// CLI family membership is independent of its exact version.
+test("CLI exact version may change while remaining in its own release family", () => {
+  const policy = structuredClone(POLICY);
+  policy["@oxdeai/cli"].version = "2.0.0";
+  assert.doesNotThrow(() => assertReleaseMetadataConsistency(policy));
+  assert.throws(() => precheck({ discovered: fakeDiscovered(), policy, gitTransport: cleanGit() }),
+    /does not exactly match package\.json version/);
 });
 
-test("6. @oxdeai/cli releaseLine cannot become \"2.0\"", () => {
-  const badPolicy = structuredClone(POLICY);
-  badPolicy["@oxdeai/cli"].releaseLine = "2.0";
-  // Setting releaseLine to "2.0" without changing version now fails the
-  // generic derivation check (version "0.3.0" != required "2.0.0" for "2.0")
-  // before it even reaches the named cli guard — both layers independently
-  // reject this state.
-  assert.throws(() => assertReleaseMetadataConsistency(badPolicy), /releaseLine "2\.0" requires "2\.0\.0"/);
-});
+for (const version of ["0.3.1", "2.0.0"]) {
+  test(`CLI cannot join releaseLine 2.0 at version ${version}`, () => {
+    const policy = structuredClone(POLICY);
+    Object.assign(policy["@oxdeai/cli"], { releaseLine: "2.0", version });
+    assert.throws(() => assertReleaseMetadataConsistency(policy), /must use releaseLine "cli"/);
+  });
+}
 
-test("6b. @oxdeai/cli with BOTH releaseLine and version forced to the 2.0 line is still rejected by the named guard", () => {
-  const badPolicy = structuredClone(POLICY);
-  badPolicy["@oxdeai/cli"].releaseLine = "2.0";
-  badPolicy["@oxdeai/cli"].version = "2.0.0";
-  assert.throws(() => assertReleaseMetadataConsistency(badPolicy), /must never be assigned version "2\.0\.0" or releaseLine "2\.0"/);
-});
+for (const version of [undefined, "", "^2.0.1", "latest", "02.0.1", "2.0.1-01", "2.0.1\n"]) {
+  test(`release metadata rejects non-exact version ${version}`, () => {
+    const policy = structuredClone(POLICY);
+    policy["@oxdeai/core"].version = version;
+    assert.throws(() => assertReleaseMetadataConsistency(policy), /explicit exact SemVer/);
+  });
+}
 
 test("real POLICY is internally consistent at module load (already asserted on import, re-checked here)", () => {
   assert.doesNotThrow(() => assertReleaseMetadataConsistency(POLICY));
-  assert.equal(POLICY["@oxdeai/cli"].version, "0.3.0");
+  assert.equal(POLICY["@oxdeai/cli"].version, "0.3.1");
   assert.equal(POLICY["@oxdeai/cli"].releaseLine, "cli");
   assert.equal(POLICY["@oxdeai/cli"].publishOrder, 90);
 });
@@ -576,11 +573,13 @@ test("24. generated promotion plan uses exact manifest versions", () => {
     assert.ok(entry, `no promotion entry for ${p.package}`);
     assert.deepEqual(entry, { executable: "npm", args: ["dist-tag", "add", `${p.package}@${p.version}`, "latest"] });
   }
-  // Expected batch shape from the issue: nine at 2.0.0, cli at 0.3.0.
-  const cliEntry = plan.find((e) => e.args[2].startsWith("@oxdeai/cli@"));
-  assert.equal(cliEntry.args[2], "@oxdeai/cli@0.3.0");
-  const twoOh = plan.filter((e) => e.args[2].endsWith("@2.0.0"));
-  assert.equal(twoOh.length, 9);
+  // The active patch batch has independent exact versions within a family.
+  assert.deepEqual(plan.map(e => e.args[2]), [
+    "@oxdeai/core@2.0.1", "@oxdeai/guard@2.0.2", "@oxdeai/sdk@2.0.1",
+    "@oxdeai/conformance@2.0.1", "@oxdeai/autogen@2.0.0", "@oxdeai/crewai@2.0.0",
+    "@oxdeai/langgraph@2.0.0", "@oxdeai/openai-agents@2.0.0",
+    "@oxdeai/openclaw@2.0.0", "@oxdeai/cli@0.3.1",
+  ]);
 });
 
 // ── 25. state transition graph rejects invalid/skipped transitions ────────
