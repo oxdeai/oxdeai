@@ -245,9 +245,9 @@ try {
   for (const [name, findings, total, blocked, matches] of [
     ["pathless-only", [{ paths: [] }], 1, 1, 0],
     ["pathful-only", [{ paths: [exactPath] }], 1, 0, 1],
-    ["pathless-first", [{}, { paths: [exactPath] }], 2, 1, 1],
+    ["pathless-first", [{ paths: [] }, { paths: [exactPath] }], 2, 1, 1],
     ["pathless-last", [{ paths: [exactPath] }, { paths: [] }], 2, 1, 1],
-    ["multiple-plus-pathless", [{ paths: [exactPath, otherPath] }, {}], 3, 2, 1],
+    ["multiple-plus-pathless", [{ paths: [exactPath, otherPath] }, { paths: [] }], 3, 2, 1],
   ]) {
     const audit = writeAuditFixture(name, {
       fixture: { id: exception.id, module_name: exception.package, severity: exception.severity, findings },
