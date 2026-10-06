@@ -103,6 +103,18 @@ push (`release-reproducibility` job).
 
 ## Frozen artifacts: no repack after VERIFY_LOCAL
 
+- The local CLI order is `precheck`, then `pack`, then `verify-local`, all with the
+  same `--release-dir`. `precheck` persists its observations (source revision,
+  clean-tree result, package set, versions and `package.json` digests, POLICY digest)
+  as `local-precheck.json` in that directory. `pack` consumes that receipt and binds
+  it into the release manifest and state; it fails closed if the receipt is absent,
+  malformed, stale, or does not match the candidate it is about to pack.
+  `verify-local` and readiness use the bound receipt. Callers must not synthesize or
+  reconstruct historical `localPrecheck` evidence. This is evidence continuity for
+  readiness/provenance only: readiness is not authorization, and authorization is
+  not execution. `precheck` and `pack` both refuse a release directory that already
+  holds release evidence, so an existing frozen release identity is never
+  re-prechecked, regenerated or repacked as a recovery mechanism.
 - A release is packed exactly once by `node scripts/release-2.0/orchestrator.mjs pack`,
   which observes the checkout itself: clean, at exactly `sourceRevision`, before
   packing and again after the last tarball. If the checkout changed, no manifest is

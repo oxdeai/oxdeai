@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
+import { bindFixturePrecheck } from "./precheck-fixture.mjs";
 // All evidence is local fixture data. No artifact packing or npm operation.
 import test, { mock } from "node:test";
 import assert from "node:assert/strict";
@@ -28,7 +29,6 @@ function fixture() {
   };
   manifest.manifestIntegrity = computeManifestIntegrity(manifest);
   const inputs = {
-    localPrecheck: { ok: true, discovered: packages.map(p => ({ name: p.package, manifest: { version: p.version } })) },
     manifest,
     state: { stateVersion: STATE_VERSION, releaseId, phase: "VERIFIED_LOCAL",
       history: ["PRECHECK", "PACKED", "VERIFIED_LOCAL"].map(phase => ({ phase, at: manifest.createdAt })),
@@ -39,6 +39,7 @@ function fixture() {
       packages: packages.map(p => ({ kind: "existing", registry, packageName: p.package, visibility: "public" })),
     } },
   };
+  bindFixturePrecheck(manifest, inputs.state);
   const readiness = evaluateReleaseReadiness(inputs);
   assert.equal(readiness.kind, "ready");
   return { readiness, releaseDir: "/explicit/nonexistent/release" };
@@ -90,7 +91,7 @@ test("input array order cannot influence the plan; sparse existing order values 
   const f = fixture(), shuffled = structuredClone(f);
   shuffled.readiness.evidence.manifest.packages.reverse();
   shuffled.readiness.evidence.packagesEvaluated.reverse();
-  shuffled.readiness.evidence.localPrecheck.discovered.reverse();
+  // The persisted PRECHECK receipt is digest-bound evidence; reordering it is an edit, not a shuffle.
   shuffled.readiness.evidence.authPrecheck.observations.packages.reverse();
   // Retain the recorded digest: Step 5 does not regenerate Step 4 evidence.
   assert.deepEqual(derivePublicationPlan(shuffled), derivePublicationPlan(f));

@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
+import { bindFixturePrecheck } from "./precheck-fixture.mjs";
 // Local fixture receipts/bytes and in-memory transports only.
 import test, { mock } from "node:test";
 import assert from "node:assert/strict";
@@ -33,6 +34,7 @@ function fixture(t) {
   const state = { stateVersion: STATE_VERSION, releaseId, phase: "VERIFIED_LOCAL",
     history: ["PRECHECK", "PACKED", "VERIFIED_LOCAL"].map(phase => ({ phase, at: manifest.createdAt })),
     packages: Object.fromEntries(packages.map(p => [p.package, { publishStatus: "pending" }])) };
+  bindFixturePrecheck(manifest, state);
   const plan = fixturePlan(manifest, releaseDir);
   const calls = { observe: [], publish: [] };
   const registryTransport = {
