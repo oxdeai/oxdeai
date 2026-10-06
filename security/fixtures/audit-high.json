@@ -1,10 +1,54 @@
 {
-  "vulnerabilities": [
-    {
-      "id": "TEST-HIGH-1",
-      "package": "risky",
+  "actions": [],
+  "advisories": {
+    "900001": {
+      "findings": [
+        {
+          "version": "1.0.0",
+          "paths": [
+            "root>risky"
+          ]
+        }
+      ],
+      "found_by": null,
+      "deleted": null,
+      "references": "",
+      "created": "2026-01-01T00:00:00.000Z",
+      "id": 900001,
+      "npm_advisory_id": null,
+      "overview": "Test fixture advisory.",
+      "reported_by": null,
+      "title": "risky test advisory",
+      "metadata": null,
+      "cves": [],
+      "access": "public",
       "severity": "high",
-      "path": "root>risky@1.0.0"
+      "module_name": "risky",
+      "vulnerable_versions": "<=1.0.0",
+      "github_advisory_id": "GHSA-test-high",
+      "recommendation": "None",
+      "patched_versions": ">=1.0.1",
+      "updated": "2026-01-01T00:00:00.000Z",
+      "cvss": {
+        "score": 0,
+        "vectorString": null
+      },
+      "cwe": [],
+      "url": "https://example.invalid/advisory"
     }
-  ]
+  },
+  "muted": [],
+  "metadata": {
+    "vulnerabilities": {
+      "info": 0,
+      "low": 0,
+      "moderate": 0,
+      "high": 1,
+      "critical": 0
+    },
+    "dependencies": 1,
+    "devDependencies": 0,
+    "optionalDependencies": 0,
+    "totalDependencies": 1
+  }
 }
