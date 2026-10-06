@@ -1,102 +1,50 @@
-# Invariants
+# Sandbox invariants
 
-The following invariants are enforced in code — not documentation, not convention.
-Each invariant maps to a specific check in the implementation.
+## Counter effect oracle
 
----
+`apps/upstream/server.ts` owns `{counter: n}`. Tests read detached snapshots
+before and after requests. An accepted execution increments once. Rejections
+must leave the counter unchanged. Direct requests without the internal token
+return `FORBIDDEN`. Reset/mutation is available only through a trusted test handle.
 
-## I-1: Non-bypassable execution boundary
+## Intent and live-state binding
 
-**Location:** `apps/upstream/server.ts` — token check on every request.
+The reference gateway compares `siftCanonicalJsonHash(intent)` with `intent_hash`:
+post-authorization parameter changes return `INTENT_HASH_MISMATCH`.
+It independently obtains state via the deployer-configured accessor, normalizes
+it with Sift `normalizeState`, and compares `siftCanonicalJsonHash(state)` with
+`state_hash`. Stale state returns `STATE_HASH_MISMATCH`, including when the caller
+supplies a matching stale request snapshot. Accessor failure or invalid state
+also returns `STATE_HASH_MISMATCH`, before replay consumption or execution.
+No new hashing format is introduced.
 
-The upstream refuses any request that does not carry the exact
-`X-Internal-Execution-Token` value set at startup. The token is generated
-with `randomBytes(32)` and never exposed outside the PEP.
+## Replay order
 
-**Audit check:** there is exactly one path to the upstream: through the PEP.
-Any direct HTTP call to the upstream returns 403.
+Replay consumption occurs after intent and live-state binding. When an execution
+changes a bound counter from 0 to 1, presenting the same authorization again
+returns `STATE_HASH_MISMATCH` before the replay store. The isolated replay test
+first observes 0 → 1, restores 0 through the trusted test handle without resetting
+the replay store, and then proves a second consume attempt returns
+`REPLAY_DETECTED` without a second effect. This reset is deliberate test setup.
+Store failure returns HTTP 500 `REPLAY_STORE_ERROR` with zero effect.
 
----
+## Other preserved checks
 
-## I-2: Intent binding
+Signature verification precedes issuer, audience, expiry, policy and binding
+checks. Wrong signed audience returns `AUDIENCE_MISMATCH`; expiration returns
+`EXPIRED`. A Sift DENY receipt returns adapter `DENY_DECISION`, so no authorization
+is submitted. HTTP failure statuses vary by layer; not all failures are 403.
 
-**Location:** `apps/pep-gateway/server.ts` — step 8.
+## Parameter-binding boundary
 
-The PEP recomputes `SHA-256(siftCanonical(intent))` from the intent object
-supplied in the execution request. If the result does not equal
-`authorization.intent_hash`, the request is rejected with `INTENT_HASH_MISMATCH`.
+The same Sift receipt accepts different adapter-supplied parameters. Each new
+authorization binds its own intent, while `auth_id` remains the receipt nonce.
+The pre-issuance mutation test documents this accepted behavior rather than
+claiming that Sift approved those specific parameter values.
 
-Any modification to `tool`, `params`, or the intent structure produces a
-different hash and is blocked.
+## Limits
 
----
-
-## I-3: State binding
-
-**Location:** `apps/pep-gateway/server.ts` — step 9.
-
-The PEP recomputes `SHA-256(siftCanonical(state))` from the state object
-supplied in the execution request. If the result does not equal
-`authorization.state_hash`, the request is rejected with `STATE_HASH_MISMATCH`.
-
-If state changes between authorization time and execution time, the check fails.
-
----
-
-## I-4: Replay protection
-
-**Location:** `apps/pep-gateway/server.ts` — step 10 (last).
-**Implementation:** `packages/replay-store/index.ts` — `consumeAuthId`.
-
-`auth_id` is consumed atomically after all other checks pass. A second call
-with the same `auth_id` returns `REPLAY_DETECTED` immediately.
-
-The replay check is last to prevent valid auth IDs from being burned by
-denial-of-service via a partially-valid request.
-
----
-
-## I-5: Audience binding
-
-**Location:** `apps/pep-gateway/server.ts` — step 4.
-
-The PEP compares `authorization.audience` against its own configured audience
-value. A mismatch returns `AUDIENCE_MISMATCH`.
-
-Audience is part of the signed payload, so changing it invalidates the signature
-unless the attacker controls the adapter's private key.
-
----
-
-## I-6: Expiry enforcement
-
-**Location:** `apps/pep-gateway/server.ts` — step 6.
-
-The PEP checks `authorization.expires_at > floor(Date.now() / 1000)`.
-An expired authorization returns `EXPIRED`.
-
-The default TTL is 30 seconds. The adapter accepts a `now` override for testing.
-
----
-
-## I-7: Signature integrity
-
-**Location:** `apps/pep-gateway/server.ts` — step 2.
-
-The PEP reconstructs the signing payload (AuthorizationV1 minus `signature.sig`)
-and verifies the Ed25519 signature using the adapter's public key.
-
-Any field modification (audience, intent_hash, state_hash, expires_at, etc.)
-changes the canonical bytes and invalidates the signature.
-
----
-
-## I-8: Fail-closed everywhere
-
-Every function in this implementation returns a typed error result (`ok: false`)
-or throws on unrecoverable conditions. There are no:
-- implicit defaults that weaken security checks
-- fallback paths that skip verification
-- partial-success paths that allow execution with degraded checks
-
-The PEP returns 403 on any error, including unexpected internal errors.
+Sequential only: no concurrency, production durability, CAS, or atomic
+state-check plus effect commit guarantee. Replay stores are test/in-memory only.
+State can change after the gateway reads it and before upstream mutation.
+Consumed authorizations can have no effect if downstream execution fails.

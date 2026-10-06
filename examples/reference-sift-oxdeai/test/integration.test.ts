@@ -1,280 +1,181 @@
 // SPDX-License-Identifier: Apache-2.0
-/**
- * Integration test matrix — 8 adversarial scenarios.
- *
- * Invariant under test: No valid AuthorizationV1 → no execution.
- *
- * Every DENY scenario asserts:
- *   - HTTP 403 from the enforcement boundary
- *   - zero side effects (upstream never called, auth_id not consumed)
- *
- * Test matrix:
- *   ALLOW           — happy path, execution succeeds
- *   DENY            — Sift DENY receipt, blocked at adapter
- *   REPLAY          — auth_id reuse, blocked at PEP
- *   INTENT_MISMATCH — tampered intent params, blocked at PEP
- *   STATE_MISMATCH  — changed state, blocked at PEP
- *   AUDIENCE_MISMATCH — wrong audience, blocked at PEP
- *   EXPIRED         — expired authorization, blocked at PEP
- *   BYPASS          — direct upstream call, blocked at upstream
- */
-
-import { test, before, after } from "node:test";
+// Sequential sandbox: the actual upstream counter is the effect oracle.
+import { test } from "node:test";
 import assert from "node:assert/strict";
 import { startTestHarness, signAuthorization, type TestContext } from "./harness.js";
+import { MemoryReplayStore } from "../packages/replay-store/index.js";
 import { fetchSiftReceipt, callPepGateway } from "../apps/agent/client.js";
+import { siftCanonicalJsonHash } from "../shared/canonical.js";
 
-// ─── Test setup ───────────────────────────────────────────────────────────────
-
-let ctx: TestContext;
-
-before(async () => {
-  ctx = await startTestHarness();
-});
-
-after(async () => {
-  await ctx.close();
-});
-
-// ─── Shared fixtures ──────────────────────────────────────────────────────────
-
-const TRANSFER_PARAMS = { amount: 100, destination: "safe_account" };
-const TRANSFER_STATE  = { session_active: true, account_status: "active" };
-
-// ─── 1. ALLOW — happy path ────────────────────────────────────────────────────
-
-test("ALLOW: complete happy path succeeds end-to-end", async () => {
+const PARAMS = { amount: 100, destination: "safe_account" };
+class ObservedReplayStore extends MemoryReplayStore {
+  attempts: string[] = [];
+  override async consumeAuthId(id: string, expiry: number): Promise<boolean> {
+    this.attempts.push(id);
+    return super.consumeAuthId(id, expiry);
+  }
+}
+async function authorize(ctx: TestContext, state = ctx.readCounter()) {
   const envelope = await fetchSiftReceipt(ctx.mockSiftUrl, "transfer");
+  const result = await ctx.adapter.adapt({ kidAndReceipt: envelope, params: PARAMS, state });
+  assert.ok(result.ok, !result.ok ? result.message : "");
+  return result;
+}
+type Authorized = Awaited<ReturnType<typeof authorize>>;
+function execute(ctx: TestContext, auth: Authorized, intent: unknown = auth.intent, state: unknown = auth.state) {
+  return callPepGateway(ctx.pepUrl, intent, state, auth.authorization);
+}
+function rejected(response: { status: number; body: unknown }, code: string, status = 403) {
+  assert.equal(response.status, status);
+  assert.equal((response.body as { code: string }).code, code);
+}
 
-  const authResult = await ctx.adapter.adapt({
-    kidAndReceipt: envelope,
-    params: TRANSFER_PARAMS,
-    state: TRANSFER_STATE,
-  });
-  assert.ok(
-    authResult.ok,
-    `Adapter must succeed on ALLOW receipt: ${!authResult.ok ? `${authResult.code}: ${authResult.message}` : ""}`
-  );
-  if (!authResult.ok) return;
-
-  const { status, body } = await callPepGateway(
-    ctx.pepUrl,
-    authResult.intent,
-    authResult.state,
-    authResult.authorization
-  );
-  assert.equal(status, 200, `PEP must return 200 on valid authorization — got ${status}`);
-  assert.equal((body as { ok?: boolean }).ok, true, "Response body must have ok: true");
+// Each test owns fresh servers, counter and replay store. No public reset route.
+test("ALLOW: counter 0 -> 1; detached snapshots cannot mutate the store", async (t) => {
+  const ctx = await startTestHarness(); t.after(() => ctx.close());
+  const snapshot = ctx.readCounter(); snapshot.counter = 99;
+  assert.deepEqual(ctx.readCounter(), { counter: 0 });
+  const auth = await authorize(ctx);
+  assert.equal(auth.authorization.state_hash, siftCanonicalJsonHash({ counter: 0 }));
+  const response = await execute(ctx, auth);
+  assert.equal(response.status, 200);
+  assert.equal((response.body as { ok?: boolean }).ok, true);
+  assert.equal((response.body as { counter: number }).counter, 1);
+  assert.deepEqual(ctx.readCounter(), { counter: 1 });
 });
-
-// ─── 2. DENY — Sift DENY receipt blocked at adapter ──────────────────────────
-
-test("DENY: Sift DENY receipt is rejected by the adapter before PEP is reached", async () => {
+test("DENY: DENY_DECISION and zero effect", async (t) => {
+  const ctx = await startTestHarness(); t.after(() => ctx.close());
   const envelope = await fetchSiftReceipt(ctx.mockSiftUrl, "transfer", "DENY");
-
-  const authResult = await ctx.adapter.adapt({
-    kidAndReceipt: envelope,
-    params: TRANSFER_PARAMS,
-    state: TRANSFER_STATE,
-  });
-
-  assert.equal(authResult.ok, false, "Adapter MUST reject a DENY receipt");
-  if (authResult.ok) return;
-  assert.equal(
-    authResult.code,
-    "DENY_DECISION",
-    `Expected code DENY_DECISION, got: ${authResult.code}`
-  );
+  const result = await ctx.adapter.adapt({ kidAndReceipt: envelope, params: PARAMS, state: ctx.readCounter() });
+  assert.equal(result.ok, false);
+  if (!result.ok) assert.equal(result.code, "DENY_DECISION");
+  assert.deepEqual(ctx.readCounter(), { counter: 0 });
 });
-
-// ─── 3. REPLAY — same auth_id consumed only once ─────────────────────────────
-
-test("REPLAY: an authorization cannot be used more than once", async () => {
-  const envelope = await fetchSiftReceipt(ctx.mockSiftUrl, "transfer");
-
-  const authResult = await ctx.adapter.adapt({
-    kidAndReceipt: envelope,
-    params: TRANSFER_PARAMS,
-    state: TRANSFER_STATE,
-  });
-  assert.ok(authResult.ok, "Adapter must succeed for REPLAY setup");
-  if (!authResult.ok) return;
-
-  // First use — must succeed.
-  const first = await callPepGateway(
-    ctx.pepUrl,
-    authResult.intent,
-    authResult.state,
-    authResult.authorization
-  );
-  assert.equal(first.status, 200, `First use must succeed — got ${first.status}`);
-
-  // Second use with the SAME authorization — must be rejected.
-  const second = await callPepGateway(
-    ctx.pepUrl,
-    authResult.intent,
-    authResult.state,
-    authResult.authorization
-  );
-  assert.equal(second.status, 403, `Replay must return 403 — got ${second.status}`);
-  assert.equal(
-    (second.body as { code?: string }).code,
-    "REPLAY_DETECTED",
-    `Expected code REPLAY_DETECTED, got: ${(second.body as { code?: string }).code}`
-  );
+test("POST-AUTHORIZATION MUTATION: INTENT_HASH_MISMATCH, no effect or replay consumption", async (t) => {
+  const store = new ObservedReplayStore();
+  const ctx = await startTestHarness({ replayStore: store }); t.after(() => ctx.close());
+  const auth = await authorize(ctx);
+  rejected(await execute(ctx, auth, { ...auth.intent, params: { amount: 999_999, destination: "attacker_account" } }), "INTENT_HASH_MISMATCH");
+  assert.deepEqual(ctx.readCounter(), { counter: 0 });
+  assert.equal(store.attempts.length, 0);
 });
-
-// ─── 4. INTENT_MISMATCH — tampered params blocked at PEP ─────────────────────
-
-test("INTENT_MISMATCH: tampered intent params are rejected by the PEP", async () => {
-  const envelope = await fetchSiftReceipt(ctx.mockSiftUrl, "transfer");
-
-  const authResult = await ctx.adapter.adapt({
-    kidAndReceipt: envelope,
-    params: TRANSFER_PARAMS,
-    state: TRANSFER_STATE,
-  });
-  assert.ok(authResult.ok, "Adapter must succeed for INTENT_MISMATCH setup");
-  if (!authResult.ok) return;
-
-  // Tamper: change amount and destination — intent_hash will not match.
-  const tamperedIntent = {
-    ...authResult.intent,
-    params: { amount: 999_999, destination: "attacker_account" },
-  };
-
-  const { status, body } = await callPepGateway(
-    ctx.pepUrl,
-    tamperedIntent,
-    authResult.state,
-    authResult.authorization
-  );
-  assert.equal(status, 403, `Tampered intent must return 403 — got ${status}`);
-  assert.equal(
-    (body as { code?: string }).code,
-    "INTENT_HASH_MISMATCH",
-    `Expected code INTENT_HASH_MISMATCH, got: ${(body as { code?: string }).code}`
-  );
+test("STALE LIVE STATE: authorization at 0, store at 1, STATE_HASH_MISMATCH", async (t) => {
+  const ctx = await startTestHarness(); t.after(() => ctx.close());
+  const auth = await authorize(ctx);
+  ctx.setCounterForTest(1);
+  rejected(await execute(ctx, auth, auth.intent, ctx.readCounter()), "STATE_HASH_MISMATCH");
+  assert.deepEqual(ctx.readCounter(), { counter: 1 });
 });
-
-// ─── 5. STATE_MISMATCH — changed state blocked at PEP ────────────────────────
-
-test("STATE_MISMATCH: changed state is rejected by the PEP", async () => {
-  const envelope = await fetchSiftReceipt(ctx.mockSiftUrl, "transfer");
-
-  const authResult = await ctx.adapter.adapt({
-    kidAndReceipt: envelope,
-    params: TRANSFER_PARAMS,
-    state: TRANSFER_STATE,
-  });
-  assert.ok(authResult.ok, "Adapter must succeed for STATE_MISMATCH setup");
-  if (!authResult.ok) return;
-
-  // Change state after authorization — state_hash will not match.
-  const changedState = { session_active: false, account_status: "suspended" };
-
-  const { status, body } = await callPepGateway(
-    ctx.pepUrl,
-    authResult.intent,
-    changedState,
-    authResult.authorization
-  );
-  assert.equal(status, 403, `Changed state must return 403 — got ${status}`);
-  assert.equal(
-    (body as { code?: string }).code,
-    "STATE_HASH_MISMATCH",
-    `Expected code STATE_HASH_MISMATCH, got: ${(body as { code?: string }).code}`
-  );
+test("FAKE CALLER STATE: matching stale request state cannot override live state", async (t) => {
+  const ctx = await startTestHarness(); t.after(() => ctx.close());
+  const auth = await authorize(ctx);
+  ctx.setCounterForTest(1);
+  rejected(await execute(ctx, auth, auth.intent, { counter: 0 }), "STATE_HASH_MISMATCH");
+  assert.deepEqual(ctx.readCounter(), { counter: 1 });
 });
-
-// ─── 6. AUDIENCE_MISMATCH — wrong audience blocked at PEP ────────────────────
-
-test("AUDIENCE_MISMATCH: authorization for wrong audience is rejected by the PEP", async () => {
-  const envelope = await fetchSiftReceipt(ctx.mockSiftUrl, "transfer");
-
-  const authResult = await ctx.adapter.adapt({
-    kidAndReceipt: envelope,
-    params: TRANSFER_PARAMS,
-    state: TRANSFER_STATE,
-  });
-  assert.ok(authResult.ok, "Adapter must succeed for AUDIENCE_MISMATCH setup");
-  if (!authResult.ok) return;
-
-  // Build a validly-signed authorization with the wrong audience.
-  // signAuthorization re-signs so the signature check passes;
-  // the audience check then catches the mismatch.
-  const wrongAudienceAuth = signAuthorization(
-    { ...authResult.authorization, audience: "pep-wrong-audience" },
-    ctx.adapterPrivateKey
-  );
-
-  const { status, body } = await callPepGateway(
-    ctx.pepUrl,
-    authResult.intent,
-    authResult.state,
-    wrongAudienceAuth
-  );
-  assert.equal(status, 403, `Wrong audience must return 403 — got ${status}`);
-  assert.equal(
-    (body as { code?: string }).code,
-    "AUDIENCE_MISMATCH",
-    `Expected code AUDIENCE_MISMATCH, got: ${(body as { code?: string }).code}`
-  );
+test("ORDINARY REPLAY: changed counter rejects before a second replay consume", async (t) => {
+  const store = new ObservedReplayStore();
+  const ctx = await startTestHarness({ replayStore: store }); t.after(() => ctx.close());
+  const auth = await authorize(ctx);
+  assert.equal((await execute(ctx, auth)).status, 200);
+  assert.deepEqual(store.attempts, [auth.authorization.auth_id]);
+  rejected(await execute(ctx, auth), "STATE_HASH_MISMATCH");
+  assert.deepEqual(store.attempts, [auth.authorization.auth_id]);
+  assert.deepEqual(ctx.readCounter(), { counter: 1 });
 });
-
-// ─── 7. EXPIRED — expired authorization blocked at PEP ───────────────────────
-
-test("EXPIRED: an expired authorization is rejected by the PEP", async () => {
+test("ISOLATED REPLAY: trusted reset preserves replay store; REPLAY_DETECTED, no second effect", async (t) => {
+  const store = new ObservedReplayStore();
+  const ctx = await startTestHarness({ replayStore: store }); t.after(() => ctx.close());
+  const original = ctx.readCounter();
+  const auth = await authorize(ctx, original);
+  assert.equal((await execute(ctx, auth)).status, 200);
+  assert.deepEqual(ctx.readCounter(), { counter: 1 });
+  ctx.setCounterForTest(original.counter);
+  rejected(await execute(ctx, auth), "REPLAY_DETECTED");
+  assert.deepEqual(store.attempts, [auth.authorization.auth_id, auth.authorization.auth_id]);
+  assert.deepEqual(ctx.readCounter(), original);
+});
+for (const failure of ["throw", "invalid state"] as const) {
+  test(`TRUSTED ACCESSOR ${failure}: fail closed before replay or effect`, async (t) => {
+    const store = new ObservedReplayStore();
+    const ctx = await startTestHarness({ replayStore: store, getExecutionState: async () => {
+      if (failure === "throw") throw new Error("store unavailable");
+      return { counter: 0.5 };
+    } }); t.after(() => ctx.close());
+    const auth = await authorize(ctx);
+    const response = await execute(ctx, auth);
+    rejected(response, "STATE_HASH_MISMATCH");
+    assert.equal((response.body as { message: string }).message,
+      "Failed to obtain or normalize trusted execution state");
+    assert.deepEqual(ctx.readCounter(), { counter: 0 });
+    assert.equal(store.attempts.length, 0);
+  });
+}
+test("BYPASS: FORBIDDEN and zero effect; reset is not an external capability", async (t) => {
+  const ctx = await startTestHarness(); t.after(() => ctx.close());
+  for (const route of ["execute", "reset"]) {
+    const response = await fetch(`${ctx.upstreamUrl}/${route}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        tool: "transfer",
+        params: { amount: 999_999, destination: "attacker_account" },
+      }),
+    });
+    rejected({ status: response.status, body: await response.json() }, "FORBIDDEN");
+    assert.deepEqual(ctx.readCounter(), { counter: 0 });
+  }
+});
+test("AUTHENTICATED RESET: valid internal token reaches routing; no reset route or effect", async (t) => {
+  const ctx = await startTestHarness(); t.after(() => ctx.close());
+  ctx.setCounterForTest(1);
+  const before = ctx.readCounter();
+  const response = await fetch(`${ctx.upstreamUrl}/reset`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-internal-executor-token": ctx.internalToken,
+    },
+    body: JSON.stringify({ counter: 0 }),
+  });
+  rejected({ status: response.status, body: await response.json() }, "NOT_FOUND", 404);
+  assert.deepEqual(ctx.readCounter(), before);
+});
+test("PRE-ISSUANCE MUTATION: receipt accepts changed params; new auth binds changed intent", async (t) => {
+  const ctx = await startTestHarness(); t.after(() => ctx.close());
   const envelope = await fetchSiftReceipt(ctx.mockSiftUrl, "transfer");
-
-  // Pass a `now` 60 seconds in the past.
-  // receiptToAuthorization sets: issued_at = (now - 60s), expires_at = issued_at + 30s
-  // → expires_at is 30 seconds in the past when the PEP checks it.
+  const changed = { amount: 999_999, destination: "attacker_account" };
+  const base = { kidAndReceipt: envelope, state: ctx.readCounter() };
+  const original = await ctx.adapter.adapt({ ...base, params: PARAMS });
+  const modified = await ctx.adapter.adapt({ ...base, params: changed });
+  assert.ok(original.ok); assert.ok(modified.ok);
+  assert.deepEqual(JSON.parse(JSON.stringify(modified.intent.params)), changed);
+  assert.equal(modified.authorization.auth_id, original.authorization.auth_id);
+  assert.notEqual(modified.authorization.intent_hash, original.authorization.intent_hash);
+  assert.equal(modified.authorization.intent_hash, siftCanonicalJsonHash(modified.intent));
+  // The receipt did not bind params. The adapter's newly signed intent does.
+  assert.equal((await execute(ctx, modified)).status, 200);
+  assert.deepEqual(ctx.readCounter(), { counter: 1 });
+});
+test("AUDIENCE_MISMATCH: correctly signed wrong audience has zero effect", async (t) => {
+  const ctx = await startTestHarness(); t.after(() => ctx.close());
+  const auth = await authorize(ctx);
+  const changed = signAuthorization({ ...auth.authorization, audience: "wrong-pep" }, ctx.adapterPrivateKey);
+  rejected(await callPepGateway(ctx.pepUrl, auth.intent, auth.state, changed), "AUDIENCE_MISMATCH");
+  assert.deepEqual(ctx.readCounter(), { counter: 0 });
+});
+test("EXPIRED: expired authorization has zero effect", async (t) => {
+  const ctx = await startTestHarness(); t.after(() => ctx.close());
+  const envelope = await fetchSiftReceipt(ctx.mockSiftUrl, "transfer");
   const pastNow = new Date(Date.now() - 60_000);
-  const authResult = await ctx.adapter.adapt({
+  const auth = await ctx.adapter.adapt({
     kidAndReceipt: envelope,
-    params: TRANSFER_PARAMS,
-    state: TRANSFER_STATE,
+    params: PARAMS,
+    state: ctx.readCounter(),
     now: pastNow,
   });
-  assert.ok(
-    authResult.ok,
-    `Adapter must succeed with past now: ${!authResult.ok ? `${authResult.code}: ${authResult.message}` : ""}`
-  );
-  if (!authResult.ok) return;
-
-  const { status, body } = await callPepGateway(
-    ctx.pepUrl,
-    authResult.intent,
-    authResult.state,
-    authResult.authorization
-  );
-  assert.equal(status, 403, `Expired authorization must return 403 — got ${status}`);
-  assert.equal(
-    (body as { code?: string }).code,
-    "EXPIRED",
-    `Expected code EXPIRED, got: ${(body as { code?: string }).code}`
-  );
-});
-
-// ─── 8. BYPASS — direct upstream access blocked ───────────────────────────────
-
-test("BYPASS: direct call to upstream without PEP returns 403", async () => {
-  // Call the execution target directly — no AuthorizationV1, no PEP verification.
-  // The upstream must reject this regardless of the request body.
-  const res = await fetch(`${ctx.upstreamUrl}/execute`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      tool: "transfer",
-      params: { amount: 999_999, destination: "attacker_account" },
-    }),
-  });
-  assert.equal(res.status, 403, `Direct upstream access must return 403 — got ${res.status}`);
-  const body = (await res.json()) as { code?: string };
-  assert.equal(
-    body.code,
-    "FORBIDDEN",
-    `Expected code FORBIDDEN, got: ${body.code}`
-  );
+  assert.ok(auth.ok, !auth.ok ? auth.message : "");
+  assert.ok(auth.authorization.expires_at <= Math.floor(Date.now() / 1000));
+  rejected(await callPepGateway(ctx.pepUrl, auth.intent, auth.state, auth.authorization), "EXPIRED");
+  assert.deepEqual(ctx.readCounter(), { counter: 0 });
 });
