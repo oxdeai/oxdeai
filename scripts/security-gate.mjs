@@ -43,7 +43,94 @@ if (!auditPath || !policyPath) {
 }
 
 const loadJson = (p) => JSON.parse(fs.readFileSync(p, "utf8"));
-const audit = loadJson(auditPath);
+
+// ── Audit evidence validation ───────────────────────────────────────────────
+//
+// The only supported input is the `pnpm audit --json` report of the pinned
+// pnpm (packageManager in package.json): { actions, advisories, muted,
+// metadata }. Anything else - a registry/network failure ({ "error": ... }),
+// another tool's format, missing fields - is not evidence of a clean audit,
+// so it is rejected before findings are normalized, a decision is made, or an
+// artifact is written.
+//
+// pnpm's own suppression (auditConfig.ignoreGhsas / ignoreCves, audit-level)
+// deletes entries from `advisories` but leaves metadata.vulnerabilities
+// untouched. A severity with a non-zero count and no advisory therefore means
+// findings were hidden before reaching this gate; accepted risk must go
+// through vuln-policy.json instead. Counts are not compared for exact equality
+// with the number of advisories: their counting semantics are not established.
+const SEVERITIES = ["info", "low", "moderate", "high", "critical"];
+const plainObject = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
+
+function auditEvidenceProblem(a) {
+  const invalid = (detail) => ({ code: "AUDIT_INPUT_INVALID", detail });
+  if (!plainObject(a)) return invalid("audit report must be a JSON object");
+  if (Object.hasOwn(a, "error")) return invalid(`audit command reported an error: ${JSON.stringify(a.error)}`);
+  if (Object.hasOwn(a, "vulnerabilities")) return invalid("unsupported audit format (top-level vulnerabilities)");
+  if (!plainObject(a.advisories)) return invalid("advisories must be an object keyed by advisory id");
+  if (!plainObject(a.metadata) || !plainObject(a.metadata.vulnerabilities)) {
+    return invalid("metadata.vulnerabilities must be an object");
+  }
+  const counts = a.metadata.vulnerabilities;
+  const keys = Object.keys(counts);
+  if (keys.length !== SEVERITIES.length || !SEVERITIES.every((s) => keys.includes(s))) {
+    return invalid(`metadata.vulnerabilities must have exactly: ${SEVERITIES.join(", ")}`);
+  }
+  for (const s of SEVERITIES) {
+    if (!Number.isInteger(counts[s]) || counts[s] < 0) {
+      return invalid(`metadata.vulnerabilities.${s} must be a non-negative integer`);
+    }
+  }
+  const advisorySeverities = new Set();
+  for (const [key, adv] of Object.entries(a.advisories)) {
+    if (!plainObject(adv)) return invalid(`advisory ${key} must be an object`);
+    if (!((typeof adv.id === "string" && adv.id !== "") || Number.isInteger(adv.id))) {
+      return invalid(`advisory ${key} must have an id`);
+    }
+    if (typeof adv.module_name !== "string" || adv.module_name === "") {
+      return invalid(`advisory ${key} must have a string module_name`);
+    }
+    if (!SEVERITIES.includes(adv.severity)) return invalid(`advisory ${key} has unsupported severity`);
+    if (!Array.isArray(adv.findings)) return invalid(`advisory ${key} findings must be an array`);
+    for (const finding of adv.findings) {
+      // Empty paths are valid: pnpm has emitted pathless findings.
+      if (!plainObject(finding) || !Array.isArray(finding.paths) || !finding.paths.every((p) => typeof p === "string")) {
+        return invalid(`advisory ${key} findings must be objects with string paths`);
+      }
+    }
+    advisorySeverities.add(adv.severity);
+  }
+  for (const s of SEVERITIES) {
+    if (counts[s] > 0 && !advisorySeverities.has(s)) {
+      return {
+        code: "AUDIT_EVIDENCE_INCONSISTENT",
+        detail: `metadata reports ${counts[s]} ${s} vulnerabilities but no ${s} advisory is present ` +
+          "(suppressed before the gate?); accept risk via vuln-policy.json, not pnpm audit configuration",
+      };
+    }
+    if (counts[s] === 0 && advisorySeverities.has(s)) {
+      return { code: "AUDIT_EVIDENCE_INCONSISTENT", detail: `${s} advisory present but metadata reports 0 ${s} vulnerabilities` };
+    }
+  }
+  return null;
+}
+
+function rejectAuditEvidence({ code, detail }) {
+  console.log("== Security Advisory Gate ==");
+  console.log("Audit evidence: REJECTED (no decision made, no artifact written)");
+  console.log(`Reason: ${code}: ${detail}`);
+  process.exit(1);
+}
+
+let audit;
+try {
+  audit = loadJson(auditPath);
+} catch (err) {
+  rejectAuditEvidence({ code: "AUDIT_INPUT_INVALID", detail: `audit report is not readable JSON (${err.message})` });
+}
+const auditProblem = auditEvidenceProblem(audit);
+if (auditProblem) rejectAuditEvidence(auditProblem);
+
 const policy = loadJson(policyPath);
 const exceptions = policy.exceptions ?? [];
 const rules = policy.rules ?? {
@@ -64,20 +151,11 @@ const isExpired = (dateStr) => {
   return d < today;
 };
 
-// Normalize pnpm audit JSON (fallback to npm advisories shape)
+// Normalize validated pnpm audit JSON (see auditEvidenceProblem).
 function normalizeFindings(a) {
   const findings = [];
 
-  if (Array.isArray(a.vulnerabilities)) {
-    for (const v of a.vulnerabilities) {
-      findings.push({
-        id: v.id ?? v.name ?? v.title ?? `${v.package}@${v.version}`,
-        package: v.package ?? v.name,
-        severity: (v.severity ?? v.severityLevel ?? "").toLowerCase(),
-        path: v.path ?? (Array.isArray(v.via) ? v.via.join(" > ") : "") ?? "",
-      });
-    }
-  } else if (a.advisories) {
+  if (a.advisories) {
     for (const key of Object.keys(a.advisories)) {
       const adv = a.advisories[key];
       findings.push({

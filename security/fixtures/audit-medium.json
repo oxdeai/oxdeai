@@ -1,10 +1,54 @@
 {
-  "vulnerabilities": [
-    {
-      "id": "TEST-MED-1",
-      "package": "leftpad",
+  "actions": [],
+  "advisories": {
+    "900003": {
+      "findings": [
+        {
+          "version": "1.0.0",
+          "paths": [
+            "root>leftpad"
+          ]
+        }
+      ],
+      "found_by": null,
+      "deleted": null,
+      "references": "",
+      "created": "2026-01-01T00:00:00.000Z",
+      "id": 900003,
+      "npm_advisory_id": null,
+      "overview": "Test fixture advisory.",
+      "reported_by": null,
+      "title": "leftpad test advisory",
+      "metadata": null,
+      "cves": [],
+      "access": "public",
       "severity": "moderate",
-      "path": "root>leftpad@1.0.0"
+      "module_name": "leftpad",
+      "vulnerable_versions": "<=1.0.0",
+      "github_advisory_id": "GHSA-test-moderate",
+      "recommendation": "None",
+      "patched_versions": ">=1.0.1",
+      "updated": "2026-01-01T00:00:00.000Z",
+      "cvss": {
+        "score": 0,
+        "vectorString": null
+      },
+      "cwe": [],
+      "url": "https://example.invalid/advisory"
     }
-  ]
+  },
+  "muted": [],
+  "metadata": {
+    "vulnerabilities": {
+      "info": 0,
+      "low": 0,
+      "moderate": 1,
+      "high": 0,
+      "critical": 0
+    },
+    "dependencies": 1,
+    "devDependencies": 0,
+    "optionalDependencies": 0,
+    "totalDependencies": 1
+  }
 }
