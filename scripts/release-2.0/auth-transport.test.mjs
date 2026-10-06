@@ -4,7 +4,10 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createNpmAuthTransport } from "./auth-transport.mjs";
 import { RELEASE_REGISTRY_REQUIREMENTS, observeRegistryPrecheck } from "./auth-precheck.mjs";
-import { precheck } from "./orchestrator.mjs";
+import { persistFixturePrecheck } from "./precheck-fixture.mjs";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { POLICY } from "../verify-packed-artifacts.mjs";
 const registry = RELEASE_REGISTRY_REQUIREMENTS.registry;
 const pkg = "@oxdeai/core";
@@ -15,8 +18,12 @@ function fixture(result) {
   const transport = createNpmAuthTransport({ registry, subprocess: (args) => { calls.push(args); return result; } });
   return { transport, calls };
 }
-const ds = [{ name: pkg, manifest: { name: pkg, version: POLICY[pkg].version } }];
-const runPrecheck = (authTransport) => precheck({ discovered: ds, gitTransport: { isClean: () => true }, authTransport });
+const ds = [{ name: pkg, dir: "/fake/core", manifest: { name: pkg, version: POLICY[pkg].version } }];
+const runPrecheck = (authTransport) => {
+  const dir = mkdtempSync(path.join(tmpdir(), "oxdeai-auth-precheck-"));
+  try { return persistFixturePrecheck(ds, dir, "a".repeat(40), "/fake", { authTransport, policy: { [pkg]: POLICY[pkg] } }); }
+  finally { rmSync(dir, { recursive: true, force: true }); }
+};
 function reportedTransport({ status = { kind: "existing", visibility: "public" }, right = "read-write", target = registry } = {}) {
   return {
     whoami: () => ({ kind: "identity", registry: target, username: "maintainer" }),

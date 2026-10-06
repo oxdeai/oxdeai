@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
+import { bindFixturePrecheck, persistFixturePrecheck, fixturePackages } from "./precheck-fixture.mjs";
 //
 // Tests for the OxDeAI 2.0 release orchestrator (#292).
 //
@@ -121,7 +122,9 @@ function fakeSource({ root = "/fake", revision = SHA, clean = true, sequence } =
 function packFixture(overrides = {}) {
   const releaseDir = tmpDir("oxdeai-release-");
   const discovered = fakeDiscovered();
+  persistFixturePrecheck(discovered, releaseDir);
   const result = pack({
+    packageTransport: fixturePackages,
     discovered,
     releaseDir,
     sourceRevision: SHA,
@@ -206,7 +209,9 @@ test("1. dirty working tree fails PRECHECK", () => {
 
 test("PRECHECK passes on a clean tree with valid discovery", () => {
   const discovered = fakeDiscovered();
-  const result = precheck({ discovered, gitTransport: cleanGit() });
+  const releaseDir = tmpDir("oxdeai-precheck-");
+  const result = persistFixturePrecheck(discovered, releaseDir);
+  rmSync(releaseDir, { recursive: true, force: true });
   assert.equal(result.ok, true);
 });
 
@@ -417,7 +422,9 @@ test("HIGHEST PRIORITY: registry integrity != manifest integrity halts publicati
 test("14. non-deterministic PRECHECK probe result is recorded, but original tarballs are still required on resume", () => {
   const releaseDir = tmpDir("oxdeai-release-");
   const discovered = fakeDiscovered();
+  persistFixturePrecheck(fakeDiscovered(), releaseDir);
   const { manifest } = pack({
+    packageTransport: fixturePackages,
     discovered, releaseDir, sourceRevision: SHA, sourceTransport: fakeSource(),
     packTransport: fakePackTransport({ deterministic: false }),
   });
@@ -506,6 +513,7 @@ test("18. publish error followed by a registry version with divergent integrity 
 test("19. one package not registry-verified makes READY_TO_PROMOTE unreachable", () => {
   const { manifest } = packFixture();
   const state = { stateVersion: STATE_VERSION, releaseId: SHA, phase: "EXTERNAL_INSTALL_VERIFIED", history: [], packages: fullyPublishedState(manifest) };
+  bindFixturePrecheck(manifest, state);
   const notVerified = manifest.packages.find((p) => p.package === "@oxdeai/sdk").package;
   state.packages[notVerified].registryVerified = false;
 
@@ -518,6 +526,7 @@ test("19. one package not registry-verified makes READY_TO_PROMOTE unreachable",
 test("20. @oxdeai/cli alone failing verification blocks promotion of the nine 2.0-line packages", () => {
   const { manifest } = packFixture();
   const state = { stateVersion: STATE_VERSION, releaseId: SHA, phase: "EXTERNAL_INSTALL_VERIFIED", history: [], packages: fullyPublishedState(manifest) };
+  bindFixturePrecheck(manifest, state);
   state.packages["@oxdeai/cli"].externalInstallVerified = false;
 
   assert.throws(
@@ -529,6 +538,7 @@ test("20. @oxdeai/cli alone failing verification blocks promotion of the nine 2.
 test("all ten verified reaches READY_TO_PROMOTE", () => {
   const { manifest } = packFixture();
   const state = { stateVersion: STATE_VERSION, releaseId: SHA, phase: "EXTERNAL_INSTALL_VERIFIED", history: [], packages: fullyPublishedState(manifest) };
+  bindFixturePrecheck(manifest, state);
   const releaseDir = tmpDir("oxdeai-release-");
   writeFileSync(path.join(releaseDir, STATE_FILENAME), "{}"); // saveState overwrites; just needs a writable dir
   const result = transitionToReadyToPromote({ manifest, state, releaseDir });
@@ -540,6 +550,7 @@ test("all ten verified reaches READY_TO_PROMOTE", () => {
 test("21. promotion planning before READY_TO_PROMOTE fails closed", () => {
   const { manifest } = packFixture();
   const state = { stateVersion: STATE_VERSION, releaseId: SHA, phase: "VERIFIED_LOCAL", history: [], packages: fullyPublishedState(manifest) };
+  bindFixturePrecheck(manifest, state);
   assert.throws(() => buildPromotionPlan(manifest, state), /READY_TO_PROMOTE/);
   assert.throws(
     () => promote({ manifest, state, releaseDir: tmpDir("oxdeai-release-") }),
@@ -566,6 +577,7 @@ test("22 & 23. generated publication plan uses exact .tgz paths (never package d
 test("24. generated promotion plan uses exact manifest versions", () => {
   const { manifest } = packFixture();
   const state = { stateVersion: STATE_VERSION, releaseId: SHA, phase: "READY_TO_PROMOTE", history: [], packages: fullyPublishedState(manifest) };
+  bindFixturePrecheck(manifest, state);
   const plan = buildPromotionPlan(manifest, state);
   assert.equal(plan.length, 10);
   for (const p of manifest.packages) {
@@ -598,6 +610,7 @@ test("25. state transition graph rejects invalid or skipped transitions", () => 
 test("verifyRegistry requires exact name+version+integrity match, not merely name+version", () => {
   const { manifest } = packFixture();
   const state = { stateVersion: STATE_VERSION, releaseId: SHA, phase: "PUBLISHED_NEXT", history: [], packages: fullyPublishedState(manifest) };
+  bindFixturePrecheck(manifest, state);
   const target = manifest.packages[0];
   const registry = fakeRegistry(
     Object.fromEntries(manifest.packages.map((p) => [`${p.package}@${p.version}`, p.integrity]))
@@ -612,6 +625,7 @@ test("verifyRegistry requires exact name+version+integrity match, not merely nam
 test("verifyRegistry passes and transitions to REGISTRY_VERIFIED when all integrities match", () => {
   const { manifest } = packFixture();
   const state = { stateVersion: STATE_VERSION, releaseId: SHA, phase: "PUBLISHED_NEXT", history: [], packages: fullyPublishedState(manifest) };
+  bindFixturePrecheck(manifest, state);
   const registry = fakeRegistry(
     Object.fromEntries(manifest.packages.map((p) => [`${p.package}@${p.version}`, p.integrity]))
   );
@@ -622,6 +636,7 @@ test("verifyRegistry passes and transitions to REGISTRY_VERIFIED when all integr
 test("verifyExternalInstall is distinct from local tarball verification and requires its own transport", () => {
   const { manifest } = packFixture();
   const state = { stateVersion: STATE_VERSION, releaseId: SHA, phase: "REGISTRY_VERIFIED", history: [], packages: fullyPublishedState(manifest) };
+  bindFixturePrecheck(manifest, state);
   const failing = { verifyInstall: (name) => (name === "@oxdeai/guard" ? { ok: false, reason: "types not resolvable" } : { ok: true }) };
   assert.throws(
     () => verifyExternalInstall({ manifest, state, releaseDir: tmpDir("oxdeai-release-"), installTransport: failing }),
@@ -630,6 +645,7 @@ test("verifyExternalInstall is distinct from local tarball verification and requ
 
   const passing = okInstallTransport();
   const state2 = { stateVersion: STATE_VERSION, releaseId: SHA, phase: "REGISTRY_VERIFIED", history: [], packages: fullyPublishedState(manifest) };
+  bindFixturePrecheck(manifest, state2);
   const result = verifyExternalInstall({ manifest, state: state2, releaseDir: tmpDir("oxdeai-release-"), installTransport: passing });
   assert.equal(result.phase, "EXTERNAL_INSTALL_VERIFIED");
 });
@@ -676,7 +692,7 @@ for (const [label, mutate] of [
     const f = packFixture();
     f.manifest.packages = mutate(f.manifest.packages);
     f.state.packages = Object.fromEntries(f.manifest.packages.map((p) => [p.package, { publishStatus: "pending" }]));
-    assert.throws(() => verifyLocal(f), /bijection|package set mismatch/);
+    assert.throws(() => verifyLocal(f), /bijection|package set mismatch|PRECHECK evidence binding mismatch: package set/);
     assert.equal(f.state.phase, "PACKED");
   });
 }
@@ -946,7 +962,7 @@ function runCli(cli, base, command, releaseDir, output, observedToolchain = { no
     assert.ok(["status", "rev-parse"].includes(args[0]));
     return { status: 0, stdout: args[0] === "status" ? "" : SHA };
   }, base, { argv: ["node", "orchestrator.mjs", command, "--release-dir", releaseDir] },
-  { log: line => output.push(line), error: assert.fail }, path, fakeDiscovered, precheck, pack,
+  { log: line => output.push(line), error: assert.fail }, path, fakeDiscovered, args => persistFixturePrecheck(args.discovered, args.releaseDir), pack,
   MANIFEST_FILENAME, ReleaseOrchestratorError,
   assertReleaseToolchain, () => observedToolchain, () => PINNED_TOOLCHAIN, gitSourceTransport);
 }
@@ -957,7 +973,7 @@ for (const command of ["precheck", "pack"]) {
     try {
       const releaseDir = path.join(base, "release");
       mkdirSync(releaseDir);
-      writeFileSync(path.join(releaseDir, MANIFEST_FILENAME), "existing release");
+      if (command === "pack") writeFileSync(path.join(releaseDir, MANIFEST_FILENAME), "existing release");
       const output = [];
       // Exercise the actual CLI functions in process with a fixture git runner.
       // No Node/shell subprocess is needed for the reporting assertions.
@@ -966,8 +982,8 @@ for (const command of ["precheck", "pack"]) {
       const invoke = () => runCli(cli, base, command, releaseDir, output);
       if (command === "pack") await assert.rejects(invoke, /Repacking\/reconstruction.*forbidden/);
       else await invoke();
-      assert.deepEqual(output, ["PRECHECK (local): PASS", "Registry auth/rights/public-scope checks: NOT RUN"]);
-      assert.equal(readFileSync(path.join(releaseDir, MANIFEST_FILENAME), "utf8"), "existing release");
+      assert.deepEqual(output, command === "precheck" ? ["PRECHECK (local): PASS", "Registry auth/rights/public-scope checks: NOT RUN"] : []);
+      if (command === "pack") assert.equal(readFileSync(path.join(releaseDir, MANIFEST_FILENAME), "utf8"), "existing release");
     } finally {
       rmSync(base, { recursive: true, force: true });
     }
@@ -981,7 +997,9 @@ function packWith(sourceTransport, extra = {}) {
   const releaseDir = tmpDir("oxdeai-release-");
   let packCalls = 0;
   const inner = fakePackTransport();
+  persistFixturePrecheck(fakeDiscovered(), releaseDir);
   const run = () => pack({
+    packageTransport: fixturePackages,
     discovered: fakeDiscovered(), releaseDir, sourceRevision: SHA,
     ...(sourceTransport === undefined ? {} : { sourceTransport }),
     packTransport: { packToDir(pkg, dest) { packCalls += 1; return inner.packToDir(pkg, dest); } },
