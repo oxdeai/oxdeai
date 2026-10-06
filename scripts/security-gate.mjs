@@ -80,12 +80,20 @@ function normalizeFindings(a) {
   } else if (a.advisories) {
     for (const key of Object.keys(a.advisories)) {
       const adv = a.advisories[key];
-      findings.push({
-        id: adv.id ?? key,
-        package: adv.module_name,
-        severity: (adv.severity ?? "").toLowerCase(),
-        path: adv.findings?.[0]?.paths?.[0] ?? "",
-      });
+      // Evaluate every reported dependency route independently. Keeping only
+      // the first route would let a path-scoped exception hide other routes.
+      const reported = adv.findings?.length ? adv.findings : [{ paths: [] }];
+      const paths = reported.flatMap((finding) =>
+        finding.paths?.length ? finding.paths : [""]
+      );
+      for (const findingPath of paths.length ? paths : [""]) {
+        findings.push({
+          id: adv.id ?? key,
+          package: adv.module_name,
+          severity: (adv.severity ?? "").toLowerCase(),
+          path: findingPath,
+        });
+      }
     }
   }
 
@@ -118,11 +126,16 @@ const stableStringify = (value) => {
 const sha256 = (v) => crypto.createHash("sha256").update(stableStringify(v)).digest("hex");
 
 function matchException(f) {
-  return exceptions.find((ex) => {
+  return exceptions.filter((ex) => {
     const severityMatch = normSeverity(ex.severity) === normSeverity(f.severity);
     const idMatch = ex.id ? ex.id === f.id : true;
     const pkgMatch = ex.package ? ex.package === f.package : true;
-    return severityMatch && idMatch && pkgMatch;
+    // scope remains descriptive. An optional path is an exact audit-path
+    // constraint, never a glob/prefix; malformed constraints cannot match.
+    const pathMatch = !Object.hasOwn(ex, "path") ||
+      (typeof ex.path === "string" && ex.path.length > 0 &&
+        ex.path.trim() === ex.path && ex.path === f.path);
+    return severityMatch && idMatch && pkgMatch && pathMatch;
   });
 }
 
@@ -133,18 +146,20 @@ const warnings = [];
 
 for (const f of findings) {
   const sev = normSeverity(f.severity);
-  const ex = matchException(f);
+  const candidates = matchException(f);
+  // Sort only for deterministic reporting; coverage considers every candidate.
+  candidates.sort((a, b) => {
+    const left = stableStringify(a);
+    const right = stableStringify(b);
+    return left < right ? -1 : left > right ? 1 : 0;
+  });
+  const valid = candidates.filter((ex) => !isExpired(ex.expires_on) && !!ex.reason);
+  const ex = valid[0];
+  const hasValidEx = valid.length > 0;
 
-  if (ex && isExpired(ex.expires_on)) {
-    expired.push({ finding: f, exception: ex });
+  for (const candidate of candidates.filter((ex) => isExpired(ex.expires_on))) {
+    expired.push({ finding: f, exception: candidate, covered: hasValidEx });
   }
-
-  const hasValidEx =
-    !!ex &&
-    !isExpired(ex.expires_on) &&
-    !!ex.reason &&
-    normSeverity(ex.severity) === sev;
-
   if (hasValidEx) matched.push({ finding: f, exception: ex });
 
   // policy-driven action, fail-closed if missing
@@ -186,12 +201,14 @@ if (blocking.length) {
 
 if (expired.length) {
   console.log("\nExpired exceptions:");
-  for (const e of expired) console.log(` - ${fmt(e.finding)} | exception expires_on=${e.exception.expires_on}`);
+  for (const e of expired) console.log(` - ${fmt(e.finding)} | exception expires_on=${e.exception.expires_on}${e.covered ? " (covered by another valid exception)" : ""}`);
 }
 
 if (!exceptions.length) console.log("\nNo exceptions configured.");
 
-const ok = blocking.length === 0 && expired.length === 0;
+// Expired exceptions are diagnostics only: they never satisfy
+// require_exception (see hasValidEx) and never change a policy action.
+const ok = blocking.length === 0;
 const decision = ok ? "ALLOW" : "DENY";
 const reason = ok
   ? "no blocking findings"
