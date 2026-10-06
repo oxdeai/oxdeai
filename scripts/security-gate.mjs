@@ -43,7 +43,94 @@ if (!auditPath || !policyPath) {
 }
 
 const loadJson = (p) => JSON.parse(fs.readFileSync(p, "utf8"));
-const audit = loadJson(auditPath);
+
+// ── Audit evidence validation ───────────────────────────────────────────────
+//
+// The only supported input is the `pnpm audit --json` report of the pinned
+// pnpm (packageManager in package.json): { actions, advisories, muted,
+// metadata }. Anything else - a registry/network failure ({ "error": ... }),
+// another tool's format, missing fields - is not evidence of a clean audit,
+// so it is rejected before findings are normalized, a decision is made, or an
+// artifact is written.
+//
+// pnpm's own suppression (auditConfig.ignoreGhsas / ignoreCves, audit-level)
+// deletes entries from `advisories` but leaves metadata.vulnerabilities
+// untouched. A severity with a non-zero count and no advisory therefore means
+// findings were hidden before reaching this gate; accepted risk must go
+// through vuln-policy.json instead. Counts are not compared for exact equality
+// with the number of advisories: their counting semantics are not established.
+const SEVERITIES = ["info", "low", "moderate", "high", "critical"];
+const plainObject = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
+
+function auditEvidenceProblem(a) {
+  const invalid = (detail) => ({ code: "AUDIT_INPUT_INVALID", detail });
+  if (!plainObject(a)) return invalid("audit report must be a JSON object");
+  if (Object.hasOwn(a, "error")) return invalid(`audit command reported an error: ${JSON.stringify(a.error)}`);
+  if (Object.hasOwn(a, "vulnerabilities")) return invalid("unsupported audit format (top-level vulnerabilities)");
+  if (!plainObject(a.advisories)) return invalid("advisories must be an object keyed by advisory id");
+  if (!plainObject(a.metadata) || !plainObject(a.metadata.vulnerabilities)) {
+    return invalid("metadata.vulnerabilities must be an object");
+  }
+  const counts = a.metadata.vulnerabilities;
+  const keys = Object.keys(counts);
+  if (keys.length !== SEVERITIES.length || !SEVERITIES.every((s) => keys.includes(s))) {
+    return invalid(`metadata.vulnerabilities must have exactly: ${SEVERITIES.join(", ")}`);
+  }
+  for (const s of SEVERITIES) {
+    if (!Number.isInteger(counts[s]) || counts[s] < 0) {
+      return invalid(`metadata.vulnerabilities.${s} must be a non-negative integer`);
+    }
+  }
+  const advisorySeverities = new Set();
+  for (const [key, adv] of Object.entries(a.advisories)) {
+    if (!plainObject(adv)) return invalid(`advisory ${key} must be an object`);
+    if (!((typeof adv.id === "string" && adv.id !== "") || Number.isInteger(adv.id))) {
+      return invalid(`advisory ${key} must have an id`);
+    }
+    if (typeof adv.module_name !== "string" || adv.module_name === "") {
+      return invalid(`advisory ${key} must have a string module_name`);
+    }
+    if (!SEVERITIES.includes(adv.severity)) return invalid(`advisory ${key} has unsupported severity`);
+    if (!Array.isArray(adv.findings)) return invalid(`advisory ${key} findings must be an array`);
+    for (const finding of adv.findings) {
+      // Empty paths are valid: pnpm has emitted pathless findings.
+      if (!plainObject(finding) || !Array.isArray(finding.paths) || !finding.paths.every((p) => typeof p === "string")) {
+        return invalid(`advisory ${key} findings must be objects with string paths`);
+      }
+    }
+    advisorySeverities.add(adv.severity);
+  }
+  for (const s of SEVERITIES) {
+    if (counts[s] > 0 && !advisorySeverities.has(s)) {
+      return {
+        code: "AUDIT_EVIDENCE_INCONSISTENT",
+        detail: `metadata reports ${counts[s]} ${s} vulnerabilities but no ${s} advisory is present ` +
+          "(suppressed before the gate?); accept risk via vuln-policy.json, not pnpm audit configuration",
+      };
+    }
+    if (counts[s] === 0 && advisorySeverities.has(s)) {
+      return { code: "AUDIT_EVIDENCE_INCONSISTENT", detail: `${s} advisory present but metadata reports 0 ${s} vulnerabilities` };
+    }
+  }
+  return null;
+}
+
+function rejectAuditEvidence({ code, detail }) {
+  console.log("== Security Advisory Gate ==");
+  console.log("Audit evidence: REJECTED (no decision made, no artifact written)");
+  console.log(`Reason: ${code}: ${detail}`);
+  process.exit(1);
+}
+
+let audit;
+try {
+  audit = loadJson(auditPath);
+} catch (err) {
+  rejectAuditEvidence({ code: "AUDIT_INPUT_INVALID", detail: `audit report is not readable JSON (${err.message})` });
+}
+const auditProblem = auditEvidenceProblem(audit);
+if (auditProblem) rejectAuditEvidence(auditProblem);
+
 const policy = loadJson(policyPath);
 const exceptions = policy.exceptions ?? [];
 const rules = policy.rules ?? {
@@ -64,28 +151,27 @@ const isExpired = (dateStr) => {
   return d < today;
 };
 
-// Normalize pnpm audit JSON (fallback to npm advisories shape)
+// Normalize validated pnpm audit JSON (see auditEvidenceProblem).
 function normalizeFindings(a) {
   const findings = [];
 
-  if (Array.isArray(a.vulnerabilities)) {
-    for (const v of a.vulnerabilities) {
-      findings.push({
-        id: v.id ?? v.name ?? v.title ?? `${v.package}@${v.version}`,
-        package: v.package ?? v.name,
-        severity: (v.severity ?? v.severityLevel ?? "").toLowerCase(),
-        path: v.path ?? (Array.isArray(v.via) ? v.via.join(" > ") : "") ?? "",
-      });
-    }
-  } else if (a.advisories) {
+  if (a.advisories) {
     for (const key of Object.keys(a.advisories)) {
       const adv = a.advisories[key];
-      findings.push({
-        id: adv.id ?? key,
-        package: adv.module_name,
-        severity: (adv.severity ?? "").toLowerCase(),
-        path: adv.findings?.[0]?.paths?.[0] ?? "",
-      });
+      // Evaluate every reported dependency route independently. Keeping only
+      // the first route would let a path-scoped exception hide other routes.
+      const reported = adv.findings?.length ? adv.findings : [{ paths: [] }];
+      const paths = reported.flatMap((finding) =>
+        finding.paths?.length ? finding.paths : [""]
+      );
+      for (const findingPath of paths.length ? paths : [""]) {
+        findings.push({
+          id: adv.id ?? key,
+          package: adv.module_name,
+          severity: (adv.severity ?? "").toLowerCase(),
+          path: findingPath,
+        });
+      }
     }
   }
 
@@ -118,11 +204,16 @@ const stableStringify = (value) => {
 const sha256 = (v) => crypto.createHash("sha256").update(stableStringify(v)).digest("hex");
 
 function matchException(f) {
-  return exceptions.find((ex) => {
+  return exceptions.filter((ex) => {
     const severityMatch = normSeverity(ex.severity) === normSeverity(f.severity);
     const idMatch = ex.id ? ex.id === f.id : true;
     const pkgMatch = ex.package ? ex.package === f.package : true;
-    return severityMatch && idMatch && pkgMatch;
+    // scope remains descriptive. An optional path is an exact audit-path
+    // constraint, never a glob/prefix; malformed constraints cannot match.
+    const pathMatch = !Object.hasOwn(ex, "path") ||
+      (typeof ex.path === "string" && ex.path.length > 0 &&
+        ex.path.trim() === ex.path && ex.path === f.path);
+    return severityMatch && idMatch && pkgMatch && pathMatch;
   });
 }
 
@@ -133,18 +224,20 @@ const warnings = [];
 
 for (const f of findings) {
   const sev = normSeverity(f.severity);
-  const ex = matchException(f);
+  const candidates = matchException(f);
+  // Sort only for deterministic reporting; coverage considers every candidate.
+  candidates.sort((a, b) => {
+    const left = stableStringify(a);
+    const right = stableStringify(b);
+    return left < right ? -1 : left > right ? 1 : 0;
+  });
+  const valid = candidates.filter((ex) => !isExpired(ex.expires_on) && !!ex.reason);
+  const ex = valid[0];
+  const hasValidEx = valid.length > 0;
 
-  if (ex && isExpired(ex.expires_on)) {
-    expired.push({ finding: f, exception: ex });
+  for (const candidate of candidates.filter((ex) => isExpired(ex.expires_on))) {
+    expired.push({ finding: f, exception: candidate, covered: hasValidEx });
   }
-
-  const hasValidEx =
-    !!ex &&
-    !isExpired(ex.expires_on) &&
-    !!ex.reason &&
-    normSeverity(ex.severity) === sev;
-
   if (hasValidEx) matched.push({ finding: f, exception: ex });
 
   // policy-driven action, fail-closed if missing
@@ -186,12 +279,14 @@ if (blocking.length) {
 
 if (expired.length) {
   console.log("\nExpired exceptions:");
-  for (const e of expired) console.log(` - ${fmt(e.finding)} | exception expires_on=${e.exception.expires_on}`);
+  for (const e of expired) console.log(` - ${fmt(e.finding)} | exception expires_on=${e.exception.expires_on}${e.covered ? " (covered by another valid exception)" : ""}`);
 }
 
 if (!exceptions.length) console.log("\nNo exceptions configured.");
 
-const ok = blocking.length === 0 && expired.length === 0;
+// Expired exceptions are diagnostics only: they never satisfy
+// require_exception (see hasValidEx) and never change a policy action.
+const ok = blocking.length === 0;
 const decision = ok ? "ALLOW" : "DENY";
 const reason = ok
   ? "no blocking findings"

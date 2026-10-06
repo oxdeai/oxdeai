@@ -28,6 +28,12 @@
  *     provenance fails evidence generation clearly (non-zero exit).
  * 14. changing lockfile bytes changes lockfileHash.
  * 15. evidence generation does not alter the advisory ALLOW/DENY decision.
+ * 16. audit evidence that is not a valid pinned-pnpm report (operational
+ *     error, other formats, malformed fields) is rejected before any
+ *     decision: non-zero exit, no Decision line, no artifact.
+ * 17. metadata/advisory consistency per severity: a non-zero metadata count
+ *     without an advisory (pnpm-level suppression) and an advisory with a
+ *     zero count are both rejected.
  *
  * No PBT: every case here is a fixed, small, enumerable fixture (a handful
  * of known field mutations and byte changes), not a generative invariant
@@ -62,10 +68,34 @@ function writeFixturePolicy() {
   return policyPath;
 }
 
-function writeAuditFixture(name, advisories) {
+// pnpm 10.34.5 `pnpm audit --json` report shape, metadata counts derived from
+// the advisories.
+const SEVERITIES = ["info", "low", "moderate", "high", "critical"];
+function auditReport(advisories, counts = {}) {
+  const vulnerabilities = Object.fromEntries(SEVERITIES.map((s) => [s, 0]));
+  for (const adv of Object.values(advisories)) vulnerabilities[adv.severity] += 1;
+  return {
+    actions: [],
+    advisories,
+    muted: [],
+    metadata: {
+      vulnerabilities: { ...vulnerabilities, ...counts },
+      dependencies: 1,
+      devDependencies: 0,
+      optionalDependencies: 0,
+      totalDependencies: 1,
+    },
+  };
+}
+
+function writeRawAudit(name, text) {
   const auditPath = join(fixtureDir, `${name}.json`);
-  writeFileSync(auditPath, JSON.stringify({ advisories }));
+  writeFileSync(auditPath, text);
   return auditPath;
+}
+
+function writeAuditFixture(name, advisories, counts) {
+  return writeRawAudit(name, JSON.stringify(auditReport(advisories, counts)));
 }
 
 function runGate(auditPath, policyPath, extraArgs = []) {
@@ -95,7 +125,8 @@ const sha256Bytes = (buf) => createHash("sha256").update(buf).digest("hex");
 
 try {
   const policyPath = writeFixturePolicy();
-  const cleanAudit = writeAuditFixture("clean", {});
+  // Valid clean report using the observed pnpm 10.34.5 `pnpm audit --json` shape.
+  const cleanAudit = join(repoRoot, "security/fixtures/audit-none.json");
   const blockingAudit = writeAuditFixture("blocking", {
     "adv-1": {
       id: 999999,
@@ -104,6 +135,132 @@ try {
       findings: [{ paths: ["root > example-pkg@1.0.0"] }],
     },
   });
+
+  // Exact path exceptions must never cover a second dependency route.
+  const exactPath = "packages__core>@microsoft/api-extractor>@rushstack/ts-command-line>argparse>sprintf-js";
+  const otherPath = "other>sprintf-js";
+  const exception = {
+    id: 1241202, package: "sprintf-js", severity: "moderate",
+    path: exactPath, reason: "temporary test exception", expires_on: "2999-01-01",
+  };
+  function checkException(name, paths, ex, severity = "moderate", allowed = false) {
+    const audit = writeAuditFixture(name, {
+      fixture: { id: 1241202, module_name: "sprintf-js", severity,
+        findings: paths.map((path) => ({ paths: [path] })) },
+    });
+    const scopedPolicy = join(fixtureDir, `${name}-policy.json`);
+    writeFileSync(scopedPolicy, JSON.stringify({
+      rules: { moderate: "require_exception", high: "require_exception", critical: "require_exception" },
+      exceptions: Array.isArray(ex) ? ex : [ex],
+    }));
+    const result = runGate(audit, scopedPolicy);
+    assert.equal(result.status, allowed ? 0 : 1, `${name}\n${result.stdout}\n${result.stderr}`);
+    assert.match(result.stdout, allowed ? /Decision: ALLOW/ : /Decision: DENY/);
+    process.stdout.write(`PASS ${name}\n`);
+    return result;
+  }
+  const exact = checkException("exact-path", [exactPath], exception, "moderate", true);
+  assert.match(exact.stdout, /Matched exceptions: 1/);
+  const different = checkException("different-path", [otherPath], exception);
+  assert.match(different.stdout, /Matched exceptions: 0/);
+  const multiple = checkException("second-route-blocks", [exactPath, otherPath], exception);
+  assert.match(multiple.stdout, /Findings: 2/);
+  assert.match(multiple.stdout, /Blocking: 1/);
+  assert.match(multiple.stdout, /Matched exceptions: 1/);
+  assert.match(multiple.stdout, /path=other>sprintf-js/);
+  // pnpm can also report multiple paths inside a single finding.
+  const sharedFindingAudit = writeAuditFixture("shared-finding-paths", {
+    fixture: { id: 1241202, module_name: "sprintf-js", severity: "moderate",
+      findings: [{ paths: [exactPath, otherPath] }] },
+  });
+  const sharedFinding = runGate(sharedFindingAudit, join(fixtureDir, "exact-path-policy.json"));
+  assert.equal(sharedFinding.status, 1);
+  assert.match(sharedFinding.stdout, /Findings: 2/);
+  assert.match(sharedFinding.stdout, /Blocking: 1/);
+  assert.match(sharedFinding.stdout, /Matched exceptions: 1/);
+  process.stdout.write("PASS multiple-paths-in-one-finding\n");
+
+  const expiredPath = checkException("expired-path", [exactPath], { ...exception, expires_on: "2000-01-01" });
+  assert.match(expiredPath.stdout, /Expired exceptions: 1/);
+  const { path: unusedPath, ...legacyException } = exception;
+  checkException("legacy-unscoped", [exactPath, otherPath], legacyException, "moderate", true);
+  for (const [index, path] of [null, 42, [], {}, "", " ", ` ${exactPath}`, `${exactPath} `].entries()) {
+    checkException(`malformed-path-${index}`, [exactPath], { ...exception, path });
+  }
+  for (const severity of ["high", "critical"]) {
+    checkException(`${severity}-always-denied`, [exactPath], { ...exception, severity }, severity);
+  }
+
+  // Invalid candidates cannot shadow valid coverage in either order.
+  for (const [name, invalid] of [
+    ["malformed", { ...exception, path: null }],
+    ["expired", { ...exception, expires_on: "2000-01-01" }],
+    ["missing-reason", { ...exception, reason: "" }],
+  ]) {
+    const first = checkException(`${name}-first`, [exactPath], [invalid, exception], "moderate", true);
+    const last = checkException(`${name}-last`, [exactPath], [exception, invalid], "moderate", true);
+    assert.equal(first.stdout, last.stdout, "exception ordering must not change decision or reporting");
+    assert.match(first.stdout, /Matched exceptions: 1/);
+    assert.match(first.stdout, name === "expired" ? /Expired exceptions: 1/ : /Expired exceptions: 0/);
+    if (name === "expired") assert.match(first.stdout, /covered by another valid exception/);
+  }
+
+  // Expired exceptions are diagnostics: they never change the policy action.
+  // Default rule set, so low is warn and moderate requires an exception.
+  const expiredException = { ...exception, expires_on: "2000-01-01" };
+  function evaluate(name, severity, exceptions) {
+    const audit = writeAuditFixture(name, {
+      fixture: { id: exception.id, module_name: exception.package, severity, findings: [{ paths: [exactPath] }] },
+    });
+    const policy = join(fixtureDir, `${name}-policy.json`);
+    writeFileSync(policy, JSON.stringify({
+      rules: { critical: "deny", high: "deny", moderate: "require_exception", low: "warn" },
+      exceptions: exceptions.map((ex) => ({ ...ex, severity })),
+    }));
+    return runGate(audit, policy);
+  }
+  function assertOutcome(result, decision, counts, label) {
+    assert.equal(result.status, decision === "ALLOW" ? 0 : 1, `${label}\n${result.stdout}`);
+    assert.match(result.stdout, new RegExp(`^Decision: ${decision}$`, "m"), label);
+    for (const [field, n] of Object.entries(counts)) {
+      assert.match(result.stdout, new RegExp(`^${field}: ${n}$`, "m"), `${label}: expected ${field}: ${n}\n${result.stdout}`);
+    }
+    process.stdout.write(`PASS ${label}\n`);
+  }
+  assertOutcome(evaluate("low-warn", "low", []), "ALLOW",
+    { Warnings: 1, Blocking: 0, "Expired exceptions": 0 }, "low-warn-baseline");
+  assertOutcome(evaluate("low-warn-expired", "low", [expiredException]), "ALLOW",
+    { Warnings: 1, Blocking: 0, "Expired exceptions": 1 }, "low-warn-expired-exception-stays-allow");
+  assertOutcome(evaluate("moderate-expired-only", "moderate", [expiredException]), "DENY",
+    { Blocking: 1, "Matched exceptions": 0, "Expired exceptions": 1 }, "moderate-expired-only-denied");
+  const expiredFirst = evaluate("moderate-expired-valid", "moderate", [expiredException, exception]);
+  const validFirst = evaluate("moderate-valid-expired", "moderate", [exception, expiredException]);
+  for (const [result, label] of [[expiredFirst, "moderate-expired-then-valid"], [validFirst, "moderate-valid-then-expired"]]) {
+    assertOutcome(result, "ALLOW", { Blocking: 0, "Matched exceptions": 1, "Expired exceptions": 1 }, label);
+  }
+  assert.equal(expiredFirst.stdout, validFirst.stdout, "exception order must not change decision or reporting");
+  process.stdout.write("PASS moderate-valid-expired-order-independent\n");
+
+  // Preserve each pathless record alongside all reported dependency routes.
+  for (const [name, findings, total, blocked, matches] of [
+    ["pathless-only", [{ paths: [] }], 1, 1, 0],
+    ["pathful-only", [{ paths: [exactPath] }], 1, 0, 1],
+    ["pathless-first", [{ paths: [] }, { paths: [exactPath] }], 2, 1, 1],
+    ["pathless-last", [{ paths: [exactPath] }, { paths: [] }], 2, 1, 1],
+    ["multiple-plus-pathless", [{ paths: [exactPath, otherPath] }, { paths: [] }], 3, 2, 1],
+  ]) {
+    const audit = writeAuditFixture(name, {
+      fixture: { id: exception.id, module_name: exception.package, severity: exception.severity, findings },
+    });
+    const result = runGate(audit, join(fixtureDir, "exact-path-policy.json"));
+    assert.equal(result.status, blocked ? 1 : 0, result.stdout);
+    assert.ok(result.stdout.includes(`Findings: ${total}`));
+    assert.ok(result.stdout.includes(`Blocking: ${blocked}`));
+    assert.ok(result.stdout.includes(`Matched exceptions: ${matches}`));
+    if (blocked) assert.match(result.stdout, /path=-/);
+    process.stdout.write(`PASS ${name}\n`);
+  }
+  checkException("empty-path-cannot-cover-pathless", [""], { ...exception, path: "" });
 
   // 1. advisory ALLOW -> exit 0.
   const allow = runGate(cleanAudit, policyPath);
@@ -360,6 +517,150 @@ try {
   process.stdout.write("PASS advisory-source-auto-detected-default\n");
 
   process.stdout.write("\nrelease-evidence provenance: all checks passed\n");
+
+  // ── Audit evidence validation ─────────────────────────────────────────────
+
+  const advisory = (id, severity, paths = [`root > pkg-${id}@1.0.0`]) => ({
+    id,
+    module_name: `pkg-${id}`,
+    severity,
+    findings: [{ version: "1.0.0", paths }],
+  });
+  const valid = () => auditReport({ "1": advisory(1, "low") });
+  const fixture = (name) => join(repoRoot, "security/fixtures", name);
+
+  // Rejected evidence never reaches a decision or an artifact.
+  let rejectedCount = 0;
+  function assertRejected(auditPath, code, label) {
+    const out = join(evidenceDir, "rejected", String(rejectedCount++), "decision.json");
+    for (const result of [
+      runGate(auditPath, policyPath),
+      runGate(auditPath, policyPath, [`--artifact-out=${out}`, `--candidate-sha=${SHA_A}`, `--lockfile=${lockA}`]),
+    ]) {
+      const output = result.stdout + result.stderr;
+      assert.notEqual(result.status, 0, `${label}: must exit non-zero\n${output}`);
+      assert.doesNotMatch(output, /Decision:/, `${label}: must not reach a decision\n${output}`);
+      assert.match(result.stdout, new RegExp(`^Reason: ${code}: `, "m"), `${label}: expected ${code}\n${output}`);
+    }
+    assert.ok(!existsSync(out), `${label}: no artifact may be written`);
+    assert.ok(!existsSync(join(dirname(out), "audit.json")), `${label}: no evidence directory content may be written`);
+  }
+  const rejectValue = (label, value, code = "AUDIT_INPUT_INVALID") =>
+    assertRejected(writeRawAudit(`invalid-${rejectedCount}`, JSON.stringify(value)), code, label);
+  const mutated = (mutate) => { const a = valid(); mutate(a); return a; };
+
+  // A. genuine clean evidence still ALLOWs (also asserted by 1 above).
+  const clean = runGate(cleanAudit, policyPath);
+  assert.equal(clean.status, 0, clean.stdout);
+  assert.match(clean.stdout, /^Decision: ALLOW$/m);
+  process.stdout.write("PASS audit-genuine-clean-allows\n");
+
+  // B. valid evidence is evaluated by the existing policy, unchanged.
+  for (const [name, status, decision] of [
+    ["audit-medium.json", 1, "DENY"],
+    ["audit-low.json", 0, "ALLOW"],
+    ["audit-high.json", 1, "DENY"],
+  ]) {
+    const result = runGate(fixture(name), policyPath);
+    assert.equal(result.status, status, `${name}\n${result.stdout}`);
+    assert.match(result.stdout, new RegExp(`^Decision: ${decision}$`, "m"), name);
+    assert.match(result.stdout, /^Findings: 1$/m, name);
+  }
+  const lowWarn = runGate(fixture("audit-low.json"), policyPath);
+  assert.match(lowWarn.stdout, /^Warnings: 1$/m);
+  const critical = runGate(writeAuditFixture("critical", { "7": advisory(7, "critical") }), policyPath);
+  assert.equal(critical.status, 1, critical.stdout);
+  assert.match(critical.stdout, /^Decision: DENY$/m);
+  for (const severity of ["low", "high"]) {
+    const pathless = runGate(writeAuditFixture(`pathless-${severity}`, { "8": advisory(8, severity, []) }), policyPath);
+    assert.match(pathless.stdout, /^Findings: 1$/m, `pathless ${severity} finding must be evaluated, not rejected`);
+    assert.match(pathless.stdout, new RegExp(`^Decision: ${severity === "low" ? "ALLOW" : "DENY"}$`, "m"));
+  }
+  process.stdout.write("PASS audit-valid-evidence-evaluated-by-policy\n");
+
+  // C. invalid or unsupported evidence.
+  // Real pnpm 10.34.5 output for an unreachable registry (exit 1, swallowed by CI).
+  rejectValue("registry error", { error: { code: "ECONNREFUSED", message: "request to http://127.0.0.1:9/-/npm/v1/security/audits/quick failed, reason: connect ECONNREFUSED 127.0.0.1:9" } });
+  rejectValue("error beside valid report", mutated((a) => { a.error = { code: "E500" }; }));
+  for (const [label, value] of [
+    ["empty object", {}], ["array", []], ["null", null], ["string", "ok"], ["number", 0], ["boolean", true],
+  ]) rejectValue(label, value);
+  assertRejected(writeRawAudit("truncated", '{"actions":[],"advisories":{"1":{"severity":"hi'), "AUDIT_INPUT_INVALID", "truncated JSON");
+  assertRejected(writeRawAudit("empty-file", ""), "AUDIT_INPUT_INVALID", "empty file");
+  for (const [label, mutate] of [
+    ["advisories missing", (a) => { delete a.advisories; }],
+    ["advisories array", (a) => { a.advisories = [advisory(1, "low")]; }],
+    ["advisories string", (a) => { a.advisories = "low"; }],
+    ["advisories null", (a) => { a.advisories = null; }],
+    ["metadata missing", (a) => { delete a.metadata; }],
+    ["metadata non-object", (a) => { a.metadata = "x"; }],
+    ["metadata.vulnerabilities missing", (a) => { delete a.metadata.vulnerabilities; }],
+    ["metadata.vulnerabilities non-object", (a) => { a.metadata.vulnerabilities = [1]; }],
+    ["severity count missing", (a) => { delete a.metadata.vulnerabilities.info; }],
+    ["unknown severity count", (a) => { a.metadata.vulnerabilities.severe = 0; }],
+    ["negative count", (a) => { a.metadata.vulnerabilities.high = -1; }],
+    ["fractional count", (a) => { a.metadata.vulnerabilities.low = 0.5; }],
+    ["non-numeric count", (a) => { a.metadata.vulnerabilities.low = "1"; }],
+    ["top-level vulnerabilities array", (a) => { a.vulnerabilities = [{ id: "x", package: "x", severity: "high" }]; }],
+    ["npm v7+ vulnerabilities object", (a) => { a.auditReportVersion = 2; a.vulnerabilities = { x: { name: "x", severity: "high", via: [] } }; }],
+    ["advisory null", (a) => { a.advisories["1"] = null; }],
+    ["advisory non-object", (a) => { a.advisories["1"] = "low"; }],
+    ["id missing", (a) => { delete a.advisories["1"].id; }],
+    ["severity missing", (a) => { delete a.advisories["1"].severity; }],
+    ["unknown severity", (a) => { a.advisories["1"].severity = "severe"; }],
+    ["non-string severity", (a) => { a.advisories["1"].severity = 2; }],
+    ["uppercase severity", (a) => { a.advisories["1"].severity = "LOW"; }],
+    ["module_name missing", (a) => { delete a.advisories["1"].module_name; }],
+    ["module_name non-string", (a) => { a.advisories["1"].module_name = 1; }],
+    ["findings not array", (a) => { a.advisories["1"].findings = "x"; }],
+    ["finding null", (a) => { a.advisories["1"].findings = [null]; }],
+    ["finding non-object", (a) => { a.advisories["1"].findings = ["root > x"]; }],
+    ["paths missing", (a) => { delete a.advisories["1"].findings[0].paths; }],
+    ["paths not array", (a) => { a.advisories["1"].findings[0].paths = "root > x"; }],
+    ["non-string path member", (a) => { a.advisories["1"].findings[0].paths = ["root > x", 7]; }],
+  ]) rejectValue(label, mutated(mutate));
+  process.stdout.write("PASS audit-invalid-evidence-rejected\n");
+
+  // D. metadata/advisory consistency, independently for each severity.
+  for (const severity of SEVERITIES) {
+    rejectValue(`metadata ${severity} > 0 without advisory`,
+      auditReport({}, { [severity]: 1 }), "AUDIT_EVIDENCE_INCONSISTENT");
+    const other = severity === "low" ? "high" : "low";
+    rejectValue(`metadata ${severity} > 0 without advisory, ${other} advisory present`,
+      auditReport({ "2": advisory(2, other) }, { [severity]: 2 }), "AUDIT_EVIDENCE_INCONSISTENT");
+    rejectValue(`${severity} advisory with metadata ${severity} = 0`,
+      auditReport({ "3": advisory(3, severity) }, { [severity]: 0 }), "AUDIT_EVIDENCE_INCONSISTENT");
+  }
+  process.stdout.write("PASS audit-metadata-advisory-consistency-per-severity\n");
+
+  // E. suppression-shaped evidence. pnpm 10.34.5 with auditConfig.ignoreGhsas
+  // or ignoreCves (package.json or pnpm-workspace.yaml), or audit-level
+  // (pnpm-workspace.yaml, .npmrc, npm_config_audit_level), exits 0 and emits
+  // exactly this for this repository's moderate advisory: the advisory is
+  // removed, muted stays empty, metadata still counts it. The container is a
+  // valid empty object, so only the consistency invariant can reject it.
+  const suppressed = {
+    actions: [],
+    advisories: {},
+    muted: [],
+    metadata: {
+      vulnerabilities: { info: 0, low: 0, moderate: 1, high: 0, critical: 0 },
+      dependencies: 263, devDependencies: 0, optionalDependencies: 0, totalDependencies: 263,
+    },
+  };
+  rejectValue("reproduced ignoreGhsas/ignoreCves/audit-level suppression", suppressed, "AUDIT_EVIDENCE_INCONSISTENT");
+  rejectValue("moderate suppressed while a low advisory remains",
+    auditReport({ "4": advisory(4, "low") }, { moderate: 1 }), "AUDIT_EVIDENCE_INCONSISTENT");
+  const suppressedResult = runGate(writeRawAudit("suppressed-detail", JSON.stringify(suppressed)), policyPath);
+  assert.match(suppressedResult.stdout, /metadata reports 1 moderate vulnerabilities but no moderate advisory is present/);
+  process.stdout.write("PASS audit-suppression-shaped-evidence-rejected\n");
+
+  // G. artifact behavior for rejected evidence is asserted by assertRejected
+  // for every case above (no decision.json, no retained audit.json).
+  assert.ok(rejectedCount >= 50, `expected the full rejection matrix to run, ran ${rejectedCount}`);
+  process.stdout.write(`PASS audit-rejected-evidence-writes-no-artifact (${rejectedCount} cases)\n`);
+
+  process.stdout.write("\naudit evidence validation: all checks passed\n");
 } finally {
   rmSync(fixtureDir, { recursive: true, force: true });
 }
