@@ -8,9 +8,10 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { discoverPublishablePackages } from "../verify-packed-artifacts.mjs";
-import { ROOT, STATE_FILENAME, gitSourceTransport, pack, verifyLocal, loadState } from "./orchestrator.mjs";
+import { RELEASE_REGISTRY_REQUIREMENTS } from "./auth-precheck.mjs";
+import { ROOT, STATE_FILENAME, gitSourceTransport, precheck, pack, verifyLocal, loadState, loadAndValidateManifest, evaluateReleaseReadiness } from "./orchestrator.mjs";
 
-test("verifyLocal persists VERIFIED_LOCAL after real artifact verification; failed artifact scan cannot persist it", (t) => {
+test("real PRECHECK -> PACK -> VERIFY_LOCAL -> readiness; failed artifact scan cannot persist verification", (t) => {
   const base = mkdtempSync(path.join(tmpdir(), "oxdeai-local-persistence-"));
   try {
     const discovered = discoverPublishablePackages();
@@ -32,6 +33,7 @@ test("verifyLocal persists VERIFIED_LOCAL after real artifact verification; fail
     assert.ifError(build.error);
     assert.equal(build.status, 0, build.stdout + build.stderr);
     const releaseDir = path.join(base, "release");
+    precheck({ discovered, releaseDir, sourceRevision: revision, sourceTransport, gitTransport: { isClean: () => sourceTransport.snapshot().clean } });
     const { manifest, state } = pack({ discovered, releaseDir, sourceRevision: revision, sourceTransport });
     const result = verifyLocal({ discovered, manifest, state, releaseDir, baseDir: path.join(base, "consumer-checks") });
     assert.equal(result.phase, "VERIFIED_LOCAL");
@@ -39,10 +41,18 @@ test("verifyLocal persists VERIFIED_LOCAL after real artifact verification; fail
     assert.equal(saved.phase, "VERIFIED_LOCAL");
     assert.deepEqual(saved, result);
     assert.equal(saved.history.at(-1).phase, "VERIFIED_LOCAL");
+    const registry = RELEASE_REGISTRY_REQUIREMENTS.registry;
+    const authPrecheck = { blockers: [], observations: {
+      identity: { kind: "identity", registry, username: "maintainer" },
+      access: { kind: "access", registry, subject: "maintainer", packages: Object.fromEntries(discovered.map(d => [d.name, "read-write"])) },
+      packages: discovered.map(d => ({ kind: "existing", registry, packageName: d.name, visibility: "public" })),
+    } };
+    assert.equal(evaluateReleaseReadiness({ manifest: loadAndValidateManifest(releaseDir), state: saved, authPrecheck }).kind, "ready");
 
     // Matching SRI alone is insufficient: invalid archive bytes must fail the
     // real artifact verifier without recording a successful local verification.
     const badDir = path.join(base, "invalid-release");
+    precheck({ discovered, releaseDir: badDir, sourceRevision: revision, sourceTransport, gitTransport: { isClean: () => sourceTransport.snapshot().clean } });
     const bad = pack({
       discovered, releaseDir: badDir, sourceRevision: revision, sourceTransport,
       packTransport: {

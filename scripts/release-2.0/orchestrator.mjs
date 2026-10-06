@@ -58,6 +58,84 @@ export const MANIFEST_FILENAME = "release-manifest.json";
 export const STATE_FILENAME = "release-state.json";
 export const MANIFEST_VERSION = 1;
 export const STATE_VERSION = 1;
+export const PRECHECK_FILENAME = "local-precheck.json";
+export const PRECHECK_RECEIPT_VERSION = 1;
+
+// ── Persisted PRECHECK receipt (#343) ─────────────────────────────────────
+//
+// PRECHECK persists what it actually observed so PACK, VERIFY_LOCAL and
+// readiness consume that evidence instead of callers reconstructing it.
+// receiptDigest is a consistency digest over the receipt's own fields: it
+// detects edited or internally inconsistent receipts and is the value the
+// release state binds to. It is NOT a signature or an authentication of who
+// ran PRECHECK; PACK independently re-observes the source and packages.
+
+const digestJson = (value) => `sha256:${sha256Hex(canonicalStringify(value))}`;
+const SHA256 = /^sha256:[0-9a-f]{64}$/;
+
+export function computePrecheckReceiptDigest(receipt) {
+  const { receiptDigest, ...rest } = receipt;
+  return digestJson(rest);
+}
+
+export function validatePrecheckReceipt(receipt) {
+  const fail = (detail) => { throw new ReleaseOrchestratorError(`PRECHECK receipt missing or malformed: ${detail}`); };
+  const object = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
+  if (!object(receipt)) fail("expected object");
+  if (receipt.receiptVersion !== PRECHECK_RECEIPT_VERSION) fail("unsupported receiptVersion");
+  if (receipt.ok !== true) fail("not a successful PRECHECK");
+  if (!/^[0-9a-f]{40}$/.test(receipt.sourceRevision ?? "")) fail("sourceRevision");
+  const source = receipt.source;
+  if (!object(source) || typeof source.root !== "string" || !path.isAbsolute(source.root) ||
+      source.revision !== receipt.sourceRevision || source.clean !== true) fail("source observation");
+  if (receipt.workingTreeClean !== true) fail("clean-tree observation");
+  if (typeof receipt.releaseDir !== "string" || !path.isAbsolute(receipt.releaseDir)) fail("releaseDir");
+  if (!SHA256.test(receipt.policyDigest ?? "")) fail("policyDigest");
+  if (typeof receipt.observedAt !== "string" || Number.isNaN(Date.parse(receipt.observedAt))) fail("observedAt");
+  const packages = receipt.discovered;
+  if (!Array.isArray(packages) || packages.length === 0 ||
+      new Set(packages.map((d) => d?.name)).size !== packages.length ||
+      packages.some((d) => !object(d) || typeof d.name !== "string" || typeof d.dir !== "string" ||
+        !object(d.manifest) || d.manifest.name !== d.name || typeof d.manifest.version !== "string" ||
+        !SHA256.test(d.packageJsonDigest ?? ""))) fail("discovered packages");
+  if (!SHA256.test(receipt.receiptDigest ?? "") || receipt.receiptDigest !== computePrecheckReceiptDigest(receipt)) {
+    fail("receiptDigest does not match receipt contents");
+  }
+  return receipt;
+}
+
+// Read exact package.json bytes, never caller-supplied discovered manifests.
+export function packageJsonTransport() {
+  return { read: (d) => readFileSync(path.join(d.dir, "package.json")) };
+}
+
+function observePrecheckPackages(discovered, packageTransport) {
+  return discovered.map((d) => {
+    const bytes = packageTransport.read(d);
+    const manifest = JSON.parse(String(bytes));
+    if (manifest.name !== d.name || manifest.version !== d.manifest?.version) {
+      throw new ReleaseOrchestratorError(`PRECHECK package.json observation mismatch for ${d.name}`);
+    }
+    return { name: d.name, dir: path.resolve(d.dir), manifest: { name: manifest.name, version: manifest.version },
+      packageJsonDigest: `sha256:${sha256Hex(bytes)}` };
+  }).sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0)); // code-point order, locale-independent
+}
+
+// The receipt frozen into the manifest must describe exactly the candidate the
+// manifest records, and the state's PRECHECK entry must be derived from it.
+function assertPrecheckBinding(manifest, state) {
+  const receipt = validatePrecheckReceipt(manifest?.precheck);
+  const fail = (detail) => { throw new ReleaseOrchestratorError(`PRECHECK evidence binding mismatch: ${detail}`); };
+  if (receipt.sourceRevision !== manifest.sourceRevision) fail("source revision");
+  const recorded = new Map(receipt.discovered.map((d) => [d.name, d.manifest.version]));
+  if (!Array.isArray(manifest.packages) || recorded.size !== manifest.packages.length ||
+      manifest.packages.some((p) => recorded.get(p?.package) !== p?.version)) fail("package set/versions");
+  const first = state?.history?.[0];
+  if (first?.phase !== "PRECHECK" || first.at !== receipt.observedAt || first.receiptDigest !== receipt.receiptDigest) {
+    fail("release state PRECHECK history");
+  }
+  return receipt;
+}
 
 // ── State machine ─────────────────────────────────────────────────────────
 
@@ -253,20 +331,26 @@ export function validatePublishOrder(discovered, policy = POLICY) {
 // never requires live credentials for this task.
 //
 //   gitTransport.isClean(): boolean
+//   sourceTransport.snapshot(): { root, revision, clean } (as for PACK)
+//   packageTransport.read(discovered): package.json bytes (default: disk)
 //   authTransport (optional): { whoami(), listPackageAccess(subject),
 //                                getPackageStatus(packageName) }
 // These methods return registry-attributed observations, never release verdicts.
 // Omission retains explicitly local-only CLI behavior. Injected observations
 // are checked against the explicit RELEASE_REGISTRY_REQUIREMENTS invariant.
 
-export function precheck({ discovered, policy = POLICY, gitTransport, authTransport }) {
+export function precheck({ discovered, policy = POLICY, gitTransport, authTransport,
+  releaseDir, sourceRevision, sourceTransport, packageTransport = packageJsonTransport(),
+  now = () => new Date().toISOString(),
+}) {
   assertReleaseMetadataConsistency(policy);
   const blockers = [];
 
   if (!gitTransport || typeof gitTransport.isClean !== "function") {
     throw new ReleaseOrchestratorError("precheck requires an injected gitTransport with isClean()");
   }
-  if (!gitTransport.isClean()) {
+  const workingTreeClean = gitTransport.isClean();
+  if (workingTreeClean !== true) {
     blockers.push(
       "dirty working tree: the source revision -> packed bytes provenance statement is " +
       "materially incomplete with uncommitted changes present. Hard stop, not a warning."
@@ -290,6 +374,11 @@ export function precheck({ discovered, policy = POLICY, gitTransport, authTransp
     }
   }
 
+  const names = discovered.map(d => d.name);
+  if (new Set(names).size !== names.length || names.length !== Object.keys(policy).length ||
+      Object.keys(policy).some(name => !names.includes(name))) {
+    blockers.push("PRECHECK package set must exactly match the release policy");
+  }
   blockers.push(...validatePublishOrder(discovered, policy));
 
   let registryObservations;
@@ -302,7 +391,31 @@ export function precheck({ discovered, policy = POLICY, gitTransport, authTransp
   if (blockers.length > 0) {
     throw new ReleaseOrchestratorError(`PRECHECK failed:\n  - ${blockers.join("\n  - ")}`, { blockers });
   }
-  return { ok: true, discovered, ...(registryObservations ? { registryObservations } : {}) };
+  // Success is only reported once the receipt is persisted (#343). A receipt
+  // is written once per release directory and never replaced.
+  if (typeof releaseDir !== "string" || !releaseDir) {
+    throw new ReleaseOrchestratorError("PRECHECK requires a releaseDir for persisted evidence");
+  }
+  if (!/^[0-9a-f]{40}$/.test(sourceRevision ?? "")) throw new ReleaseOrchestratorError("PRECHECK requires an exact 40-hex sourceRevision");
+  for (const file of [PRECHECK_FILENAME, MANIFEST_FILENAME, STATE_FILENAME, "tarballs"]) {
+    if (existsSync(path.join(releaseDir, file))) throw new ReleaseOrchestratorError(`PRECHECK refuses existing release evidence: ${file}`);
+  }
+  const source = observePackSource(sourceTransport, sourceRevision, discovered, "PRECHECK");
+  const receipt = {
+    receiptVersion: PRECHECK_RECEIPT_VERSION, ok: true, sourceRevision,
+    source: { root: source.root, revision: source.revision, clean: source.clean },
+    workingTreeClean, releaseDir: path.resolve(releaseDir), policyDigest: digestJson(policy),
+    discovered: observePrecheckPackages(discovered, packageTransport), observedAt: now(),
+    ...(registryObservations ? { registryObservations } : {}),
+  };
+  receipt.receiptDigest = computePrecheckReceiptDigest(receipt);
+  try {
+    mkdirSync(releaseDir, { recursive: true });
+    writeFileSync(path.join(releaseDir, PRECHECK_FILENAME), `${JSON.stringify(receipt, null, 2)}\n`, { flag: "wx" });
+  } catch (error) {
+    throw new ReleaseOrchestratorError(`PRECHECK could not persist its receipt; PRECHECK did not pass: ${error.message}`);
+  }
+  return receipt;
 }
 
 // ── Step 4: explicit, pure readiness evaluation ────────────────────────────
@@ -312,8 +425,9 @@ export function precheck({ discovered, policy = POLICY, gitTransport, authTransp
 // authPrecheck is the already-produced { observations, blockers } result of
 // observeRegistryPrecheck(), NOT an authTransport. Raw npm errors are irrelevant.
 // Receipt/manifest consistency is checked; artifacts are not rebuilt/reverified.
-// Existing receipts do not establish freshness, authenticity, or an independent
-// source-to-bytes proof. This evaluator does not invent such evidence.
+// Local PRECHECK evidence is the persisted receipt frozen into the manifest and
+// bound by the release state (#343); caller-supplied localPrecheck is ignored.
+// Receipt consistency is not authenticity, freshness, or a source-to-bytes proof.
 /**
  * @typedef {{code: string, detail: string, package?: string}} ReadinessFailure
  * @typedef {{kind: "ready", state: "READY_FOR_PUBLISH", evidence: object} |
@@ -324,16 +438,22 @@ export function evaluateReleaseReadiness(inputs = {}) {
   if (inputs === null || typeof inputs !== "object" || Array.isArray(inputs)) {
     return { kind: "not-ready", reasons: [{ code: "POLICY_RELEASE_STATE_MISMATCH", detail: "evidence inputs must be an object" }] };
   }
-  const { policy = POLICY, localPrecheck, manifest, state, authPrecheck } = inputs;
+  const { policy = POLICY, manifest, state, authPrecheck } = inputs;
+  let localPrecheck;
   const reasons = [];
   const reject = (code, detail, pkg) => reasons.push({ code, detail, ...(pkg ? { package: pkg } : {}) });
   const object = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
   const sameSet = (names, expected) => Array.isArray(names) && names.length === expected.length &&
     new Set(names).size === names.length && names.every((name) => expected.includes(name));
-  const unresolved = (v) => Object.hasOwn(v, "blockers") && (!Array.isArray(v.blockers) || v.blockers.length !== 0);
 
-  if (!object(localPrecheck) || localPrecheck.ok !== true || unresolved(localPrecheck)) {
-    reject("LOCAL_PRECHECK_NOT_PASSED", "a successful local precheck receipt is required");
+  try {
+    localPrecheck = assertPrecheckBinding(manifest, state);
+    if (localPrecheck.policyDigest !== digestJson(policy)) {
+      throw new ReleaseOrchestratorError("PRECHECK evidence was produced under a different release POLICY");
+    }
+  } catch (error) {
+    localPrecheck = undefined;
+    reject("LOCAL_PRECHECK_NOT_PASSED", `persisted PRECHECK evidence bound to this candidate is required: ${error.message}`);
   }
   try {
     if (!object(policy) || Object.keys(policy).length === 0) throw new Error();
@@ -563,6 +683,36 @@ function observePackSource(sourceTransport, sourceRevision, discovered, stage) {
   return observed;
 }
 
+export function readPrecheckReceipt(releaseDir) {
+  const file = path.join(releaseDir, PRECHECK_FILENAME);
+  if (!existsSync(file)) {
+    throw new ReleaseOrchestratorError(`persisted PRECHECK receipt ${file} is required; run PRECHECK for this release directory first`);
+  }
+  try {
+    return validatePrecheckReceipt(JSON.parse(readFileSync(file, "utf8")));
+  } catch (error) {
+    throw new ReleaseOrchestratorError(`persisted PRECHECK receipt is invalid: ${error.message}`);
+  }
+}
+
+// A receipt is stale/mismatched for this PACK unless every recorded
+// observation still holds for the candidate being packed.
+function assertReceiptMatchesPack(receipt, { sourceRevision, root, releaseDir, policy, discovered, packageTransport }) {
+  const fail = (detail) => { throw new ReleaseOrchestratorError(`PACK PRECHECK receipt does not match this candidate: ${detail}`); };
+  if (receipt.sourceRevision !== sourceRevision) fail(`source revision ${receipt.sourceRevision} != ${sourceRevision}`);
+  if (receipt.source.root !== root) fail(`checkout ${receipt.source.root} != ${root}`);
+  if (receipt.releaseDir !== path.resolve(releaseDir)) fail(`release directory ${receipt.releaseDir} != ${path.resolve(releaseDir)}`);
+  if (receipt.policyDigest !== digestJson(policy)) fail("release POLICY changed since PRECHECK");
+  const current = observePrecheckPackages(discovered, packageTransport);
+  const recorded = new Map(receipt.discovered.map((d) => [d.name, d]));
+  if (current.length !== recorded.size || current.some((d) => !recorded.has(d.name))) fail("package set");
+  for (const d of current) {
+    const r = recorded.get(d.name);
+    if (r.manifest.version !== d.manifest.version) fail(`${d.name} version ${r.manifest.version} != ${d.manifest.version}`);
+    if (r.dir !== d.dir || r.packageJsonDigest !== d.packageJsonDigest) fail(`${d.name} package.json changed since PRECHECK`);
+  }
+}
+
 export function pack({
   discovered,
   policy = POLICY,
@@ -570,6 +720,7 @@ export function pack({
   sourceRevision,
   sourceTransport,
   determinismProbePackage,
+  packageTransport = packageJsonTransport(),
   packTransport = defaultPackTransport(),
   now = () => new Date().toISOString(),
 }) {
@@ -587,6 +738,11 @@ export function pack({
   assertReleaseMetadataConsistency(policy);
   assertPolicyCoverage(discovered);
   const before = observePackSource(sourceTransport, sourceRevision, discovered, "before packing");
+  // PACK consumes the persisted PRECHECK receipt for this release directory;
+  // it never synthesizes PRECHECK evidence (#343). The #344 source checks
+  // above/below still run independently of the receipt.
+  const receipt = readPrecheckReceipt(releaseDir);
+  assertReceiptMatchesPack(receipt, { sourceRevision, root: before.root, releaseDir, policy, discovered, packageTransport });
 
   const probeTarget = discovered.find((d) => d.name === (determinismProbePackage ?? discovered[0]?.name));
   if (!probeTarget) throw new ReleaseOrchestratorError("no package available for the determinism probe");
@@ -630,12 +786,19 @@ export function pack({
     );
   }
 
+  try {
+    assertReceiptMatchesPack(receipt, { sourceRevision, root: after.root, releaseDir, policy, discovered, packageTransport });
+  } catch (error) {
+    throw new ReleaseOrchestratorError(`PACK PRECHECK inputs changed while packing; no release identity recorded. ${error.message}`);
+  }
+
   const manifestSansIntegrity = {
     manifestVersion: MANIFEST_VERSION,
     releaseId: sourceRevision,
     sourceRevision,
     createdAt: now(),
     determinismProbe,
+    precheck: receipt,
     packages,
   };
   const manifest = {
@@ -649,7 +812,8 @@ export function pack({
     stateVersion: STATE_VERSION,
     releaseId: manifest.releaseId,
     phase: "PRECHECK",
-    history: [{ phase: "PRECHECK", at: now() }],
+    // The PRECHECK entry records the actual persisted PRECHECK, not PACK time.
+    history: [{ phase: "PRECHECK", at: receipt.observedAt, receiptDigest: receipt.receiptDigest }],
     packages: Object.fromEntries(packages.map((p) => [p.package, { publishStatus: "pending" }])),
     updatedAt: now(),
   };
@@ -687,6 +851,11 @@ export function validateState(manifest, state) {
   const object = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
   const invalid = (detail) => { throw new ReleaseOrchestratorError(`invalid release state: ${detail}`); };
   if (!object(state)) invalid("expected object");
+  // Manifests frozen before #343 carry no receipt; VERIFY_LOCAL and readiness
+  // require one. A recorded receipt must always be consistently bound.
+  if (manifest.precheck !== undefined) {
+    try { assertPrecheckBinding(manifest, state); } catch (error) { invalid(error.message); }
+  }
   if (state.stateVersion !== STATE_VERSION) invalid("unsupported or missing stateVersion");
   if (typeof state.releaseId !== "string" || !/^[0-9a-f]{40}$/.test(state.releaseId) ||
       state.releaseId !== manifest.releaseId) invalid("releaseId missing, malformed or mismatched");
@@ -752,9 +921,21 @@ export function requireOriginalTarballs(releaseDir, manifest) {
 // Runs the EXACT existing packed-artifact consumer-verification semantics
 // against the manifest's own tarballs — never a repack (verifyPackedTarballs
 // takes already-built tarball paths).
+//
+// The candidate carries its PRECHECK provenance forward: the receipt frozen in
+// the manifest must be bound by the state and still equal the receipt PRECHECK
+// persisted in this release directory (#343).
 export function verifyLocal({ discovered, manifest, state, releaseDir, baseDir } = {}) {
   validateState(manifest, state);
   assertPhase(state, "PACKED");
+  if (manifest.precheck === undefined) {
+    throw new ReleaseOrchestratorError("VERIFY_LOCAL requires PRECHECK evidence bound to the packed candidate");
+  }
+  const persisted = readPrecheckReceipt(releaseDir);
+  if (canonicalStringify(persisted) !== canonicalStringify(manifest.precheck) ||
+      persisted.releaseDir !== path.resolve(releaseDir)) {
+    throw new ReleaseOrchestratorError("VERIFY_LOCAL: persisted PRECHECK receipt differs from the one bound at PACK");
+  }
   const packed = manifest.packages.map((p) => ({
     name: p.package,
     tarballPath: path.join(releaseDir, p.tarball),
@@ -1266,15 +1447,14 @@ async function main() {
 
   if (cmd === "precheck") {
     const discovered = discoverPublishablePackages();
-    precheck({ discovered, gitTransport: realGitTransport() });
+    precheck({ discovered, gitTransport: realGitTransport(), releaseDir: releaseDirArg,
+      sourceRevision: currentSourceRevision(), sourceTransport: gitSourceTransport() });
     reportLocalPrecheck();
     return;
   }
 
   if (cmd === "pack") {
     const discovered = discoverPublishablePackages();
-    precheck({ discovered, gitTransport: realGitTransport() });
-    reportLocalPrecheck();
     assertReleaseToolchain(observeReleaseToolchain(ROOT), readReleaseToolchain(ROOT));
     const sourceRevision = currentSourceRevision();
     const { manifest } = pack({ discovered, releaseDir: releaseDirArg, sourceRevision, sourceTransport: gitSourceTransport() });

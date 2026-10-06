@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
+import { bindFixturePrecheck } from "./precheck-fixture.mjs";
 // Test-only outer consent and process fixtures. No packing or real npm calls.
 import assert from "node:assert/strict";
 import { mock } from "node:test";
@@ -36,6 +37,7 @@ export function fixture(t) {
   const state = { stateVersion: STATE_VERSION, releaseId, phase: "VERIFIED_LOCAL",
     history: ["PRECHECK", "PACKED", "VERIFIED_LOCAL"].map(phase => ({ phase, at: createdAt })),
     packages: Object.fromEntries(packages.map(p => [p.package, { publishStatus: "pending" }])) };
+  bindFixturePrecheck(manifest, state);
   const f = { manifest, state, releaseDir, operationIndex: 0, plan: fixturePlan(manifest, releaseDir), calls: [] };
   f.authorization = consent(f);
   const registry = new Map();

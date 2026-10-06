@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
+import { bindFixturePrecheck } from "./precheck-fixture.mjs";
 import test, { mock } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
@@ -6,7 +7,7 @@ import childProcess from "node:child_process";
 import { syncBuiltinESMExports } from "node:module";
 import {
   evaluateReleaseReadiness, computeManifestIntegrity, computeSriIntegrity,
-  MANIFEST_VERSION, STATE_VERSION, precheck,
+  MANIFEST_VERSION, STATE_VERSION, computePrecheckReceiptDigest,
 } from "./orchestrator.mjs";
 import { POLICY } from "../verify-packed-artifacts.mjs";
 import { observeRegistryPrecheck, RELEASE_REGISTRY_REQUIREMENTS } from "./auth-precheck.mjs";
@@ -14,7 +15,7 @@ import { observeRegistryPrecheck, RELEASE_REGISTRY_REQUIREMENTS } from "./auth-p
 function fixture() {
   const sourceRevision = "a".repeat(40);
   const discovered = Object.entries(POLICY).map(([name, p]) => ({ name, manifest: { name, version: p.version } }));
-  const localPrecheck = precheck({ discovered, gitTransport: { isClean: () => true } });
+  const localPrecheck = { ok: true, discovered }; // Caller assertions are ignored.
   const manifest = {
     manifestVersion: MANIFEST_VERSION, releaseId: sourceRevision, sourceRevision,
     createdAt: "2026-09-13T00:00:00.000Z",
@@ -39,7 +40,15 @@ function fixture() {
       packages: Object.fromEntries(discovered.map(p => [p.name, "read-write"])) }),
     getPackageStatus: packageName => ({ kind: "existing", registry, packageName, visibility: "public" }),
   } });
+  bindFixturePrecheck(manifest, state);
   return { policy: structuredClone(POLICY), localPrecheck, manifest, state, authPrecheck };
+}
+// Re-digest an edited receipt so only the binding (not the digest) is wrong.
+function consistent(f, edit) {
+  edit(f.manifest.precheck);
+  f.manifest.precheck.receiptDigest = computePrecheckReceiptDigest(f.manifest.precheck);
+  f.state.history[0].receiptDigest = f.manifest.precheck.receiptDigest;
+  f.manifest.manifestIntegrity = computeManifestIntegrity(f.manifest);
 }
 function notReady(inputs, code) {
   const result = evaluateReleaseReadiness(inputs);
@@ -64,7 +73,7 @@ test("positive receipts derive structured READY_FOR_PUBLISH with provenance, wit
   assert.equal(result.evidence.username, "maintainer");
   assert.equal(result.evidence.requirements.requiredRegistryAccess, "read-write");
   assert.deepEqual(result.evidence.manifest, f.manifest);
-  assert.deepEqual(result.evidence.localPrecheck, f.localPrecheck);
+  assert.deepEqual(result.evidence.localPrecheck, f.manifest.precheck);
   assert.deepEqual(result.evidence.authPrecheck, f.authPrecheck);
   assert.deepEqual(result.evidence.packagesEvaluated, Object.keys(POLICY).sort());
   assert.equal(result.evidence.manifest.packages.find(p => p.package === "@oxdeai/cli").version, "0.3.1");
@@ -75,10 +84,23 @@ test("positive receipts derive structured READY_FOR_PUBLISH with provenance, wit
 });
 
 const mutations = [
-  ["local precheck missing", f => { delete f.localPrecheck; }, "LOCAL_PRECHECK_NOT_PASSED"],
-  ["local precheck failed", f => { f.localPrecheck.ok = false; }, "LOCAL_PRECHECK_NOT_PASSED"],
-  ["local precheck string success", f => { f.localPrecheck.ok = "true"; }, "LOCAL_PRECHECK_NOT_PASSED"],
-  ["local blocker", f => { f.localPrecheck.blockers = ["unresolved"]; }, "LOCAL_PRECHECK_NOT_PASSED"],
+  // Caller-supplied localPrecheck ({ ok: true, discovered }) stays in the
+  // fixture inputs throughout and never substitutes for persisted evidence.
+  ["local precheck missing", f => { delete f.manifest.precheck; f.manifest.manifestIntegrity = computeManifestIntegrity(f.manifest); }, "LOCAL_PRECHECK_NOT_PASSED"],
+  ["local precheck malformed", f => { f.manifest.precheck = "{"; }, "LOCAL_PRECHECK_NOT_PASSED"],
+  ["local precheck failed", f => consistent(f, r => { r.ok = false; }), "LOCAL_PRECHECK_NOT_PASSED"],
+  ["local precheck string success", f => consistent(f, r => { r.ok = "true"; }), "LOCAL_PRECHECK_NOT_PASSED"],
+  ["local precheck dirty tree", f => consistent(f, r => { r.workingTreeClean = false; }), "LOCAL_PRECHECK_NOT_PASSED"],
+  ["local precheck dirty source", f => consistent(f, r => { r.source.clean = false; }), "LOCAL_PRECHECK_NOT_PASSED"],
+  ["local precheck unsupported version", f => consistent(f, r => { r.receiptVersion = 2; }), "LOCAL_PRECHECK_NOT_PASSED"],
+  ["local precheck tampered", f => { f.manifest.precheck.observedAt = "2020-01-01T00:00:00.000Z"; }, "LOCAL_PRECHECK_NOT_PASSED"],
+  ["local precheck inconsistent revision", f => consistent(f, r => { r.source.revision = "b".repeat(40); }), "LOCAL_PRECHECK_NOT_PASSED"],
+  ["local precheck source revision mismatch", f => consistent(f, r => { r.sourceRevision = r.source.revision = "b".repeat(40); }), "LOCAL_PRECHECK_NOT_PASSED"],
+  ["local precheck package version mismatch", f => consistent(f, r => { r.discovered[0].manifest.version = "9.0.0"; }), "LOCAL_PRECHECK_NOT_PASSED"],
+  ["local precheck package set mismatch", f => consistent(f, r => { r.discovered.pop(); }), "LOCAL_PRECHECK_NOT_PASSED"],
+  ["local precheck stale for POLICY", f => { f.policy["@oxdeai/core"].version = "9.0.0"; }, "LOCAL_PRECHECK_NOT_PASSED"],
+  ["state PRECHECK entry synthesized", f => { f.state.history[0].at = f.manifest.createdAt; }, "LOCAL_PRECHECK_NOT_PASSED"],
+  ["state PRECHECK digest unbound", f => { delete f.state.history[0].receiptDigest; }, "LOCAL_PRECHECK_NOT_PASSED"],
   ["not verified", f => { f.state.phase = "PACKED"; f.state.history.pop(); }, "PACKED_ARTIFACTS_NOT_VERIFIED"],
   ["verification history missing", f => { f.state.history = []; }, "PACKED_ARTIFACTS_NOT_VERIFIED"],
   ["manifest missing", f => { delete f.manifest; }, "PACKED_ARTIFACTS_NOT_VERIFIED"],
@@ -110,8 +132,6 @@ const mutations = [
   ["missing manifest package", f => { f.manifest.packages.pop(); }, "POLICY_RELEASE_STATE_MISMATCH"],
   ["extra manifest package", f => { f.manifest.packages.push({ package: "extra" }); }, "POLICY_RELEASE_STATE_MISMATCH"],
   ["duplicate manifest package", f => { f.manifest.packages[1] = f.manifest.packages[0]; }, "POLICY_RELEASE_STATE_MISMATCH"],
-  ["precheck version mismatch", f => { f.localPrecheck.discovered[0].manifest.version = "9.0.0"; }, "POLICY_RELEASE_STATE_MISMATCH"],
-  ["precheck set mismatch", f => { f.localPrecheck.discovered.pop(); }, "POLICY_RELEASE_STATE_MISMATCH"],
   ["releaseId mismatch", f => { f.state.releaseId = "b".repeat(40); }, "POLICY_RELEASE_STATE_MISMATCH"],
   ["state version unknown", f => { f.state.stateVersion++; }, "POLICY_RELEASE_STATE_MISMATCH"],
   ["state missing package", f => { delete f.state.packages["@oxdeai/core"]; }, "POLICY_RELEASE_STATE_MISMATCH"],
@@ -122,6 +142,32 @@ const mutations = [
 for (const [label, mutate, code] of mutations) {
   test(`${label} fails closed`, () => { const f = fixture(); mutate(f); notReady(f, code); });
 }
+
+// The receipt stays internally consistent (re-digested) and bound to the
+// manifest and state, so readiness accepts it as PRECHECK provenance and then
+// rejects only because what PRECHECK recorded differs from POLICY.
+function rejectsPrecheckAgainstPolicy(f) {
+  const result = notReady(f, "POLICY_RELEASE_STATE_MISMATCH");
+  assert.ok(result.reasons.some(r => r.code === "POLICY_RELEASE_STATE_MISMATCH" &&
+    r.detail === "local precheck package set/versions differ from POLICY"), JSON.stringify(result));
+  assert.ok(!result.reasons.some(r => r.code === "LOCAL_PRECHECK_NOT_PASSED"), JSON.stringify(result));
+  assert.ok(!result.reasons.some(r => /receiptDigest|binding mismatch/.test(r.detail)), JSON.stringify(result));
+}
+test("precheck version mismatch fails closed against POLICY", () => {
+  const f = fixture();
+  const name = f.manifest.precheck.discovered[0].name;
+  f.manifest.packages.find(p => p.package === name).version = "9.0.0"; // the candidate PRECHECK observed
+  consistent(f, r => { r.discovered[0].manifest.version = "9.0.0"; });
+  rejectsPrecheckAgainstPolicy(f);
+});
+test("precheck set mismatch fails closed against POLICY", () => {
+  const f = fixture();
+  const name = f.manifest.precheck.discovered.at(-1).name;
+  f.manifest.packages = f.manifest.packages.filter(p => p.package !== name); // the candidate PRECHECK observed
+  delete f.state.packages[name];
+  consistent(f, r => { r.discovered.pop(); });
+  rejectsPrecheckAgainstPolicy(f);
+});
 
 for (const code of ["AUTH_UNAUTHENTICATED", "REGISTRY_UNAVAILABLE", "REGISTRY_ACCESS_INSUFFICIENT", "REGISTRY_STATE_UNDETERMINED"]) {
   test(`unknown preserves normalized category ${code}`, () => {
