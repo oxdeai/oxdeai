@@ -136,6 +136,132 @@ try {
     },
   });
 
+  // Exact path exceptions must never cover a second dependency route.
+  const exactPath = "packages__core>@microsoft/api-extractor>@rushstack/ts-command-line>argparse>sprintf-js";
+  const otherPath = "other>sprintf-js";
+  const exception = {
+    id: 1241202, package: "sprintf-js", severity: "moderate",
+    path: exactPath, reason: "temporary test exception", expires_on: "2999-01-01",
+  };
+  function checkException(name, paths, ex, severity = "moderate", allowed = false) {
+    const audit = writeAuditFixture(name, {
+      fixture: { id: 1241202, module_name: "sprintf-js", severity,
+        findings: paths.map((path) => ({ paths: [path] })) },
+    });
+    const scopedPolicy = join(fixtureDir, `${name}-policy.json`);
+    writeFileSync(scopedPolicy, JSON.stringify({
+      rules: { moderate: "require_exception", high: "require_exception", critical: "require_exception" },
+      exceptions: Array.isArray(ex) ? ex : [ex],
+    }));
+    const result = runGate(audit, scopedPolicy);
+    assert.equal(result.status, allowed ? 0 : 1, `${name}\n${result.stdout}\n${result.stderr}`);
+    assert.match(result.stdout, allowed ? /Decision: ALLOW/ : /Decision: DENY/);
+    process.stdout.write(`PASS ${name}\n`);
+    return result;
+  }
+  const exact = checkException("exact-path", [exactPath], exception, "moderate", true);
+  assert.match(exact.stdout, /Matched exceptions: 1/);
+  const different = checkException("different-path", [otherPath], exception);
+  assert.match(different.stdout, /Matched exceptions: 0/);
+  const multiple = checkException("second-route-blocks", [exactPath, otherPath], exception);
+  assert.match(multiple.stdout, /Findings: 2/);
+  assert.match(multiple.stdout, /Blocking: 1/);
+  assert.match(multiple.stdout, /Matched exceptions: 1/);
+  assert.match(multiple.stdout, /path=other>sprintf-js/);
+  // pnpm can also report multiple paths inside a single finding.
+  const sharedFindingAudit = writeAuditFixture("shared-finding-paths", {
+    fixture: { id: 1241202, module_name: "sprintf-js", severity: "moderate",
+      findings: [{ paths: [exactPath, otherPath] }] },
+  });
+  const sharedFinding = runGate(sharedFindingAudit, join(fixtureDir, "exact-path-policy.json"));
+  assert.equal(sharedFinding.status, 1);
+  assert.match(sharedFinding.stdout, /Findings: 2/);
+  assert.match(sharedFinding.stdout, /Blocking: 1/);
+  assert.match(sharedFinding.stdout, /Matched exceptions: 1/);
+  process.stdout.write("PASS multiple-paths-in-one-finding\n");
+
+  const expiredPath = checkException("expired-path", [exactPath], { ...exception, expires_on: "2000-01-01" });
+  assert.match(expiredPath.stdout, /Expired exceptions: 1/);
+  const { path: unusedPath, ...legacyException } = exception;
+  checkException("legacy-unscoped", [exactPath, otherPath], legacyException, "moderate", true);
+  for (const [index, path] of [null, 42, [], {}, "", " ", ` ${exactPath}`, `${exactPath} `].entries()) {
+    checkException(`malformed-path-${index}`, [exactPath], { ...exception, path });
+  }
+  for (const severity of ["high", "critical"]) {
+    checkException(`${severity}-always-denied`, [exactPath], { ...exception, severity }, severity);
+  }
+
+  // Invalid candidates cannot shadow valid coverage in either order.
+  for (const [name, invalid] of [
+    ["malformed", { ...exception, path: null }],
+    ["expired", { ...exception, expires_on: "2000-01-01" }],
+    ["missing-reason", { ...exception, reason: "" }],
+  ]) {
+    const first = checkException(`${name}-first`, [exactPath], [invalid, exception], "moderate", true);
+    const last = checkException(`${name}-last`, [exactPath], [exception, invalid], "moderate", true);
+    assert.equal(first.stdout, last.stdout, "exception ordering must not change decision or reporting");
+    assert.match(first.stdout, /Matched exceptions: 1/);
+    assert.match(first.stdout, name === "expired" ? /Expired exceptions: 1/ : /Expired exceptions: 0/);
+    if (name === "expired") assert.match(first.stdout, /covered by another valid exception/);
+  }
+
+  // Expired exceptions are diagnostics: they never change the policy action.
+  // Default rule set, so low is warn and moderate requires an exception.
+  const expiredException = { ...exception, expires_on: "2000-01-01" };
+  function evaluate(name, severity, exceptions) {
+    const audit = writeAuditFixture(name, {
+      fixture: { id: exception.id, module_name: exception.package, severity, findings: [{ paths: [exactPath] }] },
+    });
+    const policy = join(fixtureDir, `${name}-policy.json`);
+    writeFileSync(policy, JSON.stringify({
+      rules: { critical: "deny", high: "deny", moderate: "require_exception", low: "warn" },
+      exceptions: exceptions.map((ex) => ({ ...ex, severity })),
+    }));
+    return runGate(audit, policy);
+  }
+  function assertOutcome(result, decision, counts, label) {
+    assert.equal(result.status, decision === "ALLOW" ? 0 : 1, `${label}\n${result.stdout}`);
+    assert.match(result.stdout, new RegExp(`^Decision: ${decision}$`, "m"), label);
+    for (const [field, n] of Object.entries(counts)) {
+      assert.match(result.stdout, new RegExp(`^${field}: ${n}$`, "m"), `${label}: expected ${field}: ${n}\n${result.stdout}`);
+    }
+    process.stdout.write(`PASS ${label}\n`);
+  }
+  assertOutcome(evaluate("low-warn", "low", []), "ALLOW",
+    { Warnings: 1, Blocking: 0, "Expired exceptions": 0 }, "low-warn-baseline");
+  assertOutcome(evaluate("low-warn-expired", "low", [expiredException]), "ALLOW",
+    { Warnings: 1, Blocking: 0, "Expired exceptions": 1 }, "low-warn-expired-exception-stays-allow");
+  assertOutcome(evaluate("moderate-expired-only", "moderate", [expiredException]), "DENY",
+    { Blocking: 1, "Matched exceptions": 0, "Expired exceptions": 1 }, "moderate-expired-only-denied");
+  const expiredFirst = evaluate("moderate-expired-valid", "moderate", [expiredException, exception]);
+  const validFirst = evaluate("moderate-valid-expired", "moderate", [exception, expiredException]);
+  for (const [result, label] of [[expiredFirst, "moderate-expired-then-valid"], [validFirst, "moderate-valid-then-expired"]]) {
+    assertOutcome(result, "ALLOW", { Blocking: 0, "Matched exceptions": 1, "Expired exceptions": 1 }, label);
+  }
+  assert.equal(expiredFirst.stdout, validFirst.stdout, "exception order must not change decision or reporting");
+  process.stdout.write("PASS moderate-valid-expired-order-independent\n");
+
+  // Preserve each pathless record alongside all reported dependency routes.
+  for (const [name, findings, total, blocked, matches] of [
+    ["pathless-only", [{ paths: [] }], 1, 1, 0],
+    ["pathful-only", [{ paths: [exactPath] }], 1, 0, 1],
+    ["pathless-first", [{}, { paths: [exactPath] }], 2, 1, 1],
+    ["pathless-last", [{ paths: [exactPath] }, { paths: [] }], 2, 1, 1],
+    ["multiple-plus-pathless", [{ paths: [exactPath, otherPath] }, {}], 3, 2, 1],
+  ]) {
+    const audit = writeAuditFixture(name, {
+      fixture: { id: exception.id, module_name: exception.package, severity: exception.severity, findings },
+    });
+    const result = runGate(audit, join(fixtureDir, "exact-path-policy.json"));
+    assert.equal(result.status, blocked ? 1 : 0, result.stdout);
+    assert.ok(result.stdout.includes(`Findings: ${total}`));
+    assert.ok(result.stdout.includes(`Blocking: ${blocked}`));
+    assert.ok(result.stdout.includes(`Matched exceptions: ${matches}`));
+    if (blocked) assert.match(result.stdout, /path=-/);
+    process.stdout.write(`PASS ${name}\n`);
+  }
+  checkException("empty-path-cannot-cover-pathless", [""], { ...exception, path: "" });
+
   // 1. advisory ALLOW -> exit 0.
   const allow = runGate(cleanAudit, policyPath);
   assert.equal(allow.status, 0, `expected gate exit 0 on clean audit, got ${allow.status}\n${allow.stdout}`);
