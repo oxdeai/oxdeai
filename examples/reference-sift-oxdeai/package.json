@@ -5,10 +5,10 @@
   "type": "module",
   "description": "Production-grade reference implementation: Sift → OxDeAI integration with strict execution-boundary enforcement",
   "scripts": {
-    "prebuild": "pnpm --filter '@oxdeai/example-reference-sift^...' build",
     "build": "tsc -p tsconfig.json",
     "test": "pnpm build && node --test dist/test/integration.test.js dist/test/replay-store.test.js dist/test/guard-integration.test.js",
-    "start": "pnpm test"
+    "start": "pnpm test",
+    "sandbox": "pnpm --filter '@oxdeai/example-reference-sift...' build && node --test dist/test/integration.test.js dist/test/replay-store.test.js dist/test/guard-integration.test.js"
   },
   "dependencies": {
     "@oxdeai/sift": "workspace:*",
