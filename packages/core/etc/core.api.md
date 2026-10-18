@@ -679,8 +679,8 @@ export function withModuleState(state: CanonicalState_2, moduleId: string, paylo
 
 // Warnings were encountered during analysis:
 //
-// dist/policy/PolicyEngine.d.ts:113:5 - (ae-forgotten-export) The symbol "StateStore" needs to be exported by the entry point index.d.ts
-// dist/policy/PolicyEngine.d.ts:114:5 - (ae-forgotten-export) The symbol "AuditSink" needs to be exported by the entry point index.d.ts
+// dist/policy/PolicyEngine.d.ts:119:5 - (ae-forgotten-export) The symbol "StateStore" needs to be exported by the entry point index.d.ts
+// dist/policy/PolicyEngine.d.ts:120:5 - (ae-forgotten-export) The symbol "AuditSink" needs to be exported by the entry point index.d.ts
 // dist/verification/createVerifier.d.ts:17:5 - (ae-forgotten-export) The symbol "BoundAuthOptions" needs to be exported by the entry point index.d.ts
 // dist/verification/createVerifier.d.ts:18:5 - (ae-forgotten-export) The symbol "BoundEnvelopeOptions" needs to be exported by the entry point index.d.ts
 
