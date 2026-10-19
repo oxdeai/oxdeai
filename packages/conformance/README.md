@@ -8,7 +8,7 @@ Ensures implementations reproduce deterministic AuthorizationV1 artifacts and bo
 Passing validation means the implementation reproduces expected deterministic artifacts (hashes, statuses, and verification outputs) from frozen vectors.
 
 ## Version Coupling
-- `@oxdeai/conformance@2.0.1` targets `@oxdeai/core@2.0.1` behavior.
+- `@oxdeai/conformance@2.0.2` targets `@oxdeai/core@2.0.2` behavior.
 - Use matching major/minor protocol versions when validating.
 
 ## Included Vector Sets

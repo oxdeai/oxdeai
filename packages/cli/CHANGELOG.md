@@ -7,6 +7,13 @@ This project follows Semantic Versioning.
 
 ---
 
+## [0.3.2] - 2026-10-19
+
+### Security
+
+- Fix strict authorization verification (CLI-1): require cryptographic signature verification and reject unverified authorizations.
+- Update dependency to `@oxdeai/core@2.0.2` for the F2 expiry-binding security fix (GHSA-7pwh-fv57-77jg).
+
 ## [0.3.1] - 2026-10-04
 
 Dependency release of `@oxdeai/cli`. It packs against `@oxdeai/core@2.0.1`
