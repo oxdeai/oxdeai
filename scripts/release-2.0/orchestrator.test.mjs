@@ -292,7 +292,7 @@ for (const version of [undefined, "", "^2.0.1", "latest", "02.0.1", "2.0.1-01", 
 
 test("real POLICY is internally consistent at module load (already asserted on import, re-checked here)", () => {
   assert.doesNotThrow(() => assertReleaseMetadataConsistency(POLICY));
-  assert.equal(POLICY["@oxdeai/cli"].version, "0.3.1");
+  assert.equal(POLICY["@oxdeai/cli"].version, "0.3.2");
   assert.equal(POLICY["@oxdeai/cli"].releaseLine, "cli");
   assert.equal(POLICY["@oxdeai/cli"].publishOrder, 90);
 });
@@ -587,10 +587,10 @@ test("24. generated promotion plan uses exact manifest versions", () => {
   }
   // The active patch batch has independent exact versions within a family.
   assert.deepEqual(plan.map(e => e.args[2]), [
-    "@oxdeai/core@2.0.1", "@oxdeai/guard@2.0.2", "@oxdeai/sdk@2.0.1",
-    "@oxdeai/conformance@2.0.1", "@oxdeai/autogen@2.0.0", "@oxdeai/crewai@2.0.0",
+    "@oxdeai/core@2.0.2", "@oxdeai/guard@2.0.3", "@oxdeai/sdk@2.0.2",
+    "@oxdeai/conformance@2.0.2", "@oxdeai/autogen@2.0.0", "@oxdeai/crewai@2.0.0",
     "@oxdeai/langgraph@2.0.0", "@oxdeai/openai-agents@2.0.0",
-    "@oxdeai/openclaw@2.0.0", "@oxdeai/cli@0.3.1",
+    "@oxdeai/openclaw@2.0.0", "@oxdeai/cli@0.3.2",
   ]);
 });
 

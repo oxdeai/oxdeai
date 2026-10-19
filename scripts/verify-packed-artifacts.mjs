@@ -69,28 +69,28 @@ export const POLICY = {
     expectMain: true, expectTypes: true, expectExports: true, expectBin: null,
     expectedSymbols: ["PolicyEngine", "verifyAuthorization", "verifyTrustedTime"],
     cliCheck: null,
-    releaseLine: "2.0", version: "2.0.1", publishOrder: 10,
+    releaseLine: "2.0", version: "2.0.2", publishOrder: 10,
   },
   "@oxdeai/guard": {
     kind: "library",
     expectMain: true, expectTypes: true, expectExports: false, expectBin: null,
     expectedSymbols: ["OxDeAIGuard"],
     cliCheck: null,
-    releaseLine: "2.0", version: "2.0.2", publishOrder: 20,
+    releaseLine: "2.0", version: "2.0.3", publishOrder: 20,
   },
   "@oxdeai/sdk": {
     kind: "library",
     expectMain: true, expectTypes: true, expectExports: false, expectBin: null,
     expectedSymbols: ["buildState"],
     cliCheck: null,
-    releaseLine: "2.0", version: "2.0.1", publishOrder: 30,
+    releaseLine: "2.0", version: "2.0.2", publishOrder: 30,
   },
   "@oxdeai/conformance": {
     kind: "library+cli",
     expectMain: true, expectTypes: true, expectExports: true, expectBin: "oxdeai-conformance",
     expectedSymbols: ["runTrustedTimeConformance", "parseTrustedTimeFile", "trustedTimeExitCode"],
     cliCheck: "conformance-count",
-    releaseLine: "2.0", version: "2.0.1", publishOrder: 40,
+    releaseLine: "2.0", version: "2.0.2", publishOrder: 40,
   },
   "@oxdeai/autogen": {
     kind: "adapter",
@@ -134,7 +134,7 @@ export const POLICY = {
     expectMain: false, expectTypes: false, expectExports: false, expectBin: "oxdeai",
     expectedSymbols: [],
     cliCheck: "help",
-    releaseLine: "cli", version: "0.3.1", publishOrder: 90,
+    releaseLine: "cli", version: "0.3.2", publishOrder: 90,
   },
 };
 
