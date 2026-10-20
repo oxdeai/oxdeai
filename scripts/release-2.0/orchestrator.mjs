@@ -21,9 +21,9 @@
 //
 // ABSOLUTE SAFETY GATE: this module never calls, spawns, or wraps
 //   npm publish / npm dist-tag / npm unpublish
-// PUBLISH_NEXT and PROMOTE use only caller-INJECTED `registryTransport`
-// and `promotionTransport` — there is no default transport in this file
-// that shells out to a real registry. `buildPublishCommandData()` and
+// PUBLISH_NEXT and finalization (release-finalization.mjs) use only
+// caller-INJECTED `registryTransport` and `distTagTransport` — there is no
+// default transport in this file that shells out to a real registry. `buildPublishCommandData()` and
 // `buildPromotionPlan()` return the intended command as DATA ONLY; nothing in
 // this file shell-executes that data. A future, separately authorized change may
 // wire a real transport; doing so is explicitly out of scope for this file.
@@ -34,11 +34,11 @@
 // a replacement for discovery or evaluation of the ten public packages.
 
 import { validatePublicationAuthorization } from "./publication-authorization.mjs";
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { observeRegistryPrecheck, RELEASE_REGISTRY_REQUIREMENTS } from "./auth-precheck.mjs";
 import { assertReleaseToolchain, observeReleaseToolchain, readReleaseToolchain } from "./toolchain.mjs";
 import { spawnSync } from "node:child_process";
-import {
+import fs, {
   existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -201,10 +201,13 @@ function assertPrecheckBinding(manifest, state) {
 
 // ── State machine ─────────────────────────────────────────────────────────
 
+// PROMOTED keeps its historical meaning: every selected `latest` was observed
+// at its expected version. It never means `next` was removed. FINALIZED is the
+// only phase that records a complete finalization (see release-finalization.mjs).
 export const PHASES = Object.freeze([
   "PRECHECK", "PACKED", "VERIFIED_LOCAL", "PUBLISHING_NEXT", "PARTIAL_NEXT",
   "PUBLISHED_NEXT", "REGISTRY_VERIFIED", "EXTERNAL_INSTALL_VERIFIED",
-  "READY_TO_PROMOTE", "PROMOTED",
+  "READY_TO_PROMOTE", "PROMOTING_LATEST", "PROMOTED", "REMOVING_NEXT", "FINALIZED",
 ]);
 
 // Explicit transition graph (#292 requirement: "state transition graph
@@ -221,8 +224,12 @@ const TRANSITIONS = Object.freeze({
   PUBLISHED_NEXT: ["REGISTRY_VERIFIED"],
   REGISTRY_VERIFIED: ["EXTERNAL_INSTALL_VERIFIED"],
   EXTERNAL_INSTALL_VERIFIED: ["READY_TO_PROMOTE"],
-  READY_TO_PROMOTE: ["PROMOTED"],
-  PROMOTED: [],
+  // Per-package promotion, then an independent whole-set latest verification.
+  READY_TO_PROMOTE: ["PROMOTING_LATEST"],
+  PROMOTING_LATEST: ["PROMOTED"],
+  PROMOTED: ["REMOVING_NEXT"],
+  REMOVING_NEXT: ["FINALIZED"],
+  FINALIZED: [],
 });
 
 export class ReleaseOrchestratorError extends Error {
@@ -267,6 +274,8 @@ function transition(state, to, manifest) {
   state.history.push({ phase: to, at: new Date().toISOString() });
   return state;
 }
+// The only phase-assignment path for sibling release modules.
+export { transition as transitionReleaseState };
 
 function assertPhase(state, ...expected) {
   if (!expected.includes(state.phase)) {
@@ -884,15 +893,106 @@ export function pack({
     updatedAt: now(),
   };
   transition(state, "PACKED", manifest);
-  writeJson(path.join(releaseDir, STATE_FILENAME), state);
+  persistState(path.join(releaseDir, STATE_FILENAME), state);
 
   return { manifest, state };
 }
 
 // ── Manifest / state loading + integrity validation ─────────────────────
 
+// ── Atomic JSON persistence ──────────────────────────────────────────────
+//
+// Each file is replaced atomically: the JSON is fully written to a unique
+// temporary file in the destination directory, fsynced and closed, then
+// renamed over the destination, and the directory is fsynced where the
+// platform supports it. A failure before the rename leaves the destination
+// untouched and removes the temporary file; the destination is never deleted.
+//
+// LIMITS: atomicity is per file — the manifest/state pair is not written as
+// one unit. There is no interprocess lock and no registry compare-and-swap.
+// Durability after power or hardware failure depends on the filesystem's
+// fsync/rename guarantees. A failure AFTER the rename (directory fsync) may
+// leave the new content installed, so callers must reload and validate the
+// on-disk state rather than reason from memory (see persistState()).
+//
+// `io` is injectable for fault-injection tests only; it defaults to node:fs.
+const DIRECTORY_FSYNC_UNSUPPORTED = new Set(["EINVAL", "ENOTSUP", "EOPNOTSUPP"]);
+
+export class PersistenceError extends ReleaseOrchestratorError {
+  constructor(file, stage, cause, fields = {}) {
+    super(`persistence of ${file} failed during ${stage}: ${cause?.message ?? cause}`,
+      { code: "PERSISTENCE_FAILED", file, stage, renamed: stage === "directory-fsync", cause, ...fields });
+    this.name = "PersistenceError";
+  }
+}
+
+export function writeJsonAtomic(file, value, io = fs) {
+  const data = Buffer.from(`${JSON.stringify(value, null, 2)}\n`);
+  const dir = path.dirname(file);
+  const tmp = path.join(dir, `.${path.basename(file)}.${process.pid}.${randomBytes(8).toString("hex")}.tmp`);
+  let fd, stage = "open";
+  try {
+    fd = io.openSync(tmp, "wx", 0o644);
+    stage = "write";
+    for (let offset = 0; offset < data.length;) {
+      const written = io.writeSync(fd, data, offset, data.length - offset);
+      if (!(written > 0)) throw new Error(`short write (${written})`);
+      offset += written;
+    }
+    stage = "fsync";
+    io.fsyncSync(fd);
+    stage = "close";
+    const closing = fd; fd = undefined;
+    io.closeSync(closing);
+    stage = "rename";
+    io.renameSync(tmp, file);
+  } catch (error) {
+    const fields = {};
+    if (fd !== undefined) {
+      try { io.closeSync(fd); } catch (closeError) { fields.closeError = closeError; }
+    }
+    if (stage !== "open") {
+      // Only the temporary file is ever removed; the destination is untouched.
+      try { io.unlinkSync(tmp); } catch (cleanupError) { if (cleanupError?.code !== "ENOENT") fields.cleanupError = cleanupError; }
+    }
+    throw new PersistenceError(file, stage, error, fields);
+  }
+  if (process.platform === "win32") return; // directories cannot be opened for fsync
+  let dirFd;
+  try {
+    dirFd = io.openSync(dir, "r");
+    try { io.fsyncSync(dirFd); }
+    catch (error) { if (!DIRECTORY_FSYNC_UNSUPPORTED.has(error?.code)) throw error; }
+  } catch (error) {
+    throw new PersistenceError(file, "directory-fsync", error);
+  } finally {
+    if (dirFd !== undefined) {
+      try { io.closeSync(dirFd); }
+      catch (error) { throw new PersistenceError(file, "directory-close", error, { renamed: true }); }
+    }
+  }
+}
+
 function writeJson(file, obj) {
-  writeFileSync(file, `${JSON.stringify(obj, null, 2)}\n`);
+  writeJsonAtomic(file, obj);
+}
+
+// A state object whose persistence failed is abandoned: its in-memory content
+// may or may not match disk. validateState() rejects it, so every phase entry
+// point fails closed until the caller reloads (loadValidatedState) from disk.
+const ABANDONED_STATES = new WeakSet();
+
+function persistState(file, state) {
+  if (ABANDONED_STATES.has(state)) {
+    throw new ReleaseOrchestratorError("refusing to persist an in-memory state abandoned after a persistence failure; reload it from disk",
+      { code: "STATE_ABANDONED" });
+  }
+  try {
+    writeJson(file, state);
+  } catch (error) {
+    if (state !== null && typeof state === "object") ABANDONED_STATES.add(state);
+    throw error;
+  }
 }
 
 export function loadAndValidateManifest(releaseDir) {
@@ -917,6 +1017,7 @@ export function validateState(manifest, state) {
   const object = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
   const invalid = (detail) => { throw new ReleaseOrchestratorError(`invalid release state: ${detail}`); };
   if (!object(state)) invalid("expected object");
+  if (ABANDONED_STATES.has(state)) invalid("in-memory state abandoned after a persistence failure; reload it from disk");
   // Manifests frozen before #343 carry no receipt; VERIFY_LOCAL and readiness
   // require one. A recorded receipt must always be consistently bound.
   if (manifest.precheck !== undefined) {
@@ -938,14 +1039,92 @@ export function validateState(manifest, state) {
         canonicalStringify(entry) !== canonicalStringify({ publishStatus: "pending" })) invalid("excluded package has publication state");
     if (!Object.hasOwn(state.packages, name) || !object(entry)) invalid(`malformed or missing package ${name}`);
     if (!["pending", "published"].includes(entry.publishStatus)) invalid(`invalid publishStatus for ${name}`);
-    for (const flag of ["registryVerified", "externalInstallVerified"]) {
+    for (const flag of ["registryVerified", "externalInstallVerified", "latestVerified", "nextRemoved"]) {
       if (Object.hasOwn(entry, flag) && typeof entry[flag] !== "boolean") invalid(`non-boolean ${flag} for ${name}`);
     }
     if (Object.hasOwn(entry, "registryIntegrity") && typeof entry.registryIntegrity !== "string") {
       invalid(`malformed registryIntegrity for ${name}`);
     }
   }
+  assertFinalizationState(manifest, state, [...selected], invalid);
   return state;
+}
+
+// ── Finalization evidence (RELEASE-FINALIZATION-01) ──────────────────────
+//
+// Additive V1 fields: per-package latestVerified/nextRemoved bookkeeping, an
+// in-flight finalizationAttempt, a finalizationBlocker and, only in FINALIZED,
+// a finalization record. States written before these fields existed (including
+// historical PROMOTED states) carry none of them and remain valid; they are
+// never interpreted as finalized. The record digest is a consistency check, not
+// a signature or freshness proof.
+const LATEST_EVIDENCE_PHASES = ["PROMOTING_LATEST", "PROMOTED", "REMOVING_NEXT", "FINALIZED"];
+const NEXT_EVIDENCE_PHASES = ["REMOVING_NEXT", "FINALIZED"];
+export const FINALIZATION_RECORD_VERSION = 1;
+export const FINALIZATION_OPERATIONS = Object.freeze({ PROMOTING_LATEST: "promote-latest", REMOVING_NEXT: "remove-next" });
+
+export function computeFinalizationDigest(record) {
+  const { finalizationDigest, ...rest } = record;
+  return digestJson(rest);
+}
+
+export function expectedFinalizationPackages(manifest) {
+  return publicationPackages(manifest).map((p) => ({
+    package: p.package, version: p.version, integrity: p.integrity, latest: p.version, next: null,
+  }));
+}
+
+export function validateFinalizationRecord(manifest, record) {
+  const fail = (detail) => { throw new ReleaseOrchestratorError(`finalization record invalid: ${detail}`); };
+  if (record === null || typeof record !== "object" || Array.isArray(record)) fail("expected object");
+  if (record.kind !== "release-finalization" || record.finalizationVersion !== FINALIZATION_RECORD_VERSION) fail("unsupported kind/version");
+  if (record.releaseId !== manifest.releaseId || record.manifestIntegrity !== manifest.manifestIntegrity) fail("release binding");
+  if (record.registry !== RELEASE_REGISTRY_REQUIREMENTS.registry) fail("registry");
+  if (typeof record.verifiedAt !== "string" || Number.isNaN(Date.parse(record.verifiedAt))) fail("verifiedAt");
+  if (canonicalStringify(record.packages) !== canonicalStringify(expectedFinalizationPackages(manifest))) fail("selected package set/versions");
+  const keys = ["kind", "finalizationVersion", "releaseId", "manifestIntegrity", "registry", "packages", "verifiedAt", "finalizationDigest"];
+  if (Object.keys(record).length !== keys.length || keys.some((k) => !Object.hasOwn(record, k))) fail("unexpected fields");
+  if (!SHA256.test(record.finalizationDigest ?? "") || record.finalizationDigest !== computeFinalizationDigest(record)) fail("digest");
+  return record;
+}
+
+function assertFinalizationState(manifest, state, selectedNames, invalid) {
+  const selected = new Set(selectedNames);
+  const object = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
+  for (const [name, entry] of Object.entries(state.packages)) {
+    const latest = Object.hasOwn(entry, "latestVerified"), next = Object.hasOwn(entry, "nextRemoved");
+    if (!latest && !next) continue;
+    if (!selected.has(name)) invalid(`finalization evidence for unselected package ${name}`);
+    if (entry.publishStatus !== "published" || entry.registryVerified !== true || entry.externalInstallVerified !== true) {
+      invalid(`finalization evidence for ${name} requires published, registry- and install-verified state`);
+    }
+    if (latest && !LATEST_EVIDENCE_PHASES.includes(state.phase)) invalid(`latestVerified for ${name} outside promotion phases`);
+    if (next && !NEXT_EVIDENCE_PHASES.includes(state.phase)) invalid(`nextRemoved for ${name} outside next-removal phases`);
+    if (entry.nextRemoved === true && entry.latestVerified !== true) invalid(`nextRemoved for ${name} without verified latest`);
+  }
+  const all = (flag) => selectedNames.every((name) => state.packages[name][flag] === true);
+  const none = (flag) => selectedNames.every((name) => !Object.hasOwn(state.packages[name], flag));
+  // Historical PROMOTED states carry no flags; new ones carry all of them.
+  if (state.phase === "PROMOTED" && !all("latestVerified") && !none("latestVerified")) invalid("partial latest evidence in PROMOTED");
+  if (NEXT_EVIDENCE_PHASES.includes(state.phase) && !all("latestVerified")) invalid("next removal requires verified latest for every selected package");
+  if (state.phase === "FINALIZED") {
+    if (!all("nextRemoved")) invalid("FINALIZED requires next removal for every selected package");
+    try { validateFinalizationRecord(manifest, state.finalization); } catch (error) { invalid(error.message); }
+  } else if (Object.hasOwn(state, "finalization")) {
+    invalid("finalization record outside FINALIZED");
+  }
+  for (const field of ["finalizationAttempt", "finalizationBlocker"]) {
+    if (!Object.hasOwn(state, field)) continue;
+    const value = state[field], operation = FINALIZATION_OPERATIONS[state.phase];
+    if (!operation || !object(value) || value.operation !== operation || !selected.has(value.package)) {
+      invalid(`${field} incompatible with phase or selection`);
+    }
+    if (field === "finalizationAttempt" && (value.version !== publicationPackages(manifest).find((p) => p.package === value.package).version ||
+        typeof value.startedAt !== "string")) invalid("malformed finalizationAttempt");
+    if (field === "finalizationBlocker" && (typeof value.code !== "string" || typeof value.message !== "string")) {
+      invalid("malformed finalizationBlocker");
+    }
+  }
 }
 
 export function loadState(releaseDir) {
@@ -958,8 +1137,14 @@ export function loadState(releaseDir) {
 
 export function saveState(releaseDir, state, { now = () => new Date().toISOString() } = {}) {
   state.updatedAt = now();
-  writeJson(path.join(releaseDir, STATE_FILENAME), state);
+  persistState(path.join(releaseDir, STATE_FILENAME), state);
   return state;
+}
+
+// The required recovery path after any persistence error: discard the
+// in-memory state and resume only from the validated on-disk state.
+export function loadValidatedState(releaseDir, manifest) {
+  return validateState(manifest, loadState(releaseDir));
 }
 
 // Require the original tarball for every manifest package and verify its
@@ -1066,6 +1251,9 @@ function reconcilePartialNext({ manifest, state, releaseDir, registryTransport }
 }
 
 function persistPublicationBlocker({ manifest, state, releaseDir, error, activePackage }) {
+  // After a persistence failure the in-memory state is abandoned: do not try
+  // to write it again; the caller rethrows the original persistence error.
+  if (ABANDONED_STATES.has(state)) return;
   validateState(manifest, state);
   state.blocker = {
     code: error instanceof RegistryIntegrityConflictError ? "REGISTRY_INTEGRITY_CONFLICT" : "PUBLICATION_FAILED",
@@ -1448,36 +1636,18 @@ export function buildPromotionPlan(manifest, state) {
   }));
 }
 
-// Injected synchronous transport only. observeDistTag must independently read
-// registry state and return { tag, version }; apply results are not evidence.
-// partialDistTagRecovery: "registry-observed-idempotent-retry" declares that
-// after partial application, retrying the same plan observes current tags and
-// safely reapplies entries as needed to converge on the exact target versions.
-// This is a required transport contract, not proof of its implementation.
-export function promote({ manifest, state, releaseDir, promotionTransport }) {
+// Batch promotion is retired (RELEASE-FINALIZATION-01): it applied every
+// `latest` tag before verifying any, without per-package reconciliation or
+// promotion-specific consent. Use promoteLatest()/verifyLatestPromotion() in
+// release-finalization.mjs. State is still validated first so callers get the
+// same fail-closed diagnostics; no transport is consulted.
+export function promote({ manifest, state }) {
   validateState(manifest, state);
   assertPhase(state, "READY_TO_PROMOTE");
-  const plan = buildPromotionPlan(manifest, state); // throws if not ready
-  if (!promotionTransport || typeof promotionTransport.applyDistTag !== "function" ||
-      typeof promotionTransport.observeDistTag !== "function") {
-    throw new ReleaseOrchestratorError("promote requires an injected promotionTransport");
-  }
-  if (promotionTransport.partialDistTagRecovery !== "registry-observed-idempotent-retry") {
-    throw new ReleaseOrchestratorError(
-      'promotionTransport must declare partialDistTagRecovery="registry-observed-idempotent-retry"; ' +
-      'partial dist-tag recovery/resume semantics are otherwise undefined'
-    );
-  }
-  for (const entry of plan) promotionTransport.applyDistTag(entry);
-  for (const p of publicationPackages(manifest)) {
-    const observed = promotionTransport.observeDistTag(p.package, "latest");
-    if (observed?.tag !== "latest" || observed.version !== p.version) {
-      throw new ReleaseOrchestratorError(`dist-tag verification failed for ${p.package}: expected latest=${p.version}`);
-    }
-  }
-  transition(state, "PROMOTED", manifest);
-  saveState(releaseDir, state);
-  return { state, plan };
+  throw new ReleaseOrchestratorError(
+    "batch promote is retired; promote each selected package with promoteLatest() and an explicit promotion authorization",
+    { code: "PROMOTION_BATCH_RETIRED" }
+  );
 }
 
 // ── CLI (PRECHECK / PACK / VERIFY_LOCAL only — no publish/promote wiring) ─
@@ -1547,8 +1717,8 @@ async function main() {
 
   console.error(
     "usage: node scripts/release-2.0/orchestrator.mjs <precheck|pack|verify-local> [--release-dir <path>] [--selection=f2-cli1 (precheck)]\n" +
-    "publish-next / verify-registry / verify-external-install / ready-to-promote / promote are " +
-    "library-only in this task: they require an explicitly injected registryTransport/installTransport " +
+    "publish-next / verify-registry / verify-external-install / ready-to-promote / promote-latest / remove-next are " +
+    "library-only in this task: they require an explicitly injected registryTransport/installTransport/distTagTransport " +
     "and are intentionally not wired to any CLI subcommand here."
   );
   process.exitCode = 1;

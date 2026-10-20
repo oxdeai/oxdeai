@@ -824,8 +824,13 @@ test("dependency fields deduplicate internal names and ignore dev and undiscover
   assert.deepEqual(validatePublishOrder(ds), []);
 });
 
+// RELEASE-FINALIZATION-01 retired batch promotion (apply-all-then-verify).
+// Every transport shape that previously reached PROMOTED, or failed after
+// applying tags, must now stop before any apply/observe call and leave
+// READY_TO_PROMOTE intact. Per-package promotion is covered in
+// release-finalization.test.mjs.
 for (const mode of ["absent", "undeclared recovery", "invalid recovery", "missing", "wrong", "some", "wrong tag", "exact"]) {
-  test(`promotion requires a recovery declaration and independently observed exact latest versions: ${mode}`, () => {
+  test(`batch promotion is retired before any dist-tag effect or observation: ${mode}`, () => {
     const f = packFixture();
     f.state.phase = "READY_TO_PROMOTE";
     f.state.packages = fullyPublishedState(f.manifest);
@@ -846,25 +851,11 @@ for (const mode of ["absent", "undeclared recovery", "invalid recovery", "missin
     };
     if (mode === "undeclared recovery") delete promotionTransport.partialDistTagRecovery;
     if (mode === "invalid recovery") promotionTransport.partialDistTagRecovery = "atomic";
-    if (mode === "exact") {
-      assert.equal(promote({ ...f, promotionTransport }).state.phase, "PROMOTED");
-      assert.equal(applied.length, 10);
-      assert.equal(observed.length, 10);
-      assert.equal(loadState(f.releaseDir).phase, "PROMOTED");
-    } else {
-      const declarationRejected = mode === "undeclared recovery" || mode === "invalid recovery";
-      const expectedError = mode === "absent" ? /requires an injected promotionTransport/
-        : declarationRejected ? /must declare partialDistTagRecovery/
-          : /dist-tag verification failed/;
-      assert.throws(() => promote({ ...f, promotionTransport }), expectedError);
-      if (mode === "absent" || declarationRejected) {
-        assert.deepEqual(applied, []);
-        assert.deepEqual(observed, []);
-      }
-      assert.equal(f.state.phase, "READY_TO_PROMOTE");
-      assert.equal(loadState(f.releaseDir).phase, "READY_TO_PROMOTE");
-      if (mode === "some") assert.equal(observed.length, 10);
-    }
+    assert.throws(() => promote({ ...f, promotionTransport }), { code: "PROMOTION_BATCH_RETIRED" });
+    assert.deepEqual(applied, []);
+    assert.deepEqual(observed, []);
+    assert.equal(f.state.phase, "READY_TO_PROMOTE");
+    assert.equal(loadState(f.releaseDir).phase, "READY_TO_PROMOTE");
   });
 }
 

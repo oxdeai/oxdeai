@@ -260,13 +260,14 @@ publication under next
 != authorization to promote latest
 ```
 
-Use the repository's existing promotion and recovery contract.
+Use the repository's per-package promotion contract
+(`scripts/release-2.0/release-finalization.mjs`, RELEASE-FINALIZATION-01):
+`promoteLatest()` once per selected package, each with its own
+`promotion-authorization` receipt, then `verifyLatestPromotion()`. The retired
+batch `promote()` and its `partialDistTagRecovery` declaration must not be used.
 
-Required semantic contract:
-
-```text
-partialDistTagRecovery === "registry-observed-idempotent-retry"
-```
+The promotion receipt names the exact prior `latest` version (`replaces`) the
+operator consents to overwrite; any other observed `latest` is a conflict.
 
 Do not invent a new promotion mechanism.
 
@@ -290,7 +291,11 @@ Do not leave the completed release simultaneously represented as both `next` and
 
 After removal, independently verify the final dist-tag state from the public registry.
 
-If the repository does not provide a safe supported mechanism for removing `next`, treat that as a blocker. Do not invent an ad hoc procedure.
+The supported mechanism is `removeNext()` once per selected package, each with
+its own `next-removal-authorization` receipt, then `verifyFinalization()`, which
+alone records the `FINALIZED` phase and its finalization record. `PROMOTED` is
+not completion. No real dist-tag transport or CLI subcommand exists yet; wiring
+one requires a separate authorization. Do not invent an ad hoc procedure.
 
 ---
 
