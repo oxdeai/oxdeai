@@ -30,9 +30,10 @@
 //
 // Single source of truth: package discovery and release metadata (version,
 // releaseLine, publishOrder) come from `../verify-packed-artifacts.mjs`'s
-// POLICY table — this module does not define a second publishable-package
-// list.
+// POLICY table. F2_CLI1_SELECTION is an explicit operation subset, never
+// a replacement for discovery or evaluation of the ten public packages.
 
+import { validatePublicationAuthorization } from "./publication-authorization.mjs";
 import { createHash } from "node:crypto";
 import { observeRegistryPrecheck, RELEASE_REGISTRY_REQUIREMENTS } from "./auth-precheck.mjs";
 import { assertReleaseToolchain, observeReleaseToolchain, readReleaseToolchain } from "./toolchain.mjs";
@@ -60,6 +61,65 @@ export const MANIFEST_VERSION = 1;
 export const STATE_VERSION = 1;
 export const PRECHECK_FILENAME = "local-precheck.json";
 export const PRECHECK_RECEIPT_VERSION = 1;
+
+// Explicit opt-in remediation profile. The evaluated/packed universe stays POLICY.
+export const F2_CLI1_SELECTION = Object.freeze([
+  ["@oxdeai/core", "2.0.2"], ["@oxdeai/guard", "2.0.3"],
+  ["@oxdeai/sdk", "2.0.2"], ["@oxdeai/conformance", "2.0.2"],
+  ["@oxdeai/cli", "0.3.2"],
+].map(([packageName, version]) => Object.freeze({ package: packageName, version })));
+
+function validateSelection(selection) {
+  if (canonicalStringify(selection) !== canonicalStringify(F2_CLI1_SELECTION)) {
+    throw new ReleaseOrchestratorError("invalid F2/CLI-1 selection: exact ordered five-package selection required");
+  }
+}
+
+export function publicationPackages(manifest) {
+  if (manifest.selection === undefined) {
+    if (manifest.precheck?.selection !== undefined) throw new ReleaseOrchestratorError("selection missing from manifest");
+    return manifest.packages;
+  }
+  validateSelection(manifest.selection);
+  const evaluated = manifest.packages?.map(p => p.package);
+  if (!evaluated || evaluated.length !== Object.keys(POLICY).length || new Set(evaluated).size !== evaluated.length ||
+      Object.keys(POLICY).some(name => !evaluated.includes(name))) {
+    throw new ReleaseOrchestratorError("F2/CLI-1 requires all ten evaluated packages");
+  }
+  if (canonicalStringify(manifest.selection) !== canonicalStringify(manifest.precheck?.selection)) {
+    throw new ReleaseOrchestratorError("selection differs from PRECHECK receipt");
+  }
+  return manifest.selection.map(entry => {
+    const matches = manifest.packages.filter(p => p.package === entry.package && p.version === entry.version);
+    if (matches.length !== 1) throw new ReleaseOrchestratorError("selection package/version missing or duplicated");
+    const p = matches[0];
+    if (p.publishOrder !== POLICY[p.package].publishOrder || p.releaseLine !== POLICY[p.package].releaseLine) {
+      throw new ReleaseOrchestratorError("selected release metadata/order mismatch");
+    }
+    return p;
+  });
+}
+
+// This fixed profile has no external runtime dependencies. Any new dependency
+// outside the batch fails closed until a registry resolution contract is added.
+function assertSelectionDependencies(discovered, selection, policy) {
+  if (selection === undefined) return;
+  validateSelection(selection);
+  for (const entry of selection) {
+    const d = discovered.find(d => d.name === entry.package);
+    if (!d || d.manifest.version !== entry.version) throw new ReleaseOrchestratorError("selection version mismatch");
+    for (const field of ["dependencies", "peerDependencies", "optionalDependencies"]) {
+      for (const [name, range] of Object.entries(d.manifest[field] ?? {})) {
+        const dep = selection.find(p => p.package === name);
+        if (!dep) throw new ReleaseOrchestratorError(`external dependency resolution required: ${name}@${range}`);
+        if (!["workspace:*", dep.version, `workspace:${dep.version}`].includes(range)) {
+          throw new ReleaseOrchestratorError(`dependency compatibility not established: ${name}@${range}`);
+        }
+        if (policy[name].publishOrder >= policy[d.name].publishOrder) throw new ReleaseOrchestratorError("invalid selected dependency order");
+      }
+    }
+  }
+}
 
 // ── Persisted PRECHECK receipt (#343) ─────────────────────────────────────
 //
@@ -92,6 +152,7 @@ export function validatePrecheckReceipt(receipt) {
   if (typeof receipt.releaseDir !== "string" || !path.isAbsolute(receipt.releaseDir)) fail("releaseDir");
   if (!SHA256.test(receipt.policyDigest ?? "")) fail("policyDigest");
   if (typeof receipt.observedAt !== "string" || Number.isNaN(Date.parse(receipt.observedAt))) fail("observedAt");
+  if (receipt.selection !== undefined) validateSelection(receipt.selection);
   const packages = receipt.discovered;
   if (!Array.isArray(packages) || packages.length === 0 ||
       new Set(packages.map((d) => d?.name)).size !== packages.length ||
@@ -125,6 +186,7 @@ function observePrecheckPackages(discovered, packageTransport) {
 // manifest records, and the state's PRECHECK entry must be derived from it.
 function assertPrecheckBinding(manifest, state) {
   const receipt = validatePrecheckReceipt(manifest?.precheck);
+  publicationPackages(manifest);
   const fail = (detail) => { throw new ReleaseOrchestratorError(`PRECHECK evidence binding mismatch: ${detail}`); };
   if (receipt.sourceRevision !== manifest.sourceRevision) fail("source revision");
   const recorded = new Map(receipt.discovered.map((d) => [d.name, d.manifest.version]));
@@ -341,8 +403,9 @@ export function validatePublishOrder(discovered, policy = POLICY) {
 
 export function precheck({ discovered, policy = POLICY, gitTransport, authTransport,
   releaseDir, sourceRevision, sourceTransport, packageTransport = packageJsonTransport(),
-  now = () => new Date().toISOString(),
+  now = () => new Date().toISOString(), selection,
 }) {
+  assertSelectionDependencies(selection === undefined ? discovered : discovered.map(d => ({ ...d, manifest: JSON.parse(String(packageTransport.read(d))) })), selection, policy);
   assertReleaseMetadataConsistency(policy);
   const blockers = [];
 
@@ -403,6 +466,7 @@ export function precheck({ discovered, policy = POLICY, gitTransport, authTransp
   const source = observePackSource(sourceTransport, sourceRevision, discovered, "PRECHECK");
   const receipt = {
     receiptVersion: PRECHECK_RECEIPT_VERSION, ok: true, sourceRevision,
+    ...(selection === undefined ? {} : { selection: structuredClone(selection) }),
     source: { root: source.root, revision: source.revision, clean: source.clean },
     workingTreeClean, releaseDir: path.resolve(releaseDir), policyDigest: digestJson(policy),
     discovered: observePrecheckPackages(discovered, packageTransport), observedAt: now(),
@@ -703,6 +767,7 @@ function assertReceiptMatchesPack(receipt, { sourceRevision, root, releaseDir, p
   if (receipt.source.root !== root) fail(`checkout ${receipt.source.root} != ${root}`);
   if (receipt.releaseDir !== path.resolve(releaseDir)) fail(`release directory ${receipt.releaseDir} != ${path.resolve(releaseDir)}`);
   if (receipt.policyDigest !== digestJson(policy)) fail("release POLICY changed since PRECHECK");
+  assertSelectionDependencies(receipt.selection === undefined ? discovered : discovered.map(d => ({ ...d, manifest: JSON.parse(String(packageTransport.read(d))) })), receipt.selection, policy);
   const current = observePrecheckPackages(discovered, packageTransport);
   const recorded = new Map(receipt.discovered.map((d) => [d.name, d]));
   if (current.length !== recorded.size || current.some((d) => !recorded.has(d.name))) fail("package set");
@@ -799,6 +864,7 @@ export function pack({
     createdAt: now(),
     determinismProbe,
     precheck: receipt,
+    ...(receipt.selection === undefined ? {} : { selection: structuredClone(receipt.selection) }),
     packages,
   };
   const manifest = {
@@ -865,8 +931,11 @@ export function validateState(manifest, state) {
   const names = manifest.packages.map((p) => p.package);
   if (new Set(names).size !== names.length || Object.keys(state.packages).length !== names.length ||
       Object.keys(state.packages).some((name) => !names.includes(name))) invalid("package set mismatch");
+  const selected = new Set(publicationPackages(manifest).map(p => p.package));
   for (const name of names) {
     const entry = state.packages[name];
+    if (manifest.selection !== undefined && !selected.has(name) &&
+        canonicalStringify(entry) !== canonicalStringify({ publishStatus: "pending" })) invalid("excluded package has publication state");
     if (!Object.hasOwn(state.packages, name) || !object(entry)) invalid(`malformed or missing package ${name}`);
     if (!["pending", "published"].includes(entry.publishStatus)) invalid(`invalid publishStatus for ${name}`);
     for (const flag of ["registryVerified", "externalInstallVerified"]) {
@@ -953,6 +1022,7 @@ export function verifyLocal({ discovered, manifest, state, releaseDir, baseDir }
 // registryTransport.getRegistryVersion(name, version) -> { exists, integrity? }
 function reconcileAgainstRegistry(p, registryTransport) {
   const reg = registryTransport.getRegistryVersion(p.package, p.version);
+  if (!reg || typeof reg.exists !== "boolean") throw new ReleaseOrchestratorError("registry state undetermined");
   if (!reg.exists) return { status: "missing" };
   if (reg.integrity === p.integrity) return { status: "already-published", integrity: reg.integrity };
   throw new RegistryIntegrityConflictError(p.package, p.version, p.integrity, reg.integrity);
@@ -976,7 +1046,7 @@ function reconcilePartialNext({ manifest, state, releaseDir, registryTransport }
   const toPublish = [];
   let activePackage;
   try {
-    for (const p of manifest.packages) {
+    for (const p of publicationPackages(manifest)) {
       activePackage = p.package;
       const result = reconcileAgainstRegistry(p, registryTransport);
       if (result.status === "already-published") {
@@ -1122,7 +1192,7 @@ export function derivePublicationPlan(inputs = {}) {
   }
   // Current publishOrder values are intentionally sparse. No contiguous-slot
   // rule exists. Sort only a copy; input array order must not influence output.
-  const ordered = [...manifest.packages].sort((a, b) => a.publishOrder - b.publishOrder);
+  const ordered = [...publicationPackages(manifest)].sort((a, b) => a.publishOrder - b.publishOrder);
   return {
     kind: "publication-plan", releaseId: manifest.releaseId, registry: e.registry, tag: "next", access: "public",
     operations: ordered.map((p, index) => ({
@@ -1162,7 +1232,7 @@ export function publishPlannedOperation(inputs = {}) {
   if (!object(plan) || plan.kind !== "publication-plan" || !Array.isArray(plan.operations) ||
       !object(manifest) || manifest.manifestVersion !== MANIFEST_VERSION ||
       !Array.isArray(manifest.packages) || manifest.packages.length === 0 ||
-      plan.operations.length !== manifest.packages.length || !object(plan.evidence)) {
+      plan.operations.length !== publicationPackages(manifest).length || !object(plan.evidence)) {
     fail("PUBLICATION_PLAN_INVALID", "a complete publication plan and manifest are required");
   }
   if (!Number.isSafeInteger(operationIndex) || operationIndex < 0 || operationIndex >= plan.operations.length) {
@@ -1186,7 +1256,7 @@ export function publishPlannedOperation(inputs = {}) {
     if (typeof plan.registry !== "string" || registry.protocol !== "https:" || registry.username || registry.password ||
         registry.search || registry.hash || registry.href !== plan.registry) throw new Error();
   } catch { fail("PUBLICATION_PLAN_INVALID", "registry must be a canonical HTTPS URL"); }
-  const ordered = [...manifest.packages].sort((a, b) => a?.publishOrder - b?.publishOrder);
+  const ordered = [...publicationPackages(manifest)].sort((a, b) => a?.publishOrder - b?.publishOrder);
   const names = new Set(), orders = new Set(), paths = new Set();
   // Validate the complete data binding before effects, never execute the plan
   // as a batch. Command comparison rejects disagreement rather than repairing it.
@@ -1212,8 +1282,8 @@ export function publishPlannedOperation(inputs = {}) {
       fail("PUBLICATION_OPERATION_MISMATCH", "operation and command must exactly match the frozen plan/manifest binding");
     }
   }
-  if (!Array.isArray(e.packagesEvaluated) || e.packagesEvaluated.length !== names.size ||
-      new Set(e.packagesEvaluated).size !== names.size || e.packagesEvaluated.some(name => !names.has(name))) {
+  if (!Array.isArray(e.packagesEvaluated) || e.packagesEvaluated.length !== manifest.packages.length ||
+      new Set(e.packagesEvaluated).size !== manifest.packages.length || e.packagesEvaluated.some(name => !manifest.packages.some(p => p.package === name))) {
     fail("PUBLICATION_PLAN_INVALID", "plan evidence package set must match the manifest");
   }
   try { assertReleaseMetadataConsistency(Object.fromEntries(ordered.map(p => [p.package, p]))); }
@@ -1245,6 +1315,7 @@ export function publishPlannedOperation(inputs = {}) {
       typeof registryTransport.publish !== "function") {
     fail("PUBLICATION_TRANSPORT_INVALID", "an injected synchronous observation and publication transport is required");
   }
+  if (manifest.selection !== undefined) validatePublicationAuthorization({ authorization: inputs.authorization, plan, operationIndex, manifest });
   // Only the selected original artifact is read. No reconstruction or packing.
   requireOriginalTarballs(releaseDir, { packages: [p] });
   const observe = () => {
@@ -1267,7 +1338,7 @@ export function publishPlannedOperation(inputs = {}) {
       let result, publicationError;
       try { result = registryTransport.publish(structuredClone(p.command)); }
       catch (error) { publicationError = error; }
-      published = (object(result) && result.ok === true) || observe();
+      published = manifest.selection === undefined ? (object(result) && result.ok === true) || observe() : observe();
       if (!published) {
         if (publicationError) throw publicationError;
         persistPublicationBlocker({ manifest, state, releaseDir, activePackage: p.package,
@@ -1293,7 +1364,7 @@ export function publishPlannedOperation(inputs = {}) {
 export function verifyRegistry({ manifest, state, releaseDir, registryTransport }) {
   validateState(manifest, state);
   assertPhase(state, "PUBLISHED_NEXT");
-  for (const p of manifest.packages) {
+  for (const p of publicationPackages(manifest)) {
     const reg = registryTransport.getRegistryVersion(p.package, p.version);
     if (!reg.exists) {
       throw new ReleaseOrchestratorError(`registry verification failed: ${p.package}@${p.version} not present`);
@@ -1316,7 +1387,7 @@ export function verifyRegistry({ manifest, state, releaseDir, registryTransport 
 export function verifyExternalInstall({ manifest, state, releaseDir, installTransport }) {
   validateState(manifest, state);
   assertPhase(state, "REGISTRY_VERIFIED");
-  for (const p of manifest.packages) {
+  for (const p of publicationPackages(manifest)) {
     const result = installTransport.verifyInstall(p.package, p.version, p.integrity);
     if (!result.ok) {
       throw new ReleaseOrchestratorError(
@@ -1332,14 +1403,12 @@ export function verifyExternalInstall({ manifest, state, releaseDir, installTran
 
 // ── READY_TO_PROMOTE ──────────────────────────────────────────────────────
 //
-// Deliberate ALL-TEN invariant, checked explicitly rather than left as an
-// accidental consequence of control flow: every manifest package —
-// including @oxdeai/cli, whose releaseLine is "cli" rather than "2.0" — must
-// be published, registry-verified, AND externally-install-verified. If the
-// CLI alone fails, the nine 2.0-line packages are NOT promotable.
+// Every selected package, including CLI, must be published, registry-verified
+// and externally-install-verified. Legacy manifests select all ten; the F2/CLI-1
+// profile selects five while retaining the ten-package local evaluation gate.
 export function allPackagesReady(manifest, state) {
   validateState(manifest, state);
-  return manifest.packages.every((p) => {
+  return publicationPackages(manifest).every((p) => {
     const s = state.packages[p.package];
     return s?.publishStatus === "published" && s?.registryVerified === true && s?.externalInstallVerified === true;
   });
@@ -1349,14 +1418,14 @@ export function transitionToReadyToPromote({ manifest, state, releaseDir }) {
   validateState(manifest, state);
   assertPhase(state, "EXTERNAL_INSTALL_VERIFIED");
   if (!allPackagesReady(manifest, state)) {
-    const notReady = manifest.packages
+    const notReady = publicationPackages(manifest)
       .filter((p) => {
         const s = state.packages[p.package];
         return !(s?.publishStatus === "published" && s?.registryVerified === true && s?.externalInstallVerified === true);
       })
       .map((p) => p.package);
     throw new ReleaseOrchestratorError(
-      `READY_TO_PROMOTE requires ALL ${manifest.packages.length} packages verified (published + registry + ` +
+      `READY_TO_PROMOTE requires ALL ${publicationPackages(manifest).length} selected packages verified (published + registry + ` +
       `external-install), including @oxdeai/cli. Not ready: ${notReady.join(", ")}`
     );
   }
@@ -1371,9 +1440,9 @@ export function buildPromotionPlan(manifest, state) {
   validateState(manifest, state);
   assertPhase(state, "READY_TO_PROMOTE");
   if (!allPackagesReady(manifest, state)) {
-    throw new ReleaseOrchestratorError("promotion planning requires all ten packages verified");
+    throw new ReleaseOrchestratorError("promotion planning requires all selected packages verified");
   }
-  return manifest.packages.map((p) => ({
+  return publicationPackages(manifest).map((p) => ({
     executable: "npm",
     args: ["dist-tag", "add", `${p.package}@${p.version}`, "latest"],
   }));
@@ -1400,7 +1469,7 @@ export function promote({ manifest, state, releaseDir, promotionTransport }) {
     );
   }
   for (const entry of plan) promotionTransport.applyDistTag(entry);
-  for (const p of manifest.packages) {
+  for (const p of publicationPackages(manifest)) {
     const observed = promotionTransport.observeDistTag(p.package, "latest");
     if (observed?.tag !== "latest" || observed.version !== p.version) {
       throw new ReleaseOrchestratorError(`dist-tag verification failed for ${p.package}: expected latest=${p.version}`);
@@ -1441,6 +1510,9 @@ function reportLocalPrecheck() {
 async function main() {
   const args = process.argv.slice(2);
   const cmd = args[0];
+  if (args.some(arg => arg.startsWith("--selection") && arg !== "--selection=f2-cli1")) {
+    throw new ReleaseOrchestratorError("unsupported selection; use --selection=f2-cli1");
+  }
   const releaseDirArg = args.includes("--release-dir")
     ? args[args.indexOf("--release-dir") + 1]
     : path.join(ROOT, ".release-2.0");
@@ -1448,7 +1520,8 @@ async function main() {
   if (cmd === "precheck") {
     const discovered = discoverPublishablePackages();
     precheck({ discovered, gitTransport: realGitTransport(), releaseDir: releaseDirArg,
-      sourceRevision: currentSourceRevision(), sourceTransport: gitSourceTransport() });
+      sourceRevision: currentSourceRevision(), sourceTransport: gitSourceTransport(),
+      ...(args.includes("--selection=f2-cli1") ? { selection: F2_CLI1_SELECTION } : {}) });
     reportLocalPrecheck();
     return;
   }
@@ -1473,7 +1546,7 @@ async function main() {
   }
 
   console.error(
-    "usage: node scripts/release-2.0/orchestrator.mjs <precheck|pack|verify-local> [--release-dir <path>]\n" +
+    "usage: node scripts/release-2.0/orchestrator.mjs <precheck|pack|verify-local> [--release-dir <path>] [--selection=f2-cli1 (precheck)]\n" +
     "publish-next / verify-registry / verify-external-install / ready-to-promote / promote are " +
     "library-only in this task: they require an explicitly injected registryTransport/installTransport " +
     "and are intentionally not wired to any CLI subcommand here."

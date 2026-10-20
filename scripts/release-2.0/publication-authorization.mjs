@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 import { isDeepStrictEqual } from "node:util";
-import { computeManifestIntegrity, ReleaseOrchestratorError } from "./orchestrator.mjs";
+import { computeManifestIntegrity, publicationPackages, ReleaseOrchestratorError } from "./orchestrator.mjs";
 
 // The outer operator/caller supplies this receipt as an explicit decision.
 // There is deliberately no automatic issuer in readiness, planning or execution.
@@ -22,7 +22,7 @@ export function validatePublicationAuthorization({ authorization, plan, operatio
     fail("PUBLICATION_AUTHORIZATION_MISMATCH", "authorization requires an explicit frozen operation and manifest");
   }
   const op = plan.operations[operationIndex];
-  const matches = manifest.packages.filter(p => p?.package === op.package);
+  const matches = publicationPackages(manifest).filter(p => p?.package === op.package);
   if (matches.length !== 1 || op.index !== operationIndex || op.releaseId !== plan.releaseId ||
       plan.releaseId !== manifest.releaseId || plan.evidence?.manifestIntegrity !== manifest.manifestIntegrity ||
       computeManifestIntegrity(manifest) !== manifest.manifestIntegrity ||
