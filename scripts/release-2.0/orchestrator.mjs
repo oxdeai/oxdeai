@@ -33,6 +33,7 @@
 // POLICY table. F2_CLI1_SELECTION is an explicit operation subset, never
 // a replacement for discovery or evaluation of the ten public packages.
 
+import { artifactDirectory, packWithoutOverwrite, manifestTarball } from "./artifact-paths.mjs";
 import { validatePublicationAuthorization } from "./publication-authorization.mjs";
 import { createHash, randomBytes } from "node:crypto";
 import { observeRegistryPrecheck, RELEASE_REGISTRY_REQUIREMENTS } from "./auth-precheck.mjs";
@@ -469,6 +470,11 @@ export function precheck({ discovered, policy = POLICY, gitTransport, authTransp
     throw new ReleaseOrchestratorError("PRECHECK requires a releaseDir for persisted evidence");
   }
   if (!/^[0-9a-f]{40}$/.test(sourceRevision ?? "")) throw new ReleaseOrchestratorError("PRECHECK requires an exact 40-hex sourceRevision");
+  try { releaseDir = artifactDirectory(releaseDir); }
+  catch (error) {
+    throw new ReleaseOrchestratorError(`PRECHECK could not persist its receipt; PRECHECK did not pass: ${error.message}`,
+      { code: error.code, cause: error });
+  }
   for (const file of [PRECHECK_FILENAME, MANIFEST_FILENAME, STATE_FILENAME, "tarballs"]) {
     if (existsSync(path.join(releaseDir, file))) throw new ReleaseOrchestratorError(`PRECHECK refuses existing release evidence: ${file}`);
   }
@@ -665,8 +671,8 @@ export function runDeterminismProbe(pkg, packTransport) {
   const destB = path.join(base, "b");
   mkdirSync(destA, { recursive: true });
   mkdirSync(destB, { recursive: true });
-  const tarballA = packTransport.packToDir(pkg, destA);
-  const tarballB = packTransport.packToDir(pkg, destB);
+  const tarballA = packWithoutOverwrite(destA, dest => packTransport.packToDir(pkg, dest));
+  const tarballB = packWithoutOverwrite(destB, dest => packTransport.packToDir(pkg, dest));
   const hashA = sha256Hex(readFileSync(tarballA));
   const hashB = sha256Hex(readFileSync(tarballB));
   return {
@@ -688,20 +694,17 @@ export function runDeterminismProbe(pkg, packTransport) {
 export function defaultPackTransport() {
   return {
     packToDir(pkg, destDir) {
-      const result = spawnSync("pnpm", ["pack", "--pack-destination", destDir], {
-        cwd: pkg.dir, encoding: "utf8",
+      return packWithoutOverwrite(destDir, destination => {
+        const result = spawnSync("pnpm", ["pack", "--pack-destination", destination], {
+          cwd: pkg.dir, encoding: "utf8",
+        });
+        if (result.status !== 0) {
+          throw new ReleaseOrchestratorError(
+            `pnpm pack failed for ${pkg.name}: ${result.stderr || result.stdout}`
+          );
+        }
+        return result.stdout.trim().split("\n").filter(Boolean).pop();
       });
-      if (result.status !== 0) {
-        throw new ReleaseOrchestratorError(
-          `pnpm pack failed for ${pkg.name}: ${result.stderr || result.stdout}`
-        );
-      }
-      const line = result.stdout.trim().split("\n").filter(Boolean).pop();
-      const tarballPath = path.isAbsolute(line) ? line : path.join(destDir, line);
-      if (!existsSync(tarballPath)) {
-        throw new ReleaseOrchestratorError(`expected tarball not found at ${tarballPath} for ${pkg.name}`);
-      }
-      return tarballPath;
     },
   };
 }
@@ -798,6 +801,7 @@ export function pack({
   packTransport = defaultPackTransport(),
   now = () => new Date().toISOString(),
 }) {
+  releaseDir = artifactDirectory(releaseDir);
   if (!/^[0-9a-f]{40}$/.test(sourceRevision ?? "")) {
     throw new ReleaseOrchestratorError("pack() requires an exact 40-hex sourceRevision");
   }
@@ -818,6 +822,7 @@ export function pack({
   const receipt = readPrecheckReceipt(releaseDir);
   assertReceiptMatchesPack(receipt, { sourceRevision, root: before.root, releaseDir, policy, discovered, packageTransport });
 
+  artifactDirectory(path.join(releaseDir, "tarballs"));
   const probeTarget = discovered.find((d) => d.name === (determinismProbePackage ?? discovered[0]?.name));
   if (!probeTarget) throw new ReleaseOrchestratorError("no package available for the determinism probe");
   const determinismProbe = runDeterminismProbe(probeTarget, packTransport);
@@ -830,7 +835,7 @@ export function pack({
   );
 
   const packages = ordered.map((d) => {
-    const tarballPath = packTransport.packToDir(d, tarballDir);
+    const tarballPath = packWithoutOverwrite(tarballDir, dest => packTransport.packToDir(d, dest));
     const integrity = computeSriIntegrity(readFileSync(tarballPath));
     return {
       package: d.name,
@@ -1152,11 +1157,13 @@ export function loadValidatedState(releaseDir, manifest) {
 // throws (STOP) on any missing file or mismatch.
 export function requireOriginalTarballs(releaseDir, manifest) {
   for (const p of manifest.packages) {
-    const tarballPath = path.join(releaseDir, p.tarball);
-    if (!existsSync(tarballPath)) {
+    let tarballPath;
+    try { tarballPath = manifestTarball(releaseDir, p.tarball); }
+    catch (error) {
+      if (error.code !== "ENOENT") throw error;
       throw new ReleaseOrchestratorError(
-        `STOP: original release tarball missing for ${p.package} at ${tarballPath}. ` +
-        `Regeneration is forbidden — resume never repacks.`
+        `STOP: original release tarball missing for ${p.package} at ${path.resolve(releaseDir, p.tarball)}. ` +
+        `Regeneration is forbidden — resume never repacks.`, { cause: error }
       );
     }
     const actual = computeSriIntegrity(readFileSync(tarballPath));
@@ -1180,6 +1187,7 @@ export function requireOriginalTarballs(releaseDir, manifest) {
 // the manifest must be bound by the state and still equal the receipt PRECHECK
 // persisted in this release directory (#343).
 export function verifyLocal({ discovered, manifest, state, releaseDir, baseDir } = {}) {
+  releaseDir = artifactDirectory(releaseDir);
   validateState(manifest, state);
   assertPhase(state, "PACKED");
   if (manifest.precheck === undefined) {
@@ -1192,7 +1200,7 @@ export function verifyLocal({ discovered, manifest, state, releaseDir, baseDir }
   }
   const packed = manifest.packages.map((p) => ({
     name: p.package,
-    tarballPath: path.join(releaseDir, p.tarball),
+    tarballPath: manifestTarball(releaseDir, p.tarball),
   }));
   assertPackedBijection(discovered, packed);
   requireOriginalTarballs(releaseDir, manifest);
