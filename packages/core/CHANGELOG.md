@@ -7,6 +7,12 @@ This project follows Semantic Versioning.
 
 ---
 
+## [2.0.2] - 2026-10-19
+
+### Security
+
+- Security patch. PolicyEngine.verifyAuthorization now validates expiry using the HMAC-covered expires_at field, with an exclusive expiry bound. Authorizations are rejected at t == expires_at (GHSA-7pwh-fv57-77jg).
+
 ## [2.0.1] - 2026-10-04
 
 Security patch release of `@oxdeai/core`. No public API, type declaration,

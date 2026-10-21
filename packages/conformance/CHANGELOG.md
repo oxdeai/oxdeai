@@ -7,6 +7,12 @@ This project follows Semantic Versioning.
 
 ---
 
+## [2.0.2] - 2026-10-19
+
+### Security
+
+- Dependency security release. Pins @oxdeai/core@2.0.2 (GHSA-7pwh-fv57-77jg). No vector corpus change.
+
 ## [2.0.1] - 2026-10-04
 
 Dependency release of `@oxdeai/conformance`. It packs against
