@@ -5,7 +5,9 @@ import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
-import { PolicyEngine, RECOMMENDED_TRUSTED_TIME_PROFILE, encodeCanonicalState, encodeEnvelope } from "@oxdeai/core";
+import { generateKeyPairSync } from "node:crypto";
+
+import { PolicyEngine, RECOMMENDED_TRUSTED_TIME_PROFILE, encodeCanonicalState, encodeEnvelope, signAuthorizationEd25519 } from "@oxdeai/core";
 import type { State } from "@oxdeai/core";
 
 
@@ -572,4 +574,158 @@ test("verify --kind authorization strict without --trusted-keyset fails with gui
   assert.equal(code, 1);
   assert.ok(cap.err.some((line) => line.includes("--trusted-keyset")));
   assert.ok(cap.err.some((line) => line.includes("best-effort")));
+});
+
+// ── CLI-1: strict authorization verification must require a verified signature ──
+
+const CLI1_NOW = 1_770_003_000;
+const CLI1_SECRET = "test-secret-must-be-at-least-32-chars!!";
+
+async function cli1Keyset(dir: string) {
+  const { publicKey, privateKey } = generateKeyPairSync("ed25519", {
+    publicKeyEncoding: { type: "spki", format: "pem" },
+    privateKeyEncoding: { type: "pkcs8", format: "pem" }
+  });
+  const keysetPath = join(dir, "keyset.json");
+  await writeFile(
+    keysetPath,
+    JSON.stringify({ issuer: "oxdeai://cli1-issuer", version: "1", keys: [{ kid: "cli1-k1", alg: "Ed25519", public_key: publicKey, status: "active" }] }),
+    "utf8"
+  );
+  return { keysetPath, privateKey };
+}
+
+async function cli1IssuedAuth() {
+  const { policyFile, stateFile, auditFile, dir } = await setup();
+  const cap = ioCapture(CLI1_NOW);
+  await runCli(["init", "--file", policyFile, "--state", stateFile, "--audit", auditFile], cap.io);
+  const authPath = join(dir, "authorization.json");
+  const code = await runCli(
+    ["auth", "create", "PROVISION", "100", "us-east-1", "--agent", "agent-1", "--nonce", "301", "--state", stateFile, "--out", authPath],
+    cap.io
+  );
+  assert.equal(code, 0);
+  return { dir, authPath };
+}
+
+function lastJson(out: string[]) {
+  return JSON.parse(out[out.length - 1] ?? "{}");
+}
+
+test("CLI-1: strict (default) rejects a forged HMAC-SHA256 authorization", async () => {
+  const { dir } = await setup();
+  const { keysetPath } = await cli1Keyset(dir);
+  const forgedPath = join(dir, "forged.json");
+  await writeFile(
+    forgedPath,
+    JSON.stringify({
+      version: "AuthorizationV1",
+      auth_id: "forged-1",
+      issuer: "oxdeai://cli1-issuer",
+      audience: "rp://tool-gateway",
+      intent_hash: "a".repeat(64),
+      state_hash: "b".repeat(64),
+      policy_id: "c".repeat(64),
+      decision: "ALLOW",
+      issued_at: CLI1_NOW - 10,
+      expiry: CLI1_NOW + 365 * 86400,
+      alg: "HMAC-SHA256",
+      kid: "anything",
+      signature: "Zm9yZ2VkLXNpZ25hdHVyZQ=="
+    }),
+    "utf8"
+  );
+
+  for (const extra of [[], ["--mode", "strict"]]) {
+    const cap = ioCapture(CLI1_NOW);
+    const code = await runCli(
+      ["verify", "--kind", "authorization", "--file", forgedPath, "--trusted-keyset", keysetPath, ...extra, "--json"],
+      cap.io
+    );
+    assert.equal(code, 1, `forged authorization must fail strict verification (${extra.join(" ") || "default"})`);
+    const res = lastJson(cap.out);
+    assert.equal(res.ok, false);
+    assert.equal(res.signatureVerified, false);
+    assert.equal(res.verificationMode, "strict");
+    assert.ok(res.violations.some((v: { code: string }) => v.code === "AUTH_TRUST_MISSING"));
+  }
+});
+
+test("CLI-1: strict rejects a tampered CLI-issued authorization, with or without the secret", async () => {
+  const { dir, authPath } = await cli1IssuedAuth();
+  const { keysetPath } = await cli1Keyset(dir);
+  const auth = JSON.parse(await readFile(authPath, "utf8"));
+  auth.audience = "rp://attacker";
+  auth.expiry = CLI1_NOW + 365 * 86400;
+  const tamperedPath = join(dir, "tampered.json");
+  await writeFile(tamperedPath, JSON.stringify(auth), "utf8");
+
+  const noSecret = ioCapture(CLI1_NOW);
+  assert.equal(
+    await runCli(["verify", "--kind", "authorization", "--file", tamperedPath, "--trusted-keyset", keysetPath, "--json"], noSecret.io),
+    1
+  );
+  assert.equal(lastJson(noSecret.out).signatureVerified, false);
+
+  const withSecret = ioCapture(CLI1_NOW);
+  assert.equal(
+    await runCli(
+      ["verify", "--kind", "authorization", "--file", tamperedPath, "--trusted-keyset", keysetPath, "--legacy-hmac-secret", CLI1_SECRET, "--json"],
+      withSecret.io
+    ),
+    1
+  );
+  assert.ok(lastJson(withSecret.out).violations.some((v: { code: string }) => v.code === "AUTH_SIGNATURE_INVALID"));
+});
+
+test("CLI-1: strict accepts a genuine CLI-issued HMAC authorization only with the secret", async () => {
+  const { dir, authPath } = await cli1IssuedAuth();
+  const { keysetPath } = await cli1Keyset(dir);
+  const cap = ioCapture(CLI1_NOW);
+  const code = await runCli(
+    ["verify", "--kind", "authorization", "--file", authPath, "--trusted-keyset", keysetPath, "--legacy-hmac-secret", CLI1_SECRET, "--json"],
+    cap.io
+  );
+  assert.equal(code, 0);
+  const res = lastJson(cap.out);
+  assert.equal(res.ok, true);
+  assert.equal(res.signatureVerified, true);
+  assert.equal(res.verificationMode, "strict");
+});
+
+test("CLI-1: strict accepts an Ed25519 authorization signed by a trusted key", async () => {
+  const { dir } = await setup();
+  const { keysetPath, privateKey } = await cli1Keyset(dir);
+  const signed = signAuthorizationEd25519(
+    {
+      auth_id: "ed25519-ok-1",
+      issuer: "oxdeai://cli1-issuer",
+      audience: "rp://tool-gateway",
+      intent_hash: "a".repeat(64),
+      state_hash: "b".repeat(64),
+      policy_id: "c".repeat(64),
+      decision: "ALLOW",
+      issued_at: CLI1_NOW - 10,
+      expiry: CLI1_NOW + 60,
+      kid: "cli1-k1"
+    },
+    privateKey
+  );
+  const authPath = join(dir, "ed25519.json");
+  await writeFile(authPath, JSON.stringify(signed), "utf8");
+
+  const ok = ioCapture(CLI1_NOW);
+  assert.equal(
+    await runCli(
+      ["verify", "--kind", "authorization", "--file", authPath, "--trusted-keyset", keysetPath, "--expected-audience", "rp://tool-gateway", "--json"],
+      ok.io
+    ),
+    0
+  );
+  assert.equal(lastJson(ok.out).signatureVerified, true);
+
+  // Same artifact, one signed field changed: must fail.
+  await writeFile(authPath, JSON.stringify({ ...signed, audience: "rp://attacker" }), "utf8");
+  const bad = ioCapture(CLI1_NOW);
+  assert.equal(await runCli(["verify", "--kind", "authorization", "--file", authPath, "--trusted-keyset", keysetPath, "--json"], bad.io), 1);
 });

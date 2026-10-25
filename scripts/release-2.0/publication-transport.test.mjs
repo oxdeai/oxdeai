@@ -302,18 +302,21 @@ test("an initial observation exception persists a blocker without publication", 
   assert.equal(loadState(f.releaseDir).blocker.code, "PUBLICATION_FAILED");
 });
 
+// State files are persisted atomically (temporary file + fsync + rename), so
+// the rename is where a state write takes effect; inject the failure there.
 for (const failingWrite of [1, 2]) {
   test(`state persistence exception at write ${failingWrite} never retries publication`, t => {
-    const f = fixture(t), write = fs.writeFileSync;
+    const f = fixture(t), rename = fs.renameSync;
     let writes = 0;
     try {
-      mock.method(fs, "writeFileSync", (...args) => {
+      mock.method(fs, "renameSync", (...args) => {
         if (++writes === failingWrite) throw new Error("fixture disk unavailable");
-        return write(...args);
+        return rename(...args);
       });
       syncBuiltinESMExports();
       assert.throws(() => invoke(f), /fixture disk unavailable/);
       assert.equal(f.calls.publish.length, failingWrite === 1 ? 0 : 1);
+      assert.deepEqual(fs.readdirSync(f.releaseDir).filter(n => n.endsWith(".tmp")), []);
     } finally { mock.restoreAll(); syncBuiltinESMExports(); }
   });
 }

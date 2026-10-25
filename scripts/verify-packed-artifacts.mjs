@@ -26,6 +26,7 @@
 //     from the co-installed local tarballs — this override never touches a
 //     repository file.
 
+import { packDestination, packWithoutOverwrite } from "./release-2.0/artifact-paths.mjs";
 import { spawnSync } from "node:child_process";
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, statSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -69,28 +70,28 @@ export const POLICY = {
     expectMain: true, expectTypes: true, expectExports: true, expectBin: null,
     expectedSymbols: ["PolicyEngine", "verifyAuthorization", "verifyTrustedTime"],
     cliCheck: null,
-    releaseLine: "2.0", version: "2.0.1", publishOrder: 10,
+    releaseLine: "2.0", version: "2.0.2", publishOrder: 10,
   },
   "@oxdeai/guard": {
     kind: "library",
     expectMain: true, expectTypes: true, expectExports: false, expectBin: null,
     expectedSymbols: ["OxDeAIGuard"],
     cliCheck: null,
-    releaseLine: "2.0", version: "2.0.2", publishOrder: 20,
+    releaseLine: "2.0", version: "2.0.3", publishOrder: 20,
   },
   "@oxdeai/sdk": {
     kind: "library",
     expectMain: true, expectTypes: true, expectExports: false, expectBin: null,
     expectedSymbols: ["buildState"],
     cliCheck: null,
-    releaseLine: "2.0", version: "2.0.1", publishOrder: 30,
+    releaseLine: "2.0", version: "2.0.2", publishOrder: 30,
   },
   "@oxdeai/conformance": {
     kind: "library+cli",
     expectMain: true, expectTypes: true, expectExports: true, expectBin: "oxdeai-conformance",
     expectedSymbols: ["runTrustedTimeConformance", "parseTrustedTimeFile", "trustedTimeExitCode"],
     cliCheck: "conformance-count",
-    releaseLine: "2.0", version: "2.0.1", publishOrder: 40,
+    releaseLine: "2.0", version: "2.0.2", publishOrder: 40,
   },
   "@oxdeai/autogen": {
     kind: "adapter",
@@ -134,7 +135,7 @@ export const POLICY = {
     expectMain: false, expectTypes: false, expectExports: false, expectBin: "oxdeai",
     expectedSymbols: [],
     cliCheck: "help",
-    releaseLine: "cli", version: "0.3.1", publishOrder: 90,
+    releaseLine: "cli", version: "0.3.2", publishOrder: 90,
   },
 };
 
@@ -256,20 +257,19 @@ function buildPublishablePackages(discovered) {
 // ── Pack ──────────────────────────────────────────────────────────────────────
 
 export function packPublishablePackages(discovered, tarballDir) {
+  tarballDir = packDestination(tarballDir);
   const packed = [];
   for (const { name, dir } of discovered) {
-    const result = runOrFail({
-      pkg: name,
-      phase: "pack",
-      command: "pnpm",
-      args: ["pack", "--pack-destination", tarballDir],
-      opts: { cwd: dir },
+    const tarballPath = packWithoutOverwrite(tarballDir, destination => {
+      const result = runOrFail({
+        pkg: name,
+        phase: "pack",
+        command: "pnpm",
+        args: ["pack", "--pack-destination", destination],
+        opts: { cwd: dir },
+      });
+      return result.stdout.trim().split("\n").filter(Boolean).pop();
     });
-    const tarballLine = result.stdout.trim().split("\n").filter(Boolean).pop();
-    const tarballPath = path.isAbsolute(tarballLine) ? tarballLine : path.join(tarballDir, tarballLine);
-    if (!existsSync(tarballPath)) {
-      fail({ pkg: name, phase: "pack", command: "pnpm pack", exitCode: 0, detail: `expected tarball not found at ${tarballPath}` });
-    }
     packed.push({ name, dir, tarballPath });
   }
   return packed;
@@ -362,6 +362,8 @@ function writeJson(file, obj) {
 // npm co-installs the supplied tarballs; the focused H2 test checks that
 // satisfying internal semver ranges resolve to these local bytes (no overrides).
 export function installNpmConsumer(consumerDir, packed) {
+  consumerDir = path.resolve(consumerDir);
+  packed = packed.map(p => ({ ...p, tarballPath: path.resolve(p.tarballPath) }));
   mkdirSync(consumerDir, { recursive: true });
   writeJson(path.join(consumerDir, "package.json"), { name: "packed-gate-npm-consumer", version: "1.0.0", private: true, type: "module" });
   runOrFail({
@@ -401,6 +403,8 @@ export function installTypeScriptTooling(consumerDir, pm, runTool = runOrFail) {
 }
 
 function installPnpmConsumer(consumerDir, packed) {
+  consumerDir = path.resolve(consumerDir);
+  packed = packed.map(p => ({ ...p, tarballPath: path.resolve(p.tarballPath) }));
   mkdirSync(consumerDir, { recursive: true });
   const deps = {};
   const overrides = {};
@@ -597,6 +601,7 @@ export function assertPackedBijection(discovered, packed) {
 }
 
 export function verifyPackedTarballs(discovered, packed, { baseDir } = {}) {
+  packed = packed.map(p => ({ ...p, tarballPath: path.resolve(p.tarballPath) }));
   assertPackedBijection(discovered, packed);
   assertPolicyCoverage(discovered);
 
@@ -604,7 +609,7 @@ export function verifyPackedTarballs(discovered, packed, { baseDir } = {}) {
   const monorepoConformanceCount = getMonorepoConformanceCount();
   console.log(`  monorepo conformance: ${monorepoConformanceCount} assertions\n`);
 
-  const base = baseDir ?? mkdtempSync(path.join(tmpdir(), "oxdeai-packed-gate-"));
+  const base = path.resolve(baseDir ?? mkdtempSync(path.join(tmpdir(), "oxdeai-packed-gate-")));
   mkdirSync(base, { recursive: true });
 
   console.log("Scanning packed manifests and shipped runtime JS...");
