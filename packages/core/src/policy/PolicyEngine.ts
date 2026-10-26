@@ -48,6 +48,12 @@ export type EngineEvalOptions = {
  * not authenticated by this check. Relying parties enforcing an authorization
  * MUST use the strict standalone {@link verifyAuthorization} instead.
  *
+ * Expiry is decided on `expires_at` only — the expiry field covered by the
+ * engine HMAC — and is exclusive: valid iff `t < expires_at`, expired at
+ * `t >= expires_at` (`AUTH_EXPIRED`). The `expiry` alias is outside the HMAC
+ * subset and can never extend it: a missing or non-integer `expires_at`, or an
+ * `expiry` that differs from it, is rejected with `AUTH_SIGNATURE_INVALID`.
+ *
  * The #172 verification-surface descriptors are ALWAYS populated here (they are
  * required, not merely inherited as optional fields from the shared
  * {@link VerificationResult}), so a caller can never mistake this limited-scope
@@ -345,7 +351,10 @@ export class PolicyEngine {
    * `expires_at`). A `valid: true` result is NOT equivalent to full
    * `AuthorizationV1` verification: fields outside that subset (e.g.
    * `audience`, `capability`, `state_hash`) are not authenticated here, so a
-   * mutation to one of them leaves this result `valid`. Relying parties
+   * mutation to one of them leaves this result `valid`. The time check uses
+   * the HMAC-covered `expires_at` with an exclusive bound (`t >= expires_at`
+   * → `AUTH_EXPIRED`); an `expiry` that differs from `expires_at` is rejected
+   * as `AUTH_SIGNATURE_INVALID` and never extends validity. Relying parties
    * enforcing an authorization MUST use the strict standalone
    * {@link verifyAuthorization} instead. See
    * {@link EngineAuthorizationVerificationResult}.
@@ -376,8 +385,15 @@ export class PolicyEngine {
       const intent_hash = intentHash(intent);
       if (intent_hash !== authorization.intent_hash)
         return { valid: false, reason: "AUTH_INTENT_MISMATCH", signatureVerified: false, verificationMode, verificationCoverage: "none" };
-      const expiry = authorization.expiry ?? authorization.expires_at;
-      if (t > expiry)
+      // SECURITY (F2): the expiry check MUST use expires_at, the only expiry
+      // field covered by the engine HMAC. The unauthenticated expiry alias
+      // must never extend or override it.
+      const authenticatedExpiry = authorization.expires_at;
+      if (!Number.isSafeInteger(authenticatedExpiry))
+        return { valid: false, reason: "AUTH_SIGNATURE_INVALID", signatureVerified: false, verificationMode, verificationCoverage: "none" };
+      if (authorization.expiry !== undefined && authorization.expiry !== authenticatedExpiry)
+        return { valid: false, reason: "AUTH_SIGNATURE_INVALID", signatureVerified: false, verificationMode, verificationCoverage: "none" };
+      if (t >= authenticatedExpiry)
         return { valid: false, reason: "AUTH_EXPIRED", signatureVerified: false, verificationMode, verificationCoverage: "none" };
       if (authorization.decision !== "ALLOW")
         return { valid: false, reason: "AUTH_SIGNATURE_INVALID", signatureVerified: false, verificationMode, verificationCoverage: "none" };

@@ -98,6 +98,6 @@ export function publishAuthorizedOperation(inputs = {}) {
   const { authorization, plan, operationIndex, manifest, state, releaseDir } = inputs ?? {};
   const operation = validatePublicationAuthorization({ authorization, plan, operationIndex, manifest });
   validateNpmPublicationCommand({ command: operation.command, operation, releaseDir });
-  return publishPlannedOperation({ plan, operationIndex, manifest, state, releaseDir,
+  return publishPlannedOperation({ authorization, plan, operationIndex, manifest, state, releaseDir,
     registryTransport: createNpmPublicationTransport(operation, releaseDir) });
 }

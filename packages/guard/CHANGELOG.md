@@ -7,6 +7,12 @@ This project follows Semantic Versioning.
 
 ---
 
+## [2.0.3] - 2026-10-19
+
+### Security
+
+- Dependency security release. Pins @oxdeai/core@2.0.2 (GHSA-7pwh-fv57-77jg). No guard runtime source or public API change.
+
 ## [2.0.2] - 2026-10-04
 
 Dependency release of `@oxdeai/guard`. It packs against `@oxdeai/core@2.0.1`

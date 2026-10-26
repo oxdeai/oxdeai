@@ -816,7 +816,12 @@ export async function runCli(argv: string[], io?: Partial<Io>): Promise<number> 
           expectedPolicyId: flags.expectedPolicyId,
           consumedAuthIds: flags.consumedAuthId ? [flags.consumedAuthId] : [],
           trustedKeySets,
-          requireSignatureVerification: flags.requireSignatureVerification,
+          // SECURITY (CLI-1): forward the posture. Strict must also make a
+          // successful cryptographic check mandatory; without this an
+          // HMAC-SHA256 artifact with no legacy secret verified as `ok` with
+          // `signatureVerified: false`, so forged authorizations passed.
+          mode,
+          requireSignatureVerification: mode === "strict" || flags.requireSignatureVerification,
           legacyHmacSecret: flags.legacyHmacSecret
         });
         writePayload(out, flags, res, verificationSummary(kind, res));

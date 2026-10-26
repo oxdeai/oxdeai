@@ -6,8 +6,8 @@ Runs local verification and artifact inspection; no valid authorization means ex
 
 ## Version and registry status
 
-This repository's `packages/cli/package.json` version is `0.3.1`, which pins
-`@oxdeai/core@2.0.1` (see [`CHANGELOG.md`](./CHANGELOG.md)). Since `0.3.0` the
+This repository's `packages/cli/package.json` version is `0.3.2`, which pins
+`@oxdeai/core@2.0.2` (see [`CHANGELOG.md`](./CHANGELOG.md)). Since `0.3.0` the
 CLI enforces a valid `engine_secret` on the validation path and requires an
 explicit `--trusted-keyset` (or `--mode best-effort`) on strict `verify` entry
 points; `0.2.4` and earlier do neither. Commands below describe the `0.3.x`
@@ -186,7 +186,7 @@ oxdeai launch dry-run PROVISION 100 us-east-1 --agent agent-1 --nonce 1 --json
 
 Protocol-aware stub. The current implementation (`packages/cli/src/main.ts`)
 reports itself as `@oxdeai/cli v0.2.x` in this message; that string has not
-been updated to match this package's own `package.json` version (`0.3.1`). It returns a clear unsupported response and points users to
+been updated to match this package's own `package.json` version (`0.3.2`). It returns a clear unsupported response and points users to
 deterministic audit verification (`verify --kind audit`).
 
 ## Output and Exit Codes
