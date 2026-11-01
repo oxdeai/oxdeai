@@ -48,8 +48,19 @@ export function verifyEd25519(
   publicKeyPem: string
 ): boolean {
   try {
-    const key = createPublicKey(normalizePem(publicKeyPem));
+    if (typeof signatureBase64 !== "string") return false;
     const sig = Buffer.from(signatureBase64, "base64");
+    // S4: accept only the canonical standard-Base64 (Encoding A) encoding of an
+    // exactly-64-byte Ed25519 signature. A lenient decode would admit several
+    // distinct strings for the same bytes (trailing whitespace, a mutated final
+    // character whose unused low bits differ, base64url with '-'/'_'); require
+    // the supplied string to equal the standard re-encoding of the decoded bytes
+    // and reject everything else. Fail closed (return false), never throw.
+    // Note: this path is standard-Base64 only; the base64url (Encoding B)
+    // tolerance lives in verifyAuthorization's verifyEd25519Raw, canonicalised
+    // per-encoding there.
+    if (sig.length !== 64 || sig.toString("base64") !== signatureBase64) return false;
+    const key = createPublicKey(normalizePem(publicKeyPem));
     return verify(null, signatureInput(domain, payload), key, sig);
   } catch {
     return false;
