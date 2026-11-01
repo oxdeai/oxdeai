@@ -243,6 +243,16 @@ export type OxDeAIGuardConfig = {
   replayProtection?: ReplayProtection;
 
   /**
+   * P2-1 STRICT MODE (opt-in). When true, construction FAILS CLOSED with a
+   * deterministic OxDeAIGuardConfigurationError if no replay posture is
+   * declared (neither `replayProtection` nor the deprecated `replayStore`).
+   * A deliberately-declared {mode:'process-local'} remains accepted. Default
+   * false (transitional: undeclared uses a process-local store + one-time
+   * warning). A future major release makes strict the effective default.
+   */
+  requireExplicitReplayProtection?: boolean;
+
+  /**
    * Optional custom function for computing the live-state hash used in
    * state_hash binding verification (guard step 6c).
    *

@@ -3,7 +3,7 @@ import { createServer, request as httpRequest } from "node:http";
 import type { IncomingHttpHeaders, IncomingMessage, Server, ServerResponse } from "node:http";
 import { sha256HexFromJson, verifyAuthorization } from "@oxdeai/core";
 import type { AuthorizationAuthority, AuthorizationV1, KeySet } from "@oxdeai/core";
-import { resolveReplayProtection } from "./replayProtection.js";
+import { resolveReplayProtection, strictFromConfig } from "./replayProtection.js";
 import type { ReplayProtection } from "./replayProtection.js";
 import type { ReplayStore } from "./replayStore.js";
 
@@ -128,6 +128,8 @@ export type PepGatewayOptions = {
    * store is used with a one-time migration warning (transitional).
    */
   replayProtection?: ReplayProtection;
+  /** P2-1 strict mode (opt-in): see OxDeAIGuardConfig.requireExplicitReplayProtection. */
+  requireExplicitReplayProtection?: boolean;
   now?: () => number;
   timeoutMs?: number;
   hashAction?: (action: unknown) => string;
@@ -248,7 +250,7 @@ export function createPepGatewayExecutor(options: PepGatewayOptions) {
         "An absent authority list is not an unconstrained mode."
     );
   }
-  const replayStore = resolveReplayProtection(options).store;
+  const replayStore = resolveReplayProtection(options, { strict: strictFromConfig(options.requireExplicitReplayProtection) }).store;
   const now = options.now ?? (() => Math.floor(Date.now() / 1000));
   const hashAction = options.hashAction ?? sha256HexFromJson;
   const timeoutMs = options.timeoutMs ?? 30_000;
