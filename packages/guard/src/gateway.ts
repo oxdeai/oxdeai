@@ -3,7 +3,8 @@ import { createServer, request as httpRequest } from "node:http";
 import type { IncomingHttpHeaders, IncomingMessage, Server, ServerResponse } from "node:http";
 import { sha256HexFromJson, verifyAuthorization } from "@oxdeai/core";
 import type { AuthorizationAuthority, AuthorizationV1, KeySet } from "@oxdeai/core";
-import { createInMemoryReplayStore } from "./replayStore.js";
+import { resolveReplayProtection } from "./replayProtection.js";
+import type { ReplayProtection } from "./replayProtection.js";
 import type { ReplayStore } from "./replayStore.js";
 
 export const INTERNAL_EXECUTOR_TOKEN_HEADER = "x-internal-executor-token";
@@ -116,7 +117,17 @@ export type PepGatewayOptions = {
    * to a single issuer, list only that issuer's pairs.
    */
   trustedAuthorizationAuthorities: readonly AuthorizationAuthority[];
+  /**
+   * @deprecated P2-1: prefer `replayProtection`. Setting both is rejected at
+   * construction. A bare `replayStore` is still honored for back-compat.
+   */
   replayStore?: ReplayStore;
+  /**
+   * P2-1: explicit replay-protection posture (see {@link ReplayProtection}).
+   * Mutually exclusive with `replayStore`. When neither is set, a process-local
+   * store is used with a one-time migration warning (transitional).
+   */
+  replayProtection?: ReplayProtection;
   now?: () => number;
   timeoutMs?: number;
   hashAction?: (action: unknown) => string;
@@ -237,7 +248,7 @@ export function createPepGatewayExecutor(options: PepGatewayOptions) {
         "An absent authority list is not an unconstrained mode."
     );
   }
-  const replayStore = options.replayStore ?? createInMemoryReplayStore();
+  const replayStore = resolveReplayProtection(options).store;
   const now = options.now ?? (() => Math.floor(Date.now() / 1000));
   const hashAction = options.hashAction ?? sha256HexFromJson;
   const timeoutMs = options.timeoutMs ?? 30_000;

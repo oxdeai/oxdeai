@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import type { AuthorizationAuthority, AuthorizationV1, DelegationScope, DelegationV1, Intent, KeySet, PolicyEngine, State } from "@oxdeai/core";
 import type { ReplayStore } from "./replayStore.js";
+import type { ReplayProtection } from "./replayProtection.js";
 import type { GuardBoundaryEventHook } from "./boundaryEvent.js";
 
 /**
@@ -222,8 +223,24 @@ export type OxDeAIGuardConfig = {
    *
    * The store MUST be fail-closed: throw rather than return a permissive
    * result when unavailable. The guard treats any thrown error as DENY.
+   *
+   * @deprecated P2-1: prefer `replayProtection`. Setting both is rejected at
+   * construction. A bare `replayStore` is still honored for back-compat.
    */
   replayStore?: ReplayStore;
+
+  /**
+   * P2-1: explicit replay-protection posture. Makes the deployment's replay
+   * domain intent explicit. `{mode:"process-local"}` acknowledges a
+   * single-process in-memory store; `{mode:"shared", store}` declares a
+   * caller-provided durable, cross-instance backend. When omitted (and no
+   * `replayStore` is given), the transitional default is a process-local store
+   * plus a one-time migration warning. OxDeAI enforces this configuration
+   * contract; it does not verify that a `shared` store is genuinely durable,
+   * atomic, or shared - that is a deployment obligation. Mutually exclusive
+   * with `replayStore`.
+   */
+  replayProtection?: ReplayProtection;
 
   /**
    * Optional custom function for computing the live-state hash used in

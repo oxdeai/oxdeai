@@ -81,11 +81,32 @@ export interface ReplayStore {
  * and deployment configuration that preserve the contract across that domain.
  * A backend's technology name alone does not demonstrate that guarantee.
  */
+/**
+ * P2-1: registry of stores produced by {@link createInMemoryReplayStore}.
+ *
+ * A module-private WeakSet is used instead of a tag property so the built-in
+ * store cannot be impersonated through ordinary object properties: a caller
+ * cannot add itself to this set, and the identity is not observable or
+ * copyable from outside this module. It lets the replay-protection resolver
+ * reject the process-local default when a deployment declares `shared` mode.
+ */
+const ephemeralStores = new WeakSet<ReplayStore>();
+
+/**
+ * P2-1: true only for a store instance created by
+ * {@link createInMemoryReplayStore}. Used by the replay-protection resolver to
+ * refuse the built-in process-local store in `shared` mode. A custom store is
+ * never matched (and its durability is never asserted by OxDeAI).
+ */
+export function isEphemeralReplayStore(store: ReplayStore): boolean {
+  return ephemeralStores.has(store);
+}
+
 export function createInMemoryReplayStore(): ReplayStore {
   const consumedAuthIds = new Set<string>();
   const consumedDelegationIds = new Set<string>();
 
-  return {
+  const store: ReplayStore = {
     async consumeAuthId(authId: string): Promise<boolean> {
       if (consumedAuthIds.has(authId)) return false;
       consumedAuthIds.add(authId);
@@ -97,4 +118,6 @@ export function createInMemoryReplayStore(): ReplayStore {
       return true;
     },
   };
+  ephemeralStores.add(store);
+  return store;
 }

@@ -3,7 +3,7 @@ import type { Authorization, AuthorizationV1, DelegationScope, Intent, KeySet } 
 import { verifyDelegationChain, verifyAuthorization as strictVerifyAuthorization, intentHash, resolveEffectiveChildScope } from "@oxdeai/core";
 import type { OxDeAIGuardConfig, ProposedAction, GuardDecisionRecord, GuardCallOptions } from "./types.js";
 import { defaultNormalizeAction } from "./normalizeAction.js";
-import { createInMemoryReplayStore } from "./replayStore.js";
+import { resolveReplayProtection } from "./replayProtection.js";
 import type { ReplayStore } from "./replayStore.js";
 import { createLifecycle, emitBoundaryEvent, reject } from "./boundaryEvent.js";
 import type { GuardLifecycle } from "./boundaryEvent.js";
@@ -154,9 +154,10 @@ export function OxDeAIGuard(config: OxDeAIGuardConfig) {
     );
   }
 
-  // Pluggable replay store. Defaults to in-memory (single-process semantics).
-  // Replace with a durable backend for multi-process / restart-durable deployments.
-  const replayStore: ReplayStore = config.replayStore ?? createInMemoryReplayStore();
+  // P2-1: resolve the replay store through the shared replay-protection
+  // contract (explicit posture, legacy back-compat, or transitional default
+  // with a one-time migration warning). Unsafe/ambiguous config fails closed.
+  const replayStore: ReplayStore = resolveReplayProtection(config).store;
 
   /**
    * The enforcement body. Extracted so that every rejection leaves through one

@@ -322,19 +322,56 @@ between consume and effect can spend the authorization without producing the eff
 Generic conformance does not certify restart persistence, replica visibility, backend
 persistence configuration, topology correctness, HA/SLA, or recovery guarantees.
 
+### Replay protection posture (`replayProtection`)
+
+Declare the replay domain explicitly with `replayProtection`:
+
+```typescript
+import { OxDeAIGuard, createRedisReplayStore } from "@oxdeai/guard";
+
+// Single-process / development: acknowledge the process-local in-memory store.
+new OxDeAIGuard({ /* ... */, replayProtection: { mode: "process-local" } });
+
+// Multi-instance / restart-durable: provide a shared backend you operate.
+new OxDeAIGuard({ /* ... */, replayProtection: { mode: "shared", store: createRedisReplayStore({ client: redis }) } });
+```
+
+Construction rules (fail closed on an unsafe or ambiguous posture):
+
+| Configuration | Result |
+|---|---|
+| neither `replayProtection` nor `replayStore` | process-local store **plus a one-time migration warning** (transitional) |
+| `{mode:"process-local"}` | in-memory store, no warning |
+| `{mode:"shared", store}` with a custom backend | uses the store as given |
+| `{mode:"shared"}` without a store | rejected at construction (also a TypeScript error) |
+| `{mode:"shared", store: <the built-in in-memory store>}` | rejected: the built-in store is process-local |
+| both `replayProtection` and `replayStore` | rejected as ambiguous |
+| legacy `replayStore` alone | honored (deprecated; prefer `replayProtection`) |
+
+**Enforcement vs durability.** OxDeAI enforces this *configuration* contract. Declaring
+`mode:"shared"` does **not** establish that the supplied store is actually atomic, shared
+across your instances, or restart-durable - those remain your operational obligation.
+OxDeAI only verifies that a `shared` store is present and is not its own process-local
+built-in; it makes no durability claim about an arbitrary custom store.
+
 ### Default: in-memory (one store instance lifetime)
 
 ```typescript
 import { OxDeAIGuard } from "@oxdeai/guard";
-// No replayStore config → createInMemoryReplayStore() used automatically.
+// No replayProtection/replayStore config → process-local in-memory store + a
+// one-time migration warning. Prefer an explicit replayProtection posture.
 ```
 
-Replay protection is limited to the lifetime and users of this store instance. State is:
+Replay protection is then limited to the lifetime and users of this store instance. State is:
 - lost on process restart
 - not shared across instances (horizontal scaling allows cross-instance replay)
 
 A deployment accepting still-valid artifacts across restarts or separate store instances
 must preserve authoritative consumption history or block execution when it is missing.
+
+> Migration note: a future (separately approved) strict release will require an explicit
+> `replayProtection` posture and reject an undeclared configuration at construction. This
+> transitional release only warns. Set `replayProtection` now to be forward-compatible.
 
 ### Redis backend
 
