@@ -2,7 +2,7 @@
 import type { Intent } from "@oxdeai/core";
 import { OxDeAIGuard } from "./guard.js";
 import { defaultNormalizeAction } from "./normalizeAction.js";
-import { resolveReplayProtection } from "./replayProtection.js";
+import { resolveReplayProtection, strictFromConfig } from "./replayProtection.js";
 import { OxDeAIAuthorizationError, OxDeAIGuardConfigurationError } from "./errors.js";
 import { isTrustedExecutionContext, type TrustedExecutionContext } from "./trustedContext.js";
 import { reconcileWithTrustedContext, type ProvenanceRecord } from "./provenance.js";
@@ -103,7 +103,7 @@ export function createSecureGuard(config: OxDeAIGuardConfig, options: SecureGuar
   // capture is isolated, and a per-call default store would otherwise give every
   // call a fresh replay namespace — silently disabling replay protection across
   // calls. Unsafe/ambiguous config fails closed at construction.
-  const replayStore = resolveReplayProtection(config).store;
+  const replayStore = resolveReplayProtection(config, { strict: strictFromConfig((config as { requireExplicitReplayProtection?: unknown }).requireExplicitReplayProtection) }).store;
 
   /**
    * The secure prelude plus delegation to the shared body. Extracted so that

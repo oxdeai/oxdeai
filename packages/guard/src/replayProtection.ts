@@ -75,10 +75,26 @@ export function __resetReplayMigrationWarningForTests(): void {
  *
  * `warn` defaults to a one-time `console.warn`; injectable for tests.
  */
+/**
+ * Options for {@link resolveReplayProtection}.
+ * - `warn`   injectable sink for the one-time migration warning (default: console.warn, once).
+ * - `strict` STRICT MODE (P2-1 strict opt-in): when true, an UNDECLARED posture
+ *            (neither `replayProtection` nor legacy `replayStore`) fails closed at
+ *            construction instead of defaulting to a process-local store with a
+ *            warning. A deliberately-declared {mode:'process-local'} is still
+ *            accepted; strict removes only the SILENT/undeclared path.
+ */
+export type ResolveReplayOptions = { warn?: (message: string) => void; strict?: boolean };
+
 export function resolveReplayProtection(
   config: { replayProtection?: ReplayProtection; replayStore?: ReplayStore },
-  warn: (message: string) => void = defaultWarnOnce
+  // Back-compat: a function 2nd arg is treated as `warn` (pre-strict callers).
+  optsOrWarn: ResolveReplayOptions | ((message: string) => void) = {}
 ): ReplayResolution {
+  const opts: ResolveReplayOptions =
+    typeof optsOrWarn === "function" ? { warn: optsOrWarn } : optsOrWarn;
+  const warn = opts.warn ?? defaultWarnOnce;
+  const strict = opts.strict === true;
   // Transitional compatibility: an explicitly undefined optional field is treated as absent.
   // This preserves JS/TS callers that forward optional properties; it is not an explicit posture.
   const hasNew = config.replayProtection !== undefined;
@@ -156,12 +172,38 @@ export function resolveReplayProtection(
     return { store: config.replayStore as ReplayStore, source: "legacy-replay-store" };
   }
 
-  // Neither declared: transitional process-local default with a one-time warning.
+  // Neither declared.
+  if (strict) {
+    // STRICT MODE (P2-1 strict opt-in): no silent or warning-only acceptance. An
+    // undeclared posture is a deterministic configuration error at construction,
+    // before any authorization evaluation, replay consumption, or execution.
+    throw new OxDeAIGuardConfigurationError(
+      "replay protection posture is required: set replayProtection to {mode:'process-local'} " +
+        "(single-process in-memory) or {mode:'shared', store} (durable cross-instance backend). " +
+        "There is no implicit default in strict mode."
+    );
+  }
+  // Transitional: process-local default with a one-time migration warning.
   warn(REPLAY_MIGRATION_WARNING);
   return { store: createInMemoryReplayStore(), source: "implicit-default" };
 }
 
-/** A short, safe description of an invalid `mode` value for error messages. */
+/**
+ * Validate and interpret the opt-in strict flag. A non-boolean value is a
+ * deterministic configuration error - it is NEVER silently treated as false,
+ * which would let a typo (e.g. "true", 1) silently disable strict enforcement.
+ */
+export function strictFromConfig(value: unknown): boolean {
+  if (value === undefined) return false;
+  if (typeof value !== "boolean") {
+    throw new OxDeAIGuardConfigurationError(
+      "requireExplicitReplayProtection must be a boolean when provided (got " + describe(value) + ")."
+    );
+  }
+  return value;
+}
+
+/** A short, safe description of an invalid value for error messages. */
 function describe(value: unknown): string {
   if (value === undefined) return "missing";
   if (value === null) return "null";
