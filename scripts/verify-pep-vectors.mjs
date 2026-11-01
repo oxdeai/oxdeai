@@ -60,41 +60,45 @@ function expectedIntentHash(action) {
 function verifyPepVector(v, authFile) {
   const authResult = verifyAuthByRef(v.request.authorization_ref, authFile);
   if (!authResult.ok) {
-    return { status: 403, decision: "DENY", executed: false };
+    return { status: 403, decision: "DENY", outcome: "NOT_DISPATCHED", executed: false };
   }
   const auth = authResult.auth;
   const hash = expectedIntentHash(v.request.action);
   if (hash !== auth.intent_hash) {
-    return { status: 403, decision: "DENY", executed: false };
+    return { status: 403, decision: "DENY", outcome: "NOT_DISPATCHED", executed: false };
   }
 
   // State binding check
   if (!auth.state_hash) {
-    return { status: 403, decision: "DENY", executed: false };
+    return { status: 403, decision: "DENY", outcome: "NOT_DISPATCHED", executed: false };
   }
   const stateSnapshotRef = v.request.state_snapshot_ref;
   if (!stateSnapshotRef) {
-    return { status: 403, decision: "DENY", executed: false };
+    return { status: 403, decision: "DENY", outcome: "NOT_DISPATCHED", executed: false };
   }
   const snapshotVector = authFile.vectors.find((x) => x.id === stateSnapshotRef);
   if (!snapshotVector?.state_snapshot) {
-    return { status: 403, decision: "DENY", executed: false };
+    return { status: 403, decision: "DENY", outcome: "NOT_DISPATCHED", executed: false };
   }
   const computedStateHash = sha256Hex(canonicalize(snapshotVector.state_snapshot));
   if (computedStateHash !== auth.state_hash) {
-    return { status: 403, decision: "DENY", executed: false };
+    return { status: 403, decision: "DENY", outcome: "NOT_DISPATCHED", executed: false };
   }
 
+  // H-1 (PEP corpus 1.1.0): a dispatched-then-uncertain outcome keeps the
+  // granted decision (ALLOW) and reports INDETERMINATE / executed:null, never a
+  // confirmed non-execution. A 2xx success is EXECUTED. Pre-dispatch denials are
+  // NOT_DISPATCHED.
   switch (v.request.upstream_behavior) {
     case "success":
-      return { status: 200, decision: "ALLOW", executed: true };
+      return { status: 200, decision: "ALLOW", outcome: "EXECUTED", executed: true };
     case "error":
-      return { status: 502, decision: "DENY", executed: false };
+      return { status: 502, decision: "ALLOW", outcome: "INDETERMINATE", executed: null };
     case "timeout":
-      return { status: 504, decision: "DENY", executed: false };
+      return { status: 504, decision: "ALLOW", outcome: "INDETERMINATE", executed: null };
     case "not_called":
     default:
-      return { status: 403, decision: "DENY", executed: false };
+      return { status: 403, decision: "DENY", outcome: "NOT_DISPATCHED", executed: false };
   }
 }
 
@@ -105,7 +109,8 @@ function main() {
   for (const v of pepFile.vectors) {
     const res = verifyPepVector(v, authFile);
     const exp = v.expected;
-    const pass = res.status === exp.status && res.decision === exp.decision && res.executed === exp.executed;
+    const outcomeOk = exp.outcome === undefined || res.outcome === exp.outcome;
+    const pass = res.status === exp.status && res.decision === exp.decision && res.executed === exp.executed && outcomeOk;
     if (!pass) {
       failed++;
       console.error(`FAIL ${v.id}: expected ${JSON.stringify(exp)}, got ${JSON.stringify(res)}`);

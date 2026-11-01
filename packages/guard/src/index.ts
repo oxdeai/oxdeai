@@ -32,6 +32,7 @@ export {
   createProtectedUpstreamHttpServer,
   hasValidInternalExecutorToken,
   protectUpstreamExecution,
+  defaultUpstreamSuccess,
 } from "./gateway.js";
 export { defaultNormalizeAction } from "./normalizeAction.js";
 export { createInMemoryReplayStore } from "./replayStore.js";
@@ -64,4 +65,6 @@ export type {
   PepGatewayResult,
   ProtectedUpstreamOptions,
   UpstreamExecutor,
+  UpstreamResponse,
+  UpstreamSuccessContract,
 } from "./gateway.js";

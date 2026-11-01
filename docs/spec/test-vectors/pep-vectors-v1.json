@@ -1,6 +1,56 @@
 {
   "gateway_secret": "demo-internal-token",
   "upstream_header": "x-internal-executor-token",
+  "authorization_fixture_file": "authorization-v1.json",
+  "contract_version": "1.1.0",
+  "supersedes": "1.0.0",
+  "changelog": [
+    {
+      "version": "1.1.0",
+      "finding": "H-1",
+      "date": "2026-11-01",
+      "summary": "Dispatched-then-uncertain outcomes are no longer reported as a confirmed non-execution.",
+      "breaking": true,
+      "added_field": "expected.outcome (NOT_DISPATCHED | EXECUTED | INDETERMINATE), now the authoritative field",
+      "executed_semantics": "executed is boolean|null: true=EXECUTED, false=NOT_DISPATCHED only, null=INDETERMINATE",
+      "executed_success_rule": "EXECUTED requires an integer 2xx upstream status; 3xx/4xx/5xx/malformed after dispatch are INDETERMINATE",
+      "http_status_unchanged": true,
+      "changed_vectors": [
+        {
+          "id": "pep-upstream-error",
+          "from": {
+            "decision": "DENY",
+            "executed": false
+          },
+          "to": {
+            "decision": "ALLOW",
+            "outcome": "INDETERMINATE",
+            "executed": null
+          },
+          "status": 502
+        },
+        {
+          "id": "pep-upstream-timeout",
+          "from": {
+            "decision": "DENY",
+            "executed": false
+          },
+          "to": {
+            "decision": "ALLOW",
+            "outcome": "INDETERMINATE",
+            "executed": null
+          },
+          "status": 504
+        }
+      ]
+    }
+  ],
+  "compatibility": {
+    "authoritative_field": "outcome",
+    "v1_0_consumer_guidance": "A consumer pinned to 1.0.0 branched on decision/executed. Migrate to outcome. decision:DENY now means NOT_DISPATCHED only; a post-dispatch transport failure is decision:ALLOW + outcome:INDETERMINATE. Treat executed:false as a confirmed non-execution only; treat null as unknown (do not auto-retry).",
+    "unchanged": "All pre-dispatch denial vectors and the success vector keep their decision and executed values; only the two dispatched-failure vectors changed, and every vector gained outcome."
+  },
+  "h1_contract_note": "H-1 (contract 1.1.0): EXECUTED requires a 2xx upstream status (a 3xx is not a success). Dispatched-then-uncertain outcomes (3xx/4xx/5xx, timeout, transport error) are decision:ALLOW, outcome:INDETERMINATE, executed:null. decision:DENY and executed:false are reserved for pre-dispatch NOT_DISPATCHED. executed:false means a confirmed non-execution only.",
   "vectors": [
     {
       "id": "pep-allow-upstream-success",
@@ -9,16 +59,21 @@
         "action": {
           "type": "EXECUTE",
           "tool": "payments.charge",
-          "params": { "amount": "500", "currency": "USD", "user_id": "user_123" }
+          "params": {
+            "amount": "500",
+            "currency": "USD",
+            "user_id": "user_123"
+          }
         },
         "authorization_ref": "sb-auth-allow-valid",
         "state_snapshot_ref": "sb-auth-allow-valid",
         "upstream_behavior": "success"
       },
       "expected": {
-        "status": 200,
         "decision": "ALLOW",
-        "executed": true
+        "outcome": "EXECUTED",
+        "executed": true,
+        "status": 200
       }
     },
     {
@@ -28,15 +83,20 @@
         "action": {
           "type": "EXECUTE",
           "tool": "payments.charge",
-          "params": { "amount": "500", "currency": "USD", "user_id": "user_123" }
+          "params": {
+            "amount": "500",
+            "currency": "USD",
+            "user_id": "user_123"
+          }
         },
         "authorization_ref": "auth-invalid-signature",
         "upstream_behavior": "not_called"
       },
       "expected": {
-        "status": 403,
         "decision": "DENY",
-        "executed": false
+        "outcome": "NOT_DISPATCHED",
+        "executed": false,
+        "status": 403
       }
     },
     {
@@ -46,15 +106,20 @@
         "action": {
           "type": "EXECUTE",
           "tool": "payments.charge",
-          "params": { "amount": "500", "currency": "USD", "user_id": "user_123" }
+          "params": {
+            "amount": "500",
+            "currency": "USD",
+            "user_id": "user_123"
+          }
         },
         "authorization_ref": "auth-intent-mismatch",
         "upstream_behavior": "not_called"
       },
       "expected": {
-        "status": 403,
         "decision": "DENY",
-        "executed": false
+        "outcome": "NOT_DISPATCHED",
+        "executed": false,
+        "status": 403
       }
     },
     {
@@ -64,16 +129,21 @@
         "action": {
           "type": "EXECUTE",
           "tool": "payments.charge",
-          "params": { "amount": "500", "currency": "USD", "user_id": "user_123" }
+          "params": {
+            "amount": "500",
+            "currency": "USD",
+            "user_id": "user_123"
+          }
         },
         "authorization_ref": "sb-auth-allow-valid",
         "state_snapshot_ref": "sb-auth-allow-valid",
         "upstream_behavior": "error"
       },
       "expected": {
-        "status": 502,
-        "decision": "DENY",
-        "executed": false
+        "decision": "ALLOW",
+        "outcome": "INDETERMINATE",
+        "executed": null,
+        "status": 502
       }
     },
     {
@@ -83,16 +153,21 @@
         "action": {
           "type": "EXECUTE",
           "tool": "payments.charge",
-          "params": { "amount": "500", "currency": "USD", "user_id": "user_123" }
+          "params": {
+            "amount": "500",
+            "currency": "USD",
+            "user_id": "user_123"
+          }
         },
         "authorization_ref": "sb-auth-allow-valid",
         "state_snapshot_ref": "sb-auth-allow-valid",
         "upstream_behavior": "timeout"
       },
       "expected": {
-        "status": 504,
-        "decision": "DENY",
-        "executed": false
+        "decision": "ALLOW",
+        "outcome": "INDETERMINATE",
+        "executed": null,
+        "status": 504
       }
     },
     {
@@ -102,16 +177,21 @@
         "action": {
           "type": "EXECUTE",
           "tool": "payments.charge",
-          "params": { "amount": "500", "currency": "USD", "user_id": "user_123" }
+          "params": {
+            "amount": "500",
+            "currency": "USD",
+            "user_id": "user_123"
+          }
         },
         "authorization_ref": "sb-auth-state-mismatch",
         "state_snapshot_ref": "sb-auth-state-mismatch",
         "upstream_behavior": "not_called"
       },
       "expected": {
-        "status": 403,
         "decision": "DENY",
-        "executed": false
+        "outcome": "NOT_DISPATCHED",
+        "executed": false,
+        "status": 403
       }
     },
     {
@@ -121,15 +201,20 @@
         "action": {
           "type": "EXECUTE",
           "tool": "payments.charge",
-          "params": { "amount": "500", "currency": "USD", "user_id": "user_123" }
+          "params": {
+            "amount": "500",
+            "currency": "USD",
+            "user_id": "user_123"
+          }
         },
         "authorization_ref": "sb-auth-allow-valid",
         "upstream_behavior": "not_called"
       },
       "expected": {
-        "status": 403,
         "decision": "DENY",
-        "executed": false
+        "outcome": "NOT_DISPATCHED",
+        "executed": false,
+        "status": 403
       }
     },
     {
@@ -139,16 +224,21 @@
         "action": {
           "type": "EXECUTE",
           "tool": "payments.charge",
-          "params": { "amount": "500", "currency": "USD", "user_id": "user_123" }
+          "params": {
+            "amount": "500",
+            "currency": "USD",
+            "user_id": "user_123"
+          }
         },
         "authorization_ref": "pep-auth-forged",
         "state_snapshot_ref": "pep-auth-forged",
         "upstream_behavior": "not_called"
       },
       "expected": {
-        "status": 403,
         "decision": "DENY",
-        "executed": false
+        "outcome": "NOT_DISPATCHED",
+        "executed": false,
+        "status": 403
       }
     },
     {
@@ -158,18 +248,22 @@
         "action": {
           "type": "EXECUTE",
           "tool": "payments.charge",
-          "params": { "amount": "500", "currency": "USD", "user_id": "user_123" }
+          "params": {
+            "amount": "500",
+            "currency": "USD",
+            "user_id": "user_123"
+          }
         },
         "authorization_ref": "sb-auth-missing-state-hash",
         "state_snapshot_ref": "sb-auth-missing-state-hash",
         "upstream_behavior": "not_called"
       },
       "expected": {
-        "status": 403,
         "decision": "DENY",
-        "executed": false
+        "outcome": "NOT_DISPATCHED",
+        "executed": false,
+        "status": 403
       }
     }
-  ],
-  "authorization_fixture_file": "authorization-v1.json"
+  ]
 }

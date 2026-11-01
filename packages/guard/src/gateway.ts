@@ -15,8 +15,38 @@ export type PepGatewayExecuteRequest = {
 
 export type PepGatewayResponseBody = {
   ok: boolean;
-  decision: "ALLOW" | "DENY";
-  executed: boolean;
+  /**
+   * The authorization verdict. `ALLOW` / `DENY` are the normal outcomes, decided
+   * before (DENY) or at (ALLOW) the gate.
+   *
+   * H-1 (R3.1): `UNKNOWN` is emitted ONLY by the HTTP handler's execution-phase
+   * backstop - an unexpected internal fault thrown after the parsing phase, when
+   * the gateway never obtained a verdict and cannot determine whether dispatch
+   * occurred. It is NOT a denial: attributing `DENY` there would retroactively
+   * turn a possibly-granted, possibly-dispatched request into a refusal, the very
+   * conflation H-1 removes. `UNKNOWN` always travels with `outcome:"INDETERMINATE"`
+   * and `executed:null`. Consumers must treat it as "no decision was reached",
+   * never as ALLOW or DENY. A normal authorization response is only ever ALLOW or
+   * DENY; UNKNOWN never appears on the success or the pre-dispatch-denial path.
+   */
+  decision: "ALLOW" | "DENY" | "UNKNOWN";
+  /**
+   * H-1: the authoritative three-state execution outcome. Consumers MUST branch
+   * on this, not on `executed`.
+   *   NOT_DISPATCHED - the request never reached the upstream (denied before
+   *                    dispatch); no side effect is possible.
+   *   EXECUTED       - the upstream confirmed success; the effect happened.
+   *   INDETERMINATE  - the upstream was dispatched but its outcome is unknown
+   *                    (timeout, connection reset, or any non-success status,
+   *                    4xx included); a side effect cannot be ruled out.
+   */
+  outcome: "NOT_DISPATCHED" | "EXECUTED" | "INDETERMINATE";
+  /**
+   * H-1: `true` only on a confirmed EXECUTED outcome, `false` only on a
+   * confirmed NOT_DISPATCHED outcome, and `null` when INDETERMINATE. It is
+   * never `false` for a request that may already have executed. Prefer `outcome`.
+   */
+  executed: boolean | null;
   reason?: string;
   auth_id?: string;
   intent_hash?: string;
@@ -31,10 +61,28 @@ export type PepGatewayResult = {
   upstreamCalled: boolean;
 };
 
+export type UpstreamResponse = { status: number; body?: unknown };
+
 export type UpstreamExecutor = (
   action: unknown,
   headers: Record<string, string>
-) => Promise<{ status: number; body?: unknown }>;
+) => Promise<UpstreamResponse>;
+
+/**
+ * H-1 (R3): the contract that decides whether a dispatched upstream response is
+ * a CONFIRMED success (-> EXECUTED). It answers exactly one question: did the
+ * upstream, by its own transport/application contract, confirm that it accepted
+ * and performed the request? It is NOT a claim that a business effect is
+ * durably committed - the gateway cannot observe that; EXECUTED means
+ * "upstream-confirmed success per this contract", the strongest signal
+ * available at this boundary. Anything this predicate does not confirm
+ * (a 3xx, a 4xx, a 5xx, a malformed or missing response) leaves the effect in
+ * doubt and is INDETERMINATE, never a confirmed non-execution.
+ *
+ * The default is {@link defaultUpstreamSuccess}: an integer HTTP 2xx status.
+ * A deployment whose upstream signals success differently can supply its own.
+ */
+export type UpstreamSuccessContract = (upstream: UpstreamResponse | null | undefined) => boolean;
 
 export type PepGatewayOptions = {
   expectedAudience: string;
@@ -72,6 +120,14 @@ export type PepGatewayOptions = {
   now?: () => number;
   timeoutMs?: number;
   hashAction?: (action: unknown) => string;
+  /**
+   * H-1 (R3): the contract that decides a CONFIRMED upstream success
+   * (-> EXECUTED). Defaults to {@link defaultUpstreamSuccess} (integer HTTP 2xx).
+   * Overriding it changes only what counts as a confirmed execution; it never
+   * relaxes the fail-safe rule that an unconfirmed dispatched outcome is
+   * INDETERMINATE, not a confirmed non-execution.
+   */
+  isUpstreamSuccess?: UpstreamSuccessContract;
 };
 
 export type ProtectedUpstreamOptions<T = unknown> = {
@@ -83,9 +139,19 @@ function deny(status: PepGatewayResult["status"], reason: string, extra: Partial
   return {
     status,
     upstreamCalled: false,
-    body: { ok: false, decision: "DENY", executed: false, reason, ...extra },
+    body: { ok: false, decision: "DENY", outcome: "NOT_DISPATCHED", executed: false, reason, ...extra },
   };
 }
+
+// H-1 (R3): the default upstream-success contract - an integer HTTP 2xx status.
+// A 3xx is not a success (the upstream did not confirm the effect); anything
+// >= 400 or a malformed/missing response is a dispatched-but-uncertain outcome.
+// See {@link UpstreamSuccessContract}: EXECUTED means "upstream-confirmed
+// success per the contract", never a proof of a durable business effect.
+export const defaultUpstreamSuccess: UpstreamSuccessContract = (upstream) => {
+  const status = upstream?.status;
+  return typeof status === "number" && Number.isInteger(status) && status >= 200 && status <= 299;
+};
 
 function requireText(value: string | undefined, name: string): void {
   if (typeof value !== "string" || value.length === 0) {
@@ -175,6 +241,7 @@ export function createPepGatewayExecutor(options: PepGatewayOptions) {
   const now = options.now ?? (() => Math.floor(Date.now() / 1000));
   const hashAction = options.hashAction ?? sha256HexFromJson;
   const timeoutMs = options.timeoutMs ?? 30_000;
+  const isUpstreamSuccess = options.isUpstreamSuccess ?? defaultUpstreamSuccess;
 
   return async function executeThroughPep(input: unknown): Promise<PepGatewayResult> {
     if (!input || typeof input !== "object" || Array.isArray(input)) {
@@ -232,15 +299,30 @@ export function createPepGatewayExecutor(options: PepGatewayOptions) {
         timeoutMs
       );
 
-      if (!upstream || typeof upstream.status !== "number" || upstream.status >= 400) {
+      if (!isUpstreamSuccess(upstream)) {
+        // H-1 (R3): EXECUTED is reserved for an upstream-confirmed success per
+        // the configured success contract (default: integer 2xx). Any other
+        // dispatched outcome - a 3xx, a 4xx, a 5xx, or a malformed response -
+        // leaves the side effect in doubt and is INDETERMINATE, not a confirmed
+        // non-execution. A 3xx is NOT a success: the upstream did not confirm
+        // the effect, so it must not be reported as EXECUTED.
+        // The request reached the upstream, so a side effect cannot be ruled
+        // out: the outcome is INDETERMINATE and
+        // `executed` is null, never a confirmed non-execution. The authorization
+        // was granted and the gate did open, so `decision` stays "ALLOW"; the
+        // transport failure is reported through `outcome`/`reason`, not by
+        // retroactively turning the authorization verdict into a DENY.
         return {
           status: 502,
           upstreamCalled: true,
           body: {
             ok: false,
-            decision: "DENY",
-            executed: false,
+            decision: "ALLOW",
+            outcome: "INDETERMINATE",
+            executed: null,
             reason: "UPSTREAM_ERROR",
+            auth_id: authorization.auth_id,
+            intent_hash: intentHash,
             upstream_status: upstream?.status,
             upstream_error: upstream?.body,
           },
@@ -253,6 +335,7 @@ export function createPepGatewayExecutor(options: PepGatewayOptions) {
         body: {
           ok: true,
           decision: "ALLOW",
+          outcome: "EXECUTED",
           executed: true,
           auth_id: authorization.auth_id,
           intent_hash: intentHash,
@@ -260,11 +343,17 @@ export function createPepGatewayExecutor(options: PepGatewayOptions) {
         },
       };
     } catch (err) {
+      // H-1: dispatch began (executeUpstream was invoked) and then the outcome
+      // became unknown (timeout or a thrown transport error). The upstream may
+      // already have committed the effect, so the outcome is INDETERMINATE and
+      // `executed` is null, never false. `decision` stays "ALLOW": the gate was
+      // opened on a valid authorization; it is the transport, not the
+      // authorization, that is in doubt.
       if ((err as { code?: string })?.code === "UPSTREAM_TIMEOUT" || (err as Error)?.message === "UPSTREAM_TIMEOUT") {
         return {
           status: 504,
           upstreamCalled: true,
-          body: { ok: false, decision: "DENY", executed: false, reason: "UPSTREAM_TIMEOUT" },
+          body: { ok: false, decision: "ALLOW", outcome: "INDETERMINATE", executed: null, reason: "UPSTREAM_TIMEOUT", auth_id: authorization.auth_id, intent_hash: intentHash },
         };
       }
       return {
@@ -272,9 +361,12 @@ export function createPepGatewayExecutor(options: PepGatewayOptions) {
         upstreamCalled: true,
         body: {
           ok: false,
-          decision: "DENY",
-          executed: false,
+          decision: "ALLOW",
+          outcome: "INDETERMINATE",
+          executed: null,
           reason: "UPSTREAM_ERROR",
+          auth_id: authorization.auth_id,
+          intent_hash: intentHash,
           upstream_error: err instanceof Error ? err.message : String(err),
         },
       };
@@ -308,16 +400,61 @@ export function createPepGatewayHttpServer(options: PepGatewayOptions): Server {
       return sendJson(res, 404, { ok: false, error: "not found" });
     }
 
+    // H-1 (R3): the parsing phase and the execution phase are isolated into two
+    // separate try blocks. NOT_DISPATCHED can only be produced by the parsing
+    // phase, which runs strictly before the request reaches the executor. This
+    // is structural, not an argument about internal invariants: a SyntaxError
+    // (or any error) raised during or after dispatch is caught by the execution
+    // block below and can never be classified as NOT_DISPATCHED.
+    let body: unknown;
     try {
-      const body = await readJson(req);
-      const result = await executeThroughPep(body);
-      return sendJson(res, result.status, result.body);
+      // PARSING PHASE - provably pre-dispatch. readJson consumes the request
+      // body and JSON.parses it; nothing here reaches the executor.
+      body = await readJson(req);
     } catch (err) {
-      return sendJson(res, err instanceof SyntaxError ? 403 : 500, {
+      if (err instanceof SyntaxError) {
+        return sendJson(res, 403, {
+          ok: false,
+          decision: "DENY",
+          outcome: "NOT_DISPATCHED",
+          executed: false,
+          reason: "INVALID_JSON",
+        });
+      }
+      // A non-SyntaxError read failure (socket error, aborted body) is still
+      // pre-dispatch: the executor was never invoked.
+      return sendJson(res, 400, {
         ok: false,
         decision: "DENY",
+        outcome: "NOT_DISPATCHED",
         executed: false,
-        reason: err instanceof SyntaxError ? "INVALID_JSON" : "GATEWAY_ERROR",
+        reason: "REQUEST_READ_ERROR",
+      });
+    }
+
+    try {
+      // EXECUTION PHASE. executeThroughPep returns a result for every outcome it
+      // can classify; a throw escaping it here is an unexpected internal fault
+      // AFTER the parsing phase. We cannot prove no dispatch occurred, and -
+      // critically - a SyntaxError raised here (e.g. parsing an upstream
+      // response) must NOT be mistaken for a malformed request. It fails safe to
+      // INDETERMINATE (executed:null), never NOT_DISPATCHED.
+      const result = await executeThroughPep(body);
+      return sendJson(res, result.status, result.body);
+    } catch {
+      // H-1 (R3.1): an unexpected internal fault after the parsing phase. The
+      // gateway did not obtain an authorization verdict and cannot determine
+      // whether dispatch occurred, so the decision is explicitly UNKNOWN - not
+      // DENY (which would retroactively refuse a possibly-granted request) and
+      // not ALLOW. The uncertainty is carried honestly: UNKNOWN / INDETERMINATE
+      // / executed:null. This is the fail-safe representation of "no decision
+      // was reached", never a confident ALLOW or DENY.
+      return sendJson(res, 500, {
+        ok: false,
+        decision: "UNKNOWN",
+        outcome: "INDETERMINATE",
+        executed: null,
+        reason: "GATEWAY_ERROR",
       });
     }
   });
