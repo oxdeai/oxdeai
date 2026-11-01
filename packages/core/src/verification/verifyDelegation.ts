@@ -137,6 +137,16 @@ export function verifyDelegation(
     violations.push({ code: "DELEGATION_POLICY_MISMATCH", message: "policy_id does not match expectedPolicyId" });
   }
 
+  // ── Canonical identifier (S2) ────────────────────────────────────────────
+  // See verifyAuthorization: the signing payload NFC-normalizes strings while
+  // replay protection keys on the raw delegation_id, so a canonically-equivalent
+  // non-NFC form would keep a valid signature but a distinct replay key. Require
+  // one canonical (NFC) representation and reject anything else; do not silently
+  // normalize an attacker-controlled identifier.
+  if (hasText(delegation.delegation_id) && delegation.delegation_id !== delegation.delegation_id.normalize("NFC")) {
+    violations.push({ code: "DELEGATION_ID_NONCANONICAL", message: "delegation_id must be Unicode NFC-normalized" });
+  }
+
   // ── Replay ─────────────────────────────────────────────────────────────────
   if (hasText(delegation.delegation_id) && consumed.has(delegation.delegation_id)) {
     violations.push({ code: "DELEGATION_REPLAY", message: "delegation_id has already been consumed" });

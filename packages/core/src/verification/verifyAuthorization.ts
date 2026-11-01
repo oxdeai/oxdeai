@@ -313,6 +313,15 @@ export function verifyAuthorization(
   }
   if (!hasText(auth.auth_id)) {
     violations.push({ code: "AUTH_MISSING_FIELD", message: "auth_id is required" });
+  } else if (auth.auth_id !== auth.auth_id.normalize("NFC")) {
+    // S2: identifiers participate in signature verification via canonicalJson,
+    // which NFC-normalizes strings, but replay protection keys on the raw
+    // identifier. A canonically-equivalent non-NFC auth_id keeps a valid
+    // signature yet a distinct replay key, allowing a consumed id to be
+    // replayed. Require a single canonical (NFC) representation at this trust
+    // boundary and reject anything else - never silently normalize an
+    // attacker-controlled identifier.
+    violations.push({ code: "AUTH_ID_NONCANONICAL", message: "auth_id must be Unicode NFC-normalized" });
   }
   if (!Number.isInteger(auth.issued_at)) {
     violations.push({ code: "AUTH_MISSING_FIELD", message: "issued_at must be integer unix seconds" });
