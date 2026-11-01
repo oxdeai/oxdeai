@@ -114,22 +114,37 @@ function signatureParts(auth: AuthorizationV1): { alg?: string; kid?: string; si
   };
 }
 
-function decodeSignatureBytes(encoded: string): Buffer {
-  // Accept base64url (RFC 4648 §5) alongside standard base64.
-  // Buffer.from(str, "base64") silently ignores '-' and '_', producing wrong bytes.
-  if (encoded.includes("-") || encoded.includes("_")) {
-    return Buffer.from(encoded, "base64url");
-  }
-  return Buffer.from(encoded, "base64");
+/** @internal - exported for regression tests; NOT part of the public API (not re-exported by the package entry point). */
+export function canonicalSignatureBytes(encoded: string): Buffer | null {
+  // S4: accept base64url (RFC 4648 §5, Encoding B) alongside standard base64
+  // (Encoding A), but ONLY in the canonical encoding of an exactly-64-byte
+  // signature. The alphabet is detected the same way as before ('-'/'_' => url),
+  // and the supplied string must equal the re-encoding of the decoded bytes IN
+  // THAT SAME ALPHABET. This preserves base64url interop without letting a
+  // non-canonical variant (whitespace, mutated final char, wrong padding, or a
+  // cross-alphabet form) verify. The standard Encoding-A rule is NOT applied to
+  // an Encoding-B string.
+  if (typeof encoded !== "string" || encoded.length === 0) return null;
+  // Encoding A: canonical standard Base64 (padded) of exactly 64 bytes.
+  const std = Buffer.from(encoded, "base64");
+  if (std.length === 64 && std.toString("base64") === encoded) return std;
+  // Encoding B: canonical base64url (RFC 4648 §5, unpadded) of exactly 64 bytes.
+  const url = Buffer.from(encoded, "base64url");
+  if (url.length === 64 && url.toString("base64url") === encoded) return url;
+  // Anything else (non-canonical, wrong length, cross-alphabet, padded url,
+  // whitespace, mutated final char) is rejected.
+  return null;
 }
 
 function verifyEd25519Raw(payload: unknown, signatureBase64: string, publicKeyPem: string): boolean {
   try {
+    const bytes = canonicalSignatureBytes(signatureBase64);
+    if (!bytes) return false;
     return nodeVerify(
       null,
       Buffer.from(canonicalJson(payload), "utf8"),
       publicKeyPem,
-      decodeSignatureBytes(signatureBase64)
+      bytes
     );
   } catch {
     return false;
