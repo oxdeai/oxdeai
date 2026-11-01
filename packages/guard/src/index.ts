@@ -37,6 +37,7 @@ export {
 export { defaultNormalizeAction } from "./normalizeAction.js";
 export { createInMemoryReplayStore } from "./replayStore.js";
 export type { ReplayStore } from "./replayStore.js";
+export type { ReplayProtection } from "./replayProtection.js";
 export { createRedisReplayStore } from "./replayStore.redis.js";
 export type { RedisClient, RedisReplayStoreConfig } from "./replayStore.redis.js";
 export {
