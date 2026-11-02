@@ -40,6 +40,60 @@ export function signEd25519(domain: SigningDomain, payload: unknown, privateKeyP
   return sig.toString("base64");
 }
 
+// S3: complete set of Ed25519 small-order (low-order subgroup) public-key WIRE
+// encodings, as 32-byte little-endian hex. The Edwards25519 small subgroup has
+// exactly 8 points; each is representable by one canonical encoding plus
+// non-canonical encodings (sign-bit variant for the x=0 points, and the `y + p`
+// alternate for points whose y < 19), giving 14 wire encodings in total. All 14
+// are accepted by OpenSSL's key import and, when trusted, let a crafted
+// signature verify against ANY message (the public key authenticates nothing).
+// Comparing the raw wire bytes (not a re-canonicalised form) is required because
+// OpenSSL neither rejects nor normalises these non-canonical encodings. This is a
+// fixed lookup table, not an Ed25519 implementation.
+const SMALL_ORDER_ED25519: ReadonlySet<string> = new Set([
+  "0000000000000000000000000000000000000000000000000000000000000000",
+  "0000000000000000000000000000000000000000000000000000000000000080",
+  "0100000000000000000000000000000000000000000000000000000000000000",
+  "0100000000000000000000000000000000000000000000000000000000000080",
+  "26e8958fc2b227b045c3f489f2ef98f0d5dfac05d3c63339b13802886d53fc05",
+  "26e8958fc2b227b045c3f489f2ef98f0d5dfac05d3c63339b13802886d53fc85",
+  "c7176a703d4dd84fba3c0b760d10670f2a2053fa2c39ccc64ec7fd7792ac037a",
+  "c7176a703d4dd84fba3c0b760d10670f2a2053fa2c39ccc64ec7fd7792ac03fa",
+  "ecffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f",
+  "ecffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+  "edffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f",
+  "edffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+  "eeffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f",
+  "eeffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+]);
+
+// Extract the 32-byte Ed25519 public-key wire encoding (little-endian, as
+// transmitted) from a parsed key, or null if the key is not a usable Ed25519
+// public key. JWK `x` preserves the exact wire bytes, including non-canonical
+// ones, which is what the small-order comparison requires.
+function ed25519WireHex(key: ReturnType<typeof createPublicKey>): string | null {
+  const jwk = key.export({ format: "jwk" }) as { kty?: string; crv?: string; x?: string };
+  if (jwk.kty !== "OKP" || jwk.crv !== "Ed25519" || typeof jwk.x !== "string") return null;
+  const raw = Buffer.from(jwk.x, "base64url");
+  return raw.length === 32 ? raw.toString("hex") : null;
+}
+
+/**
+ * S3: true if the PEM is an Ed25519 small-order public key (or is unreadable as
+ * an Ed25519 public key). Fail closed: callers must treat `true` as "do not
+ * trust any signature under this key". Not re-exported from the package entry,
+ * so the public API is unchanged.
+ * @internal
+ */
+export function isSmallOrderEd25519Pem(publicKeyPem: string): boolean {
+  try {
+    const hex = ed25519WireHex(createPublicKey(normalizePem(publicKeyPem)));
+    return hex === null ? true : SMALL_ORDER_ED25519.has(hex);
+  } catch {
+    return true;
+  }
+}
+
 /** @public */
 export function verifyEd25519(
   domain: SigningDomain,
@@ -61,6 +115,12 @@ export function verifyEd25519(
     // per-encoding there.
     if (sig.length !== 64 || sig.toString("base64") !== signatureBase64) return false;
     const key = createPublicKey(normalizePem(publicKeyPem));
+    // S3: reject small-order / unreadable public keys before trusting the verify
+    // result. A small-order key authenticates nothing (any message verifies), so
+    // this covers the authorization, delegation, envelope and KRL paths that all
+    // route Encoding-A verification through here. Fail closed.
+    const wireHex = ed25519WireHex(key);
+    if (wireHex === null || SMALL_ORDER_ED25519.has(wireHex)) return false;
     return verify(null, signatureInput(domain, payload), key, sig);
   } catch {
     return false;

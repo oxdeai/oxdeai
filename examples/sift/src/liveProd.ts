@@ -39,6 +39,7 @@ import {
   randomUUID,
 } from "node:crypto";
 import type { SiftReceipt } from "@oxdeai/sift";
+import { isSmallOrderEd25519Key } from "@oxdeai/sift/dist/src/smallOrderEd25519.js";
 import { b64uEncode, b64uDecode } from "./helpers.js";
 
 // ─── Prod endpoints ───────────────────────────────────────────────────────────
@@ -530,6 +531,12 @@ export function verifySiftReceipt(
 
     const signatureBytes = b64uDecode(signature);
     const publicKey = publicKeyObjectFromRaw(key.publicKeyRaw);
+    // S3-R3: a small-order verify-key authenticates nothing (a crafted signature
+    // verifies against any payload). Reject it on the exact KeyObject passed to
+    // verify, before verification. Fail closed.
+    if (isSmallOrderEd25519Key(publicKey)) {
+      return failSiftReceipt("INVALID_PUBLIC_KEY", `verify-key public key for key_id "${keyId}" is an Ed25519 small-order point and cannot be trusted`);
+    }
     const signatureOk = nodeCryptoVerify(
       null,
       Buffer.from(canonicalPayload, "utf8"),
