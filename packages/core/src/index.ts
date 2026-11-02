@@ -29,6 +29,8 @@ export { verifyEnvelope } from "./verification/verifyEnvelope.js";
 export { verifyAuthorization, signAuthorizationEd25519, authorizationSigningPayload, toPublicAuthorizationV1, DEFAULT_MAX_FUTURE_ISSUED_AT_SKEW_SECONDS } from "./verification/verifyAuthorization.js";
 export { isTrustedAuthorizationAuthority } from "./verification/authorizationAuthority.js";
 export type { AuthorizationAuthority } from "./verification/authorizationAuthority.js";
+export { isTrustedDelegationAuthority } from "./verification/delegationAuthority.js";
+export type { DelegationAuthority } from "./verification/delegationAuthority.js";
 export { createVerifier } from "./verification/createVerifier.js";
 export type { VerifierConfig, BoundVerifier } from "./verification/createVerifier.js";
 export {
