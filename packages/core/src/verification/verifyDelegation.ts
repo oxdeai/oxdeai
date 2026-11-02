@@ -12,6 +12,8 @@ import {
 } from "../crypto/signatures.js";
 import { canonicalJson } from "../crypto/hashes.js";
 import { toPublicAuthorizationV1 } from "./verifyAuthorization.js";
+import { isTrustedDelegationAuthority } from "./delegationAuthority.js";
+import type { DelegationAuthority } from "./delegationAuthority.js";
 
 // ── Options ───────────────────────────────────────────────────────────────────
 
@@ -35,6 +37,14 @@ export type VerifyDelegationOptions = {
   parentScope?: DelegationScope;
   /** Set of delegation_ids already consumed. Used for replay protection. */
   consumedDelegationIds?: readonly string[];
+  /**
+   * F4-1/F4-2 delegation signer authority. Authorized (delegator, issuer) pairs.
+   * When provided, a delegation whose (delegator, issuer) is not listed is
+   * rejected with DELEGATION_SIGNER_NOT_AUTHORIZED. When absent, the default
+   * self-delegation rule applies: issuer MUST equal delegator. A valid
+   * signature alone never authorizes delegation.
+   */
+  trustedDelegationAuthorities?: readonly DelegationAuthority[];
 };
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -152,8 +162,46 @@ export function verifyDelegation(
     violations.push({ code: "DELEGATION_REPLAY", message: "delegation_id has already been consumed" });
   }
 
+  // ── Signer authority (F4-1/F4-2) — opt-in ──────────────────────────────────
+  // A valid signature proves only that a trusted key for the claimed issuer
+  // signed the delegation; it does NOT authorize that issuer to act as this
+  // delegator (reproduced: an unrelated trusted signer `mallory` minting a
+  // delegation whose delegator is `svc-A`).
+  //
+  // Enforcement is OPT-IN via `trustedDelegationAuthorities`: when provided, the
+  // delegation's (delegator, issuer) pair MUST be listed, else
+  // DELEGATION_SIGNER_NOT_AUTHORIZED (fail closed — an empty list authorizes no
+  // delegation). When absent, signer authority is NOT enforced here, preserving
+  // the existing central-issuer model (a central PDP issuer signs delegations
+  // whose delegator names a different agent). Making enforcement the default
+  // (deny when no authority evidence is configured) is a breaking trust-model
+  // change — see the report; it requires a maintainer decision and migrating
+  // the delegation call sites to declare their authorities.
+  if (
+    opts?.trustedDelegationAuthorities !== undefined &&
+    hasText(delegation.issuer) &&
+    hasText(delegation.delegator)
+  ) {
+    if (!isTrustedDelegationAuthority(opts.trustedDelegationAuthorities, delegation.delegator, delegation.issuer)) {
+      violations.push({
+        code: "DELEGATION_SIGNER_NOT_AUTHORIZED",
+        message: "delegation signer (issuer) is not authorized to delegate for this delegator",
+      });
+    }
+  }
+
+  // ── Scope field types (F4-R6-01) ───────────────────────────────────────────
+  // Validate scope field types fail-closed BEFORE any narrowing or budget
+  // comparison, so a non-numeric value ("unbounded", "1e30", {}) cannot make a
+  // `>` comparison fail open and bypass the ceiling. Never silently coerce.
+  const scopeTypeIssues = scopeTypeViolations(delegation.scope);
+  violations.push(...scopeTypeIssues);
+
   // ── Scope narrowing (when parentScope provided) ────────────────────────────
-  if (opts?.parentScope !== undefined) {
+  // Only run the narrowing comparisons when the child scope is well-typed:
+  // running them on a malformed scope would either fail open or throw. A
+  // malformed scope is already a DELEGATION_SCOPE_VIOLATION above (fail closed).
+  if (opts?.parentScope !== undefined && scopeTypeIssues.length === 0) {
     const scopeViolations = checkScopeNarrowing(delegation.scope, opts.parentScope);
     violations.push(...scopeViolations);
   }
@@ -328,6 +376,33 @@ export function resolveEffectiveChildScope(
 }
 
 // ── Scope narrowing ───────────────────────────────────────────────────────────
+
+// F4-R6-01: fail-closed type validation of delegation scope fields. The runtime
+// contract (DelegationScope) is: tools string[]; max_amount bigint; max_actions
+// number; max_depth number. A present field of the wrong type, or a negative /
+// non-finite / non-integer numeric, is a DELEGATION_SCOPE_VIOLATION — never
+// silently coerced into a `>` comparison that could fail open.
+function scopeTypeViolations(scope: DelegationScope): VerificationViolation[] {
+  const v: VerificationViolation[] = [];
+  if (scope === null || typeof scope !== "object" || Array.isArray(scope)) {
+    v.push({ code: "DELEGATION_SCOPE_VIOLATION", message: "scope must be an object" });
+    return v;
+  }
+  const s = scope as Record<string, unknown>;
+  if (s.tools !== undefined && (!Array.isArray(s.tools) || !s.tools.every((t) => typeof t === "string"))) {
+    v.push({ code: "DELEGATION_SCOPE_VIOLATION", message: "scope.tools must be an array of strings" });
+  }
+  if (s.max_amount !== undefined && (typeof s.max_amount !== "bigint" || s.max_amount < 0n)) {
+    v.push({ code: "DELEGATION_SCOPE_VIOLATION", message: "scope.max_amount must be a non-negative bigint" });
+  }
+  for (const field of ["max_actions", "max_depth"] as const) {
+    const val = s[field];
+    if (val !== undefined && (typeof val !== "number" || !Number.isInteger(val) || val < 0)) {
+      v.push({ code: "DELEGATION_SCOPE_VIOLATION", message: `scope.${field} must be a non-negative integer` });
+    }
+  }
+  return v;
+}
 
 function checkScopeNarrowing(
   child: DelegationScope,
