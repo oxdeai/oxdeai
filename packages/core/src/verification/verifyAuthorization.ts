@@ -14,6 +14,7 @@ import type { AuthorizationAuthority } from "./authorizationAuthority.js";
 import {
   SIGNING_DOMAINS,
   findKeyInKeySets,
+  isSmallOrderEd25519Pem,
   keyIsActiveAt,
   signEd25519,
   verifyEd25519,
@@ -140,6 +141,9 @@ function verifyEd25519Raw(payload: unknown, signatureBase64: string, publicKeyPe
   try {
     const bytes = canonicalSignatureBytes(signatureBase64);
     if (!bytes) return false;
+    // S3: reject small-order / unreadable public keys on the Encoding-B fallback
+    // path too, before trusting the verify result. Fail closed.
+    if (isSmallOrderEd25519Pem(publicKeyPem)) return false;
     return nodeVerify(
       null,
       Buffer.from(canonicalJson(payload), "utf8"),
