@@ -105,18 +105,29 @@ import { sign as nodeSign } from "node:crypto";
 import { canonicalJson } from "../crypto/hashes.js";
 import { authorizationSigningPayload } from "../verification/verifyAuthorization.js";
 
+let encBAuthId = "b1";
 function nestedAuth(sigEncoded: string): any {
   return {
-    auth_id: "b1", issuer: "iss", audience: "aud", intent_hash: "0".repeat(64),
+    auth_id: encBAuthId, issuer: "iss", audience: "aud", intent_hash: "0".repeat(64),
     state_hash: "0".repeat(64), policy_id: "p1", decision: "ALLOW",
     issued_at: NOW - 5, expiry: NOW + 600, alg: "Ed25519", kid: "k1",
     signature: { alg: "Ed25519", kid: "k1", sig: sigEncoded },
   };
 }
-// payload is independent of the sig bytes (nested branch filters them out).
-const encBPayload = authorizationSigningPayload(nestedAuth(""));
-const encBPreimage = Buffer.from(canonicalJson(encBPayload), "utf8");
-const encBRaw = nodeSign(null, encBPreimage, kp.privateKey); // 64-byte Ed25519 sig over the domain-less preimage
+// Select a valid signature containing a base64url-specific character.
+// Otherwise, adding "==" may produce canonical standard base64.
+let encBRaw: Buffer | undefined;
+for (let i = 0; i < 1000; i++) {
+  encBAuthId = `b1-${i}`;
+  const payload = authorizationSigningPayload(nestedAuth(""));
+  const preimage = Buffer.from(canonicalJson(payload), "utf8");
+  const candidate = nodeSign(null, preimage, kp.privateKey);
+  if (/[-_]/.test(candidate.toString("base64url"))) {
+    encBRaw = candidate;
+    break;
+  }
+}
+assert.ok(encBRaw, "could not construct Encoding-B signature with URL-specific characters");
 
 test("S4-B e2e: canonical base64url Encoding-B signature verifies via verifyAuthorization", () => {
   const r = verifyAuthorization(nestedAuth(encBRaw.toString("base64url")), vopts);
