@@ -7,6 +7,40 @@ This project follows Semantic Versioning.
 
 ---
 
+## [Unreleased]
+
+### Security
+
+- F4-1/F4-2: new opt-in `trustedDelegationSigners: DelegationAuthority[]` option
+  enforces delegation signer authority on the delegation path by forwarding it to
+  core `verifyDelegationChain`. When configured, a delegation whose
+  `(delegator, issuer)` pair is not listed is rejected (`OxDeAIDelegationError`,
+  core `DELEGATION_SIGNER_NOT_AUTHORIZED`) before replay consumption and
+  execution; `[]` denies every delegation; a malformed value fails at
+  construction. Behavior without the option is unchanged: signer authority is
+  not enforced. `trustedDelegationAuthorities` keeps its meaning (parent
+  `(issuer, policyId)` authority).
+- F4-R8-01 (supersedes F4-R6-02): the delegation path now takes one immutable
+  plain-data snapshot of `opts.delegation` before verification, and signature
+  verification, scope enforcement, action binding and replay consumption all
+  read only that snapshot. Previously an accessor or Proxy on the caller's
+  in-process object could show the signed value to verification and a
+  different value to enforcement or consumption, allowing execution above the
+  signed `max_amount` and repeated execution of one signed delegation.
+  Inputs outside the plain-data model (Proxy, getter, class instance, cycle,
+  non-enumerable or symbol property) are now rejected with
+  `DELEGATION_INPUT_INVALID` before any replay state is consumed. Plain inputs
+  behave as before. `opts.delegation` is also read only once per call.
+- F4-R8-04: the delegation path now rejects a normalized `intent.amount` that is
+  not a non-negative `bigint` (`OxDeAINormalizationError`,
+  `NORMALIZATION_FAILURE`), matching the engine path's `INTENT_AMOUNT_INVALID`.
+  Previously a custom `mapActionToIntent` returning a negative amount passed
+  every `max_amount` comparison and executed.
+- F4-R6-06/C9 (Guard side): `parentScope` validation now rejects NaN, Infinity,
+  fractional and negative `max_actions` / `max_depth`, negative `max_amount`
+  and non-string `tools` entries (`DELEGATION_INPUT_INVALID`), consistent with
+  core's child-scope rules. Valid ceilings, including zero, are unchanged.
+
 ## [2.0.3] - 2026-10-19
 
 ### Security

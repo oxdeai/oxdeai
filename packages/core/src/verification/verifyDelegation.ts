@@ -11,7 +11,7 @@ import {
   verifyEd25519,
 } from "../crypto/signatures.js";
 import { canonicalJson } from "../crypto/hashes.js";
-import { toPublicAuthorizationV1 } from "./verifyAuthorization.js";
+import { toPublicAuthorizationV1, DEFAULT_MAX_FUTURE_ISSUED_AT_SKEW_SECONDS } from "./verifyAuthorization.js";
 import { isTrustedDelegationAuthority } from "./delegationAuthority.js";
 import type { DelegationAuthority } from "./delegationAuthority.js";
 
@@ -33,16 +33,41 @@ export type VerifyDelegationOptions = {
    * Parent scope — the authority granted in the parent AuthorizationV1.
    * When provided, scope narrowing invariants are enforced.
    * When absent, scope narrowing is skipped (deployer responsibility).
+   *
+   * A provided parent scope is validated with the same rules as the child
+   * scope (`tools` an array of strings, `max_amount` a non-negative bigint,
+   * `max_actions` / `max_depth` non-negative integers) BEFORE narrowing. A
+   * malformed ceiling (NaN, Infinity, fractional, negative, wrong type) is a
+   * DELEGATION_SCOPE_VIOLATION: it fails closed instead of making a `>`
+   * narrowing comparison silently pass.
    */
   parentScope?: DelegationScope;
   /** Set of delegation_ids already consumed. Used for replay protection. */
   consumedDelegationIds?: readonly string[];
   /**
-   * F4-1/F4-2 delegation signer authority. Authorized (delegator, issuer) pairs.
+   * Maximum number of seconds `issued_at` may lead the trusted verification
+   * time (`now`) and still be accepted. Same contract as
+   * `VerifyAuthorizationOptions.maxFutureIssuedAtSkewSeconds`.
+   *
+   * Defaults to {@link DEFAULT_MAX_FUTURE_ISSUED_AT_SKEW_SECONDS} (300s). An
+   * `issued_at` beyond `now + maxFutureIssuedAtSkewSeconds` is rejected with
+   * DELEGATION_ISSUED_AT_IMPLAUSIBLE. A malformed value (not a non-negative
+   * safe integer) throws: it is trusted caller configuration.
+   */
+  maxFutureIssuedAtSkewSeconds?: number;
+  /**
+   * F4-1/F4-2 delegation signer authority (opt-in). Authorized
+   * (delegator, issuer) pairs.
+   *
    * When provided, a delegation whose (delegator, issuer) is not listed is
-   * rejected with DELEGATION_SIGNER_NOT_AUTHORIZED. When absent, the default
-   * self-delegation rule applies: issuer MUST equal delegator. A valid
-   * signature alone never authorizes delegation.
+   * rejected with DELEGATION_SIGNER_NOT_AUTHORIZED; an empty list authorizes
+   * no delegation (fail closed).
+   *
+   * When absent, signer authority is NOT checked: there is no default rule
+   * (in particular, `issuer === delegator` is not required). Any signature
+   * that verifies under `trustedKeySets` for the claimed issuer is then
+   * accepted, so a key trusted for any purpose can sign a delegation naming
+   * another delegator. Configure this option to enforce signer authority.
    */
   trustedDelegationAuthorities?: readonly DelegationAuthority[];
 };
@@ -51,6 +76,20 @@ export type VerifyDelegationOptions = {
 
 function nowSeconds(now: number | undefined): number {
   return now !== undefined ? now : Math.floor(Date.now() / 1000);
+}
+
+/**
+ * Trusted-caller configuration: a malformed value throws rather than falling
+ * back to the default, mirroring verifyAuthorization.
+ */
+function resolveMaxFutureIssuedAtSkewSeconds(value: number | undefined): number {
+  if (value === undefined) return DEFAULT_MAX_FUTURE_ISSUED_AT_SKEW_SECONDS;
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0) {
+    throw new Error(
+      "verifyDelegation: maxFutureIssuedAtSkewSeconds must be a finite, non-negative safe integer (seconds)"
+    );
+  }
+  return value;
 }
 
 function hasText(v: unknown): v is string {
@@ -102,6 +141,7 @@ export function verifyDelegation(
   const violations: VerificationViolation[] = [];
   const now = nowSeconds(opts?.now);
   const consumed = new Set(opts?.consumedDelegationIds ?? []);
+  const maxFutureIssuedAtSkewSeconds = resolveMaxFutureIssuedAtSkewSeconds(opts?.maxFutureIssuedAtSkewSeconds);
 
   // ── Required fields ────────────────────────────────────────────────────────
   for (const [field, value] of [
@@ -135,6 +175,27 @@ export function verifyDelegation(
   // ── Expiry ─────────────────────────────────────────────────────────────────
   if (Number.isInteger(delegation.expiry) && now >= delegation.expiry) {
     violations.push({ code: "DELEGATION_EXPIRED", message: "delegation has expired" });
+  }
+
+  // ── Temporal validity (F4-R6-03 / F4-R8-02) ────────────────────────────────
+  // delegation-v1 §4.3: `expiry` MUST be strictly greater than `issued_at`.
+  // Both fields are signed, so an inverted or empty interval is an artifact
+  // defect, not clock drift.
+  if (Number.isInteger(delegation.issued_at) && Number.isInteger(delegation.expiry) && delegation.expiry <= delegation.issued_at) {
+    violations.push({ code: "DELEGATION_TEMPORAL_INVALID", message: "expiry must be strictly greater than issued_at" });
+  }
+  // Future-plausibility upper bound on issued_at, same contract as the
+  // authorization path (AUTH_ISSUED_AT_IMPLAUSIBLE): compared only against the
+  // trusted verification time `now`; an unsafe-magnitude value is rejected
+  // without arithmetic. This is a plausibility backstop, not nbf semantics.
+  if (
+    Number.isInteger(delegation.issued_at) &&
+    (!Number.isSafeInteger(delegation.issued_at) || delegation.issued_at > now + maxFutureIssuedAtSkewSeconds)
+  ) {
+    violations.push({
+      code: "DELEGATION_ISSUED_AT_IMPLAUSIBLE",
+      message: `issued_at must not be more than ${maxFutureIssuedAtSkewSeconds}s ahead of verification time`,
+    });
   }
 
   // ── Audience / delegatee ───────────────────────────────────────────────────
@@ -197,11 +258,19 @@ export function verifyDelegation(
   const scopeTypeIssues = scopeTypeViolations(delegation.scope);
   violations.push(...scopeTypeIssues);
 
+  // ── Parent scope ceiling types (F4-R6-06 / C9) ────────────────────────────
+  // The parent ceiling is validated with the same rules BEFORE narrowing: a
+  // NaN / Infinity / fractional / negative / wrongly-typed ceiling would make
+  // every `>` comparison false and silently disable that limit (and an omitted
+  // child field would inherit the malformed value). Fail closed instead.
+  const parentScopeIssues = opts?.parentScope !== undefined ? scopeTypeViolations(opts.parentScope, "parentScope") : [];
+  violations.push(...parentScopeIssues);
+
   // ── Scope narrowing (when parentScope provided) ────────────────────────────
-  // Only run the narrowing comparisons when the child scope is well-typed:
+  // Only run the narrowing comparisons when BOTH scopes are well-typed:
   // running them on a malformed scope would either fail open or throw. A
   // malformed scope is already a DELEGATION_SCOPE_VIOLATION above (fail closed).
-  if (opts?.parentScope !== undefined && scopeTypeIssues.length === 0) {
+  if (opts?.parentScope !== undefined && scopeTypeIssues.length === 0 && parentScopeIssues.length === 0) {
     const scopeViolations = checkScopeNarrowing(delegation.scope, opts.parentScope);
     violations.push(...scopeViolations);
   }
@@ -382,23 +451,23 @@ export function resolveEffectiveChildScope(
 // number; max_depth number. A present field of the wrong type, or a negative /
 // non-finite / non-integer numeric, is a DELEGATION_SCOPE_VIOLATION — never
 // silently coerced into a `>` comparison that could fail open.
-function scopeTypeViolations(scope: DelegationScope): VerificationViolation[] {
+function scopeTypeViolations(scope: DelegationScope, label = "scope"): VerificationViolation[] {
   const v: VerificationViolation[] = [];
   if (scope === null || typeof scope !== "object" || Array.isArray(scope)) {
-    v.push({ code: "DELEGATION_SCOPE_VIOLATION", message: "scope must be an object" });
+    v.push({ code: "DELEGATION_SCOPE_VIOLATION", message: `${label} must be an object` });
     return v;
   }
   const s = scope as Record<string, unknown>;
   if (s.tools !== undefined && (!Array.isArray(s.tools) || !s.tools.every((t) => typeof t === "string"))) {
-    v.push({ code: "DELEGATION_SCOPE_VIOLATION", message: "scope.tools must be an array of strings" });
+    v.push({ code: "DELEGATION_SCOPE_VIOLATION", message: `${label}.tools must be an array of strings` });
   }
   if (s.max_amount !== undefined && (typeof s.max_amount !== "bigint" || s.max_amount < 0n)) {
-    v.push({ code: "DELEGATION_SCOPE_VIOLATION", message: "scope.max_amount must be a non-negative bigint" });
+    v.push({ code: "DELEGATION_SCOPE_VIOLATION", message: `${label}.max_amount must be a non-negative bigint` });
   }
   for (const field of ["max_actions", "max_depth"] as const) {
     const val = s[field];
     if (val !== undefined && (typeof val !== "number" || !Number.isInteger(val) || val < 0)) {
-      v.push({ code: "DELEGATION_SCOPE_VIOLATION", message: `scope.${field} must be a non-negative integer` });
+      v.push({ code: "DELEGATION_SCOPE_VIOLATION", message: `${label}.${field} must be a non-negative integer` });
     }
   }
   return v;

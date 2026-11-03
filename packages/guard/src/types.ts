@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-import type { AuthorizationAuthority, AuthorizationV1, DelegationScope, DelegationV1, Intent, KeySet, PolicyEngine, State } from "@oxdeai/core";
+import type { AuthorizationAuthority, AuthorizationV1, DelegationAuthority, DelegationScope, DelegationV1, Intent, KeySet, PolicyEngine, State } from "@oxdeai/core";
 import type { ReplayStore } from "./replayStore.js";
 import type { ReplayProtection } from "./replayProtection.js";
 import type { GuardBoundaryEventHook } from "./boundaryEvent.js";
@@ -212,6 +212,49 @@ export type OxDeAIGuardConfig = {
    * policy allow-lists — that authorizes their Cartesian product.
    */
   trustedDelegationAuthorities?: readonly AuthorizationAuthority[];
+
+  /**
+   * Deployer-authorized `(delegator, issuer)` pairs for the DELEGATION SIGNER
+   * (F4-1/F4-2). Opt-in.
+   *
+   * ⚠️ This is a different question from {@link trustedDelegationAuthorities}.
+   * That option authorizes the *parent authorization's* `(issuer, policyId)`.
+   * This one authorizes the *delegation artifact's* signer: which `issuer` may
+   * sign a `DelegationV1` on behalf of which `delegator`.
+   *
+   * ```text
+   * trustedKeySets                -> which keys are trusted for a claimed issuer
+   * trustedDelegationAuthorities  -> which parent (issuer, policyId) may root a delegation
+   * trustedDelegationSigners      -> which delegation issuer may sign for which delegator
+   * ```
+   *
+   * A valid delegation signature proves only that a trusted key for the claimed
+   * `issuer` signed it. Without this option, ANY key present in
+   * `trustedKeySets` (for any purpose) can sign a delegation of another
+   * principal's parent authorization, and the guard will execute it.
+   *
+   * ```text
+   * undefined  -> signer authority NOT enforced (existing behavior; see above)
+   * []         -> enforced; authorizes no delegation signer (every call denied)
+   * [pairs]    -> enforced; (delegation.delegator, delegation.issuer) must be listed
+   * ```
+   *
+   * Forwarded to core `verifyDelegationChain` as its
+   * `trustedDelegationAuthorities` (`DelegationAuthority[]`) option; a mismatch
+   * is a `DELEGATION_SIGNER_NOT_AUTHORIZED` chain violation, raised as
+   * `OxDeAIDelegationError` before any replay consumption or `execute()`.
+   *
+   * Validated at construction: any value other than `undefined` must be an
+   * array of `{ delegator, issuer }` with non-empty strings, otherwise
+   * `OxDeAIGuardConfigurationError` is thrown. A malformed value never
+   * silently disables the check. The list is copied at construction; later
+   * mutation of the caller's array has no effect.
+   *
+   * Applies only to the in-process delegation path of this guard. It does not
+   * change the HTTP PEP gateway or framework adapters (neither forwards
+   * delegations). Enforcement-by-default is a separate, breaking decision.
+   */
+  trustedDelegationSigners?: readonly DelegationAuthority[];
 
   /**
    * Pluggable replay store for durable auth_id and delegation_id tracking.

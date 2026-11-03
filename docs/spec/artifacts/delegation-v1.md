@@ -217,8 +217,16 @@ If the parent has no `audience`, verification MUST fail closed (DENY).
 
 `expiry` MUST be:
 - a valid integer timestamp in seconds
-- strictly greater than `issued_at`
+- strictly greater than `issued_at` (an artifact with `expiry <= issued_at` MUST be rejected; reference code `DELEGATION_TEMPORAL_INVALID`)
 - less than or equal to parent `AuthorizationV1` expiry
+
+`issued_at` MUST NOT exceed `verificationTime + maxFutureIssuedAtSkewSeconds`
+(reference code `DELEGATION_ISSUED_AT_IMPLAUSIBLE`). This is the same bounded
+future-plausibility check, and the same verifier configuration (default 300s,
+`DEFAULT_MAX_FUTURE_ISSUED_AT_SKEW_SECONDS`), as `authorization-v1.md` §6
+`issued_at`: a plausibility backstop that absorbs ordinary clock drift, not
+"not before" semantics. The comparison MUST use the trusted verification time,
+never an agent-supplied value.
 
 ### 4.4 Single-Hop Enforcement
 
@@ -327,8 +335,10 @@ function verifyDelegation(delegation, parent_auth, keyset, now, consumed_ids?, p
   // Step 8: Validate delegation expiry
   if delegation.expiry > parent_auth.expiry:
     return DENY("expiry exceeds parent expiry")
-  if delegation.expiry < delegation.issued_at:
-    return DENY("expiry before issued_at")
+  if delegation.expiry <= delegation.issued_at:
+    return DENY("expiry not after issued_at")
+  if delegation.issued_at > now + maxFutureIssuedAtSkewSeconds:
+    return DENY("issued_at implausibly far in the future")
   if delegation.expiry < now:
     return DENY("delegation expired")
 
