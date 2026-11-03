@@ -56,6 +56,9 @@ export type {
   GuardDecisionRecord,
   GuardDelegationInput,
   GuardCallOptions,
+  DelegationRevocationKey,
+  DelegationRevocationStatus,
+  DelegationRevocationProvider,
   StateVersion,
   VersionedState,
 } from "./types.js";
