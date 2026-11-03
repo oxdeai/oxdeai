@@ -244,6 +244,9 @@ Hash-chained sequence of execution events.
 First-class authorization artifact enabling scoped delegation from a parent `AuthorizationV1`.
 A delegation narrows the parent's scope (budget ceiling, tool allowlist, expiry)
 and is cryptographically bound to the parent `AuthorizationV1` via `parent_auth_hash`.
+`verifyDelegation` rejects an inverted or empty validity interval
+(`expiry <= issued_at`), an `issued_at` more than `maxFutureIssuedAtSkewSeconds`
+(default 300s) ahead of `now`, and a malformed `parentScope` ceiling.
 
 ### VerificationEnvelopeV1
 

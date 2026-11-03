@@ -20,13 +20,13 @@
  * authority (reproduced: an unrelated trusted signer `mallory` minting a
  * delegation whose `delegator` is `svc-A`).
  *
- * The default rule, applied when no `trustedDelegationAuthorities` is
- * configured, is self-delegation: the signer must BE the delegator
- * (`issuer === delegator`). This matches the reference model where the party a
- * parent authorization is issued to (`parent.audience`) is the delegator and
- * signs its own delegations. Configuring an explicit authority list is only
- * needed for broker/central-issuer deployments where a distinct issuer signs
- * delegations on behalf of a delegator.
+ * Enforcement is OPT-IN. When no `trustedDelegationAuthorities` is configured,
+ * `verifyDelegation` / `verifyDelegationChain` do not check signer authority
+ * at all: there is no default rule, and `issuer === delegator` is NOT
+ * required. To enforce, list every authorized pair explicitly: a
+ * self-delegating deployment lists `{ delegator: X, issuer: X }`, and a
+ * broker/central-issuer deployment lists `{ delegator: X, issuer: central }`.
+ * Making enforcement the default is a separate, breaking decision.
  *
  * The pair is the unit of authority and is deliberately not decomposable into
  * two independent allow-lists (same rationale as AuthorizationAuthority).
@@ -43,9 +43,9 @@ export type DelegationAuthority = {
 /**
  * True only when `(delegator, issuer)` appears as a complete pair in
  * `authorities`. Exact string equality on both members, no wildcard/normalization.
- * Fail-closed: an empty list authorizes no pair, and absence of configuration is
- * a different condition handled by the caller (it falls back to the
- * `issuer === delegator` self-delegation rule).
+ * Fail-closed: an empty list authorizes no pair. Absence of configuration is a
+ * different condition handled by the caller (`verifyDelegation` then performs
+ * no signer-authority check; there is no fallback rule).
  *
  * @public
  */

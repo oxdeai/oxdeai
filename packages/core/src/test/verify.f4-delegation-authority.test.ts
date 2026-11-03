@@ -10,13 +10,20 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { generateKeyPairSync } from "node:crypto";
-import { createDelegation } from "../delegation/createDelegation.js";
+import { createDelegation as createDelegationAtWallClock } from "../delegation/createDelegation.js";
 import { verifyDelegationChain } from "../verification/verifyDelegation.js";
 import { signAuthorizationEd25519 } from "../verification/verifyAuthorization.js";
 import type { AuthorizationV1 } from "../types/authorization.js";
 import type { KeySet } from "../types/keyset.js";
 
 const NOW = 1_700_000_000, EXP = NOW + 3600;
+// Lot A (F4-R6-03/R8-02): verifyDelegation now rejects an issued_at more than
+// maxFutureIssuedAtSkewSeconds ahead of the verification time. These fixtures
+// verify at a fixed clock, so issue at that clock too (createDelegation would
+// otherwise stamp the real wall clock, decades after the fixed `now`). An
+// explicit `issuedAt` in a call still takes precedence.
+const createDelegation: typeof createDelegationAtWallClock = (parent, params, key) =>
+  createDelegationAtWallClock(parent, { issuedAt: NOW - 10, ...params }, key);
 function mkKey() { return generateKeyPairSync("ed25519", { publicKeyEncoding:{type:"spki",format:"pem"}, privateKeyEncoding:{type:"pkcs8",format:"pem"} }); }
 const svcA = mkKey(), mallory = mkKey(), broker = mkKey(), central = mkKey();
 const ks = (issuer: string, kid: string, pub: string): KeySet => ({ issuer, version:"1", keys:[{ kid, alg:"Ed25519", public_key: pub, status:"active" }] });

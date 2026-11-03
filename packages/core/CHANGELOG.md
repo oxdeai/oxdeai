@@ -7,6 +7,39 @@ This project follows Semantic Versioning.
 
 ---
 
+## [Unreleased]
+
+### Documentation
+
+- F4-1/F4-2: corrected the `VerifyDelegationOptions.trustedDelegationAuthorities`
+  and `DelegationAuthority` / `isTrustedDelegationAuthority` doc comments. They
+  claimed a default `issuer === delegator` self-delegation rule applies when the
+  option is absent; no such rule exists. Signer authority is checked only when
+  `trustedDelegationAuthorities` is provided. No behavior change.
+
+### Security
+
+- F4-R6-03 / F4-R8-02: `verifyDelegation` / `verifyDelegationChain` now reject
+  a delegation whose `expiry <= issued_at` (`DELEGATION_TEMPORAL_INVALID`,
+  delegation-v1 §4.3 MUST) and one whose `issued_at` is more than
+  `maxFutureIssuedAtSkewSeconds` (new option, default
+  `DEFAULT_MAX_FUTURE_ISSUED_AT_SKEW_SECONDS` = 300s) ahead of the verification
+  time (`DELEGATION_ISSUED_AT_IMPLAUSIBLE`), mirroring the authorization path's
+  `AUTH_ISSUED_AT_IMPLAUSIBLE`.
+- F4-R6-06 / C9: a supplied `parentScope` is now validated with the child-scope
+  type rules before narrowing. NaN, Infinity, fractional, negative or wrongly
+  typed parent ceilings are `DELEGATION_SCOPE_VIOLATION` instead of silently
+  disabling the `max_actions` / `max_depth` / `max_amount` narrowing (and being
+  inherited by an omitted child field).
+
+### Compatibility
+
+- Two additive `VerificationViolationCode` members; the verification-result
+  schema enum, API report and fingerprint are updated. Artifacts and parent
+  ceilings that already satisfied the specification are unaffected
+  (`createDelegation` defaults `issued_at` to now). Previously accepted
+  malformed artifacts or ceilings are now rejected.
+
 ## [2.0.2] - 2026-10-19
 
 ### Security

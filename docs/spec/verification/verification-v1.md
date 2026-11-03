@@ -145,7 +145,8 @@ Required steps (in order):
 6. Delegator binding: `delegation.delegator == parent.audience`.
 7. Policy binding: `delegation.policy_id == parent.policy_id`.
 8. Expiry ceiling: `delegation.expiry <= parent.expiry` and `delegation.expiry > now`; else `DELEGATION_EXPIRED` or `DELEGATION_SCOPE_WIDENING`.
-9. Scope narrowing:
+   Temporal validity: `delegation.expiry > delegation.issued_at`, else `DELEGATION_TEMPORAL_INVALID`; `delegation.issued_at <= verificationTime + maxFutureIssuedAtSkewSeconds`, else `DELEGATION_ISSUED_AT_IMPLAUSIBLE` (same contract as step 6 of §5).
+9. Scope narrowing (the supplied parent scope is first validated with the same type rules as the child scope; a malformed ceiling such as NaN, Infinity, a fraction or a negative value is `DELEGATION_SCOPE_VIOLATION`):
    - `scope.tools` subset of parent tools.
    - `scope.max_amount` ≤ parent amount (if present).
 10. Action scope check:

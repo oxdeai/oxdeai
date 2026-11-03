@@ -84,6 +84,8 @@
               "DELEGATION_MULTIHOP_DENIED",
               "DELEGATION_REPLAY",
               "DELEGATION_ID_NONCANONICAL",
+              "DELEGATION_TEMPORAL_INVALID",
+              "DELEGATION_ISSUED_AT_IMPLAUSIBLE",
               "TRUSTED_KEYSETS_REQUIRED",
               "KRL_MALFORMED",
               "KRL_UNSUPPORTED_ALG",

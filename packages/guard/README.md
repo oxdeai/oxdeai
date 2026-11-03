@@ -167,6 +167,12 @@ Identity comes from `trustedContext` (see [Tier 1 secure path](#tier-1-secure-pa
 claim. Do not derive `agent_id` from `action.context` in a mapper used with the
 low-level `OxDeAIGuard` unless your code, not the proposer, set that value.
 
+On the delegation path the policy engine does not run, so the guard applies the
+engine's amount contract itself: the mapped `amount` must be a non-negative
+`bigint`, otherwise the call fails with `OxDeAINormalizationError` (boundary
+code `NORMALIZATION_FAILURE`) before any verification, replay consumption or
+execution.
+
 ---
 
 ## Lifecycle hooks
@@ -294,6 +300,8 @@ evaluated intent's provenance is established.
 | Delegation scope widens or expiry exceeds parent | `OxDeAIDelegationError` thrown |
 | `delegation.delegatee` differs from the acting `agent_id` (guard ≥ 2.0.1) | `OxDeAIDelegationError` thrown, execute not called, nothing consumed |
 | No `trustedDelegationAuthorities` configured on a delegation call | `OxDeAIGuardConfigurationError` thrown, execute not called |
+| `trustedDelegationSigners` configured and the delegation's `(delegator, issuer)` is not listed | `OxDeAIDelegationError` thrown, execute not called, nothing consumed |
+| `trustedDelegationSigners` set to a non-array or a malformed entry | `OxDeAIGuardConfigurationError` thrown at construction |
 | In-scope delegation action | `execute` called; `PolicyEngine` not evaluated; `setState` not called on delegation path |
 | (Tier 1 only) proposer claim conflicts with `TrustedExecutionContext` | `OxDeAIProvenanceConflictError` thrown, execute not called |
 
@@ -529,11 +537,24 @@ await guard(childContext, { name: "provision_gpu", args: request }, async () => 
 **What the delegation path does**, in order, when `opts.delegation` is present:
 
 1. Reads state (`getState()`) and normalizes the action; delegation requires a
-   non-empty normalized `agent_id`.
+   non-empty normalized `agent_id`. It then takes one immutable snapshot of
+   `opts.delegation` (`delegation`, `parentAuth`, `parentScope`); every later
+   step reads only the snapshot, never the caller's objects. The input must be
+   plain data: plain objects and dense arrays whose own properties are
+   enumerable data properties, with string, number, bigint, boolean, null or
+   undefined leaves (what `createDelegation`, `signAuthorizationEd25519` and a
+   JSON decode produce). A Proxy, an accessor (getter) property, a class
+   instance, a cycle or a non-enumerable/symbol property is rejected
+   (`OxDeAIAuthorizationError`, boundary code `DELEGATION_INPUT_INVALID`) before
+   verification and before any replay state is consumed. `beforeExecute` and
+   `onDecision` receive the frozen snapshot objects.
 2. Fails closed if `trustedDelegationAuthorities` is not configured
    (`OxDeAIGuardConfigurationError`). An empty list is valid configuration that
    authorizes no delegation root.
-3. Fails closed if `parentScope` is missing or malformed.
+3. Fails closed if `parentScope` is missing or malformed: `tools` must be an
+   array of strings, `max_amount` a non-negative `bigint`, and `max_actions` /
+   `max_depth` non-negative integers (NaN, Infinity, fractional and negative
+   ceilings are rejected).
 4. Verifies `parentAuth` in strict mode: signature against `trustedKeySets`,
    `expectedAudience`, expiry, and its `(issuer, policy_id)` pair against
    `trustedDelegationAuthorities` (`OxDeAIAuthorityError` when authority is the
@@ -542,7 +563,9 @@ await guard(childContext, { name: "provision_gpu", args: request }, async () => 
    expiry, delegation expiry not exceeding the parent, `delegator` equal to
    `parentAuth.audience`, policy binding, delegation signature, scope narrowing
    against `parentScope`, single hop, and (guard ≥ 2.0.1) `delegatee` equal to
-   the acting `agent_id`.
+   the acting `agent_id`. When `trustedDelegationSigners` is configured, the
+   delegation's `(delegator, issuer)` pair must also be listed (see
+   [Delegation signer authority](#delegation-signer-authority-opt-in)).
 6. Checks the action against the effective delegation scope: `action.name` must
    be in `scope.tools`, and the normalized `amount` must not exceed
    `scope.max_amount`.
@@ -561,6 +584,41 @@ decision or authorization is issued for it. The delegation chain and the
 effective delegation scope are the constraints. `setState` is not called, so no
 policy state is committed. Because the parent `auth_id` is consumed, a parent
 authorization backs at most one delegated execution within a replay domain.
+
+### Delegation signer authority (opt-in)
+
+A valid delegation signature proves only that a key in `trustedKeySets` for the
+claimed `issuer` signed the artifact. It does **not** prove that this issuer
+may delegate on behalf of the `delegator` (the parent's audience). **By
+default the guard does not check this:** any key present in `trustedKeySets`,
+for any purpose, can sign a delegation of another agent's parent authorization
+and the guard will execute it.
+
+`trustedDelegationSigners` enables the check. It is a different option from
+`trustedDelegationAuthorities`, which authorizes the *parent* authorization:
+
+```text
+trustedDelegationAuthorities  [{ issuer, policyId }]    which parent may root a delegation (required)
+trustedDelegationSigners      [{ delegator, issuer }]   which issuer may sign a delegation for which delegator (opt-in)
+```
+
+```text
+undefined  -> not enforced (default, unchanged)
+[]         -> enforced; no delegation signer is authorized (every delegation call is denied)
+[pairs]    -> enforced; (delegation.delegator, delegation.issuer) must be listed exactly
+```
+
+For the example above, where agent-A signs its own delegations, set
+`trustedDelegationSigners: [{ delegator: "agent-A", issuer: "agent-A" }]`. A
+central issuer that signs delegations for agent-A is listed as
+`{ delegator: "agent-A", issuer: "<central issuer>" }`. A rejection is an
+`OxDeAIDelegationError` (core code `DELEGATION_SIGNER_NOT_AUTHORIZED`) raised
+before replay consumption and before `execute()`. A value that is not an array
+of `{ delegator, issuer }` with non-empty strings is rejected at construction
+with `OxDeAIGuardConfigurationError`; it never silently disables the check.
+
+Scope: this guard's in-process delegation path only. The HTTP PEP gateway and
+the framework adapters do not accept delegations.
 
 **Versions.** `@oxdeai/guard@2.0.0` does not bind `delegatee` to the acting
 agent: any presenter holding valid artifacts can execute. Upgrade to 2.0.1 or

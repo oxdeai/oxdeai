@@ -19,7 +19,7 @@ import assert from "node:assert/strict";
 import { generateKeyPairSync } from "node:crypto";
 import { canonicalJson } from "../crypto/hashes.js";
 import { signAuthorizationEd25519 } from "../verification/verifyAuthorization.js";
-import { createDelegation } from "../delegation/createDelegation.js";
+import { createDelegation as createDelegationAtWallClock } from "../delegation/createDelegation.js";
 import {
   verifyDelegation,
   verifyDelegationChain,
@@ -55,6 +55,14 @@ const T_ISSUED  = 1_000_000;
 const T_NOW     = 1_001_000;
 const T_DEL_EXP = 1_002_000;
 const T_PAR_EXP = 1_003_000;
+
+// Lot A (F4-R6-03/R8-02): verifyDelegation now rejects an issued_at more than
+// maxFutureIssuedAtSkewSeconds ahead of the verification time. These fixtures
+// verify at a fixed clock, so issue at that clock too (createDelegation would
+// otherwise stamp the real wall clock, decades after the fixed `now`). An
+// explicit `issuedAt` in a call still takes precedence.
+const createDelegation: typeof createDelegationAtWallClock = (parent, params, key) =>
+  createDelegationAtWallClock(parent, { issuedAt: T_ISSUED, ...params }, key);
 
 // ── Fixtures ──────────────────────────────────────────────────────────────────
 

@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
-import type { Authorization, AuthorizationV1, DelegationScope, Intent, KeySet } from "@oxdeai/core";
+import type { Authorization, AuthorizationV1, DelegationAuthority, DelegationScope, Intent, KeySet } from "@oxdeai/core";
 import { verifyDelegationChain, verifyAuthorization as strictVerifyAuthorization, intentHash, resolveEffectiveChildScope } from "@oxdeai/core";
-import type { OxDeAIGuardConfig, ProposedAction, GuardDecisionRecord, GuardCallOptions } from "./types.js";
+import type { OxDeAIGuardConfig, ProposedAction, GuardDecisionRecord, GuardCallOptions, GuardDelegationInput } from "./types.js";
 import { defaultNormalizeAction } from "./normalizeAction.js";
+import { snapshotPlainData, DelegationSnapshotError } from "./delegationSnapshot.js";
 import { resolveReplayProtection, strictFromConfig } from "./replayProtection.js";
 import type { ReplayStore } from "./replayStore.js";
 import { createLifecycle, emitBoundaryEvent, reject } from "./boundaryEvent.js";
@@ -36,16 +37,59 @@ function isValidDenyReasons(value: unknown): value is string[] {
   return Array.isArray(value) && value.every((r) => typeof r === "string");
 }
 
+/**
+ * Fail-closed validation of the deployer-supplied `parentScope` ceiling
+ * (F4-R6-06/C9, Guard side). Mirrors core's child-scope rules
+ * (`scopeTypeViolations` in verifyDelegation.ts): `tools` an array of strings,
+ * `max_amount` a non-negative bigint, `max_actions` / `max_depth` non-negative
+ * integers. NaN, ±Infinity, fractional and negative ceilings are rejected
+ * rather than allowed to make a `>` narrowing comparison silently pass.
+ */
 function isValidDelegationScope(scope: unknown): scope is DelegationScope {
   if (scope === null || scope === undefined || typeof scope !== "object" || Array.isArray(scope)) {
     return false;
   }
   const s = scope as Record<string, unknown>;
-  if (s.tools !== undefined && !Array.isArray(s.tools)) return false;
-  if (s.max_amount !== undefined && typeof s.max_amount !== "bigint") return false;
-  if (s.max_actions !== undefined && typeof s.max_actions !== "number") return false;
-  if (s.max_depth !== undefined && typeof s.max_depth !== "number") return false;
+  if (s.tools !== undefined && (!Array.isArray(s.tools) || !s.tools.every((t) => typeof t === "string"))) return false;
+  if (s.max_amount !== undefined && (typeof s.max_amount !== "bigint" || s.max_amount < 0n)) return false;
+  for (const field of ["max_actions", "max_depth"] as const) {
+    const v = s[field];
+    if (v !== undefined && (typeof v !== "number" || !Number.isInteger(v) || v < 0)) return false;
+  }
   return true;
+}
+
+/**
+ * F4-1/F4-2: resolve the opt-in delegation signer-authority policy at
+ * construction. `undefined` keeps the existing (non-enforcing) behavior; any
+ * other value must be a well-formed list, or construction fails closed. A
+ * malformed value (null, an object, a string, an entry missing a member) must
+ * never be read as "not configured", which would silently disable a check the
+ * deployer asked for. The result is a frozen copy so later mutation of the
+ * caller's array cannot change enforcement.
+ */
+function resolveDelegationSigners(value: unknown): readonly DelegationAuthority[] | undefined {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value)) {
+    throw new OxDeAIGuardConfigurationError(
+      "config.trustedDelegationSigners must be an array of { delegator, issuer } pairs when provided."
+    );
+  }
+  const copy: DelegationAuthority[] = [];
+  for (const entry of value as unknown[]) {
+    const e = entry as { delegator?: unknown; issuer?: unknown } | null;
+    if (
+      e === null || typeof e !== "object" || Array.isArray(e) ||
+      typeof e.delegator !== "string" || e.delegator.length === 0 ||
+      typeof e.issuer !== "string" || e.issuer.length === 0
+    ) {
+      throw new OxDeAIGuardConfigurationError(
+        "config.trustedDelegationSigners entries must be { delegator: string, issuer: string } with non-empty values."
+      );
+    }
+    copy.push(Object.freeze({ delegator: e.delegator, issuer: e.issuer }));
+  }
+  return Object.freeze(copy);
 }
 
 function validateConfig(config: OxDeAIGuardConfig): void {
@@ -104,6 +148,8 @@ async function fireDecision(
  *
  * Delegation path (when opts.delegation is provided):
  *   1. Normalize the action to an Intent (scope amount check).
+ *   1a. Take one immutable plain-data snapshot of opts.delegation (F4-R8-01);
+ *       every later step reads only the snapshot. Unsupported input fails closed.
  *   2. Verify the DelegationV1 chain locally (no engine call).
  *   3. Check proposed action is within delegation scope (tools, max_amount).
  *   4. Call optional beforeExecute hook.
@@ -159,6 +205,9 @@ export function OxDeAIGuard(config: OxDeAIGuardConfig) {
   // with a one-time migration warning). Unsafe/ambiguous config fails closed.
   const replayStore: ReplayStore = resolveReplayProtection(config, { strict: strictFromConfig((config as { requireExplicitReplayProtection?: unknown }).requireExplicitReplayProtection) }).store;
 
+  // F4-1/F4-2: opt-in delegation signer authority, validated and frozen now.
+  const delegationSigners = resolveDelegationSigners(config.trustedDelegationSigners);
+
   /**
    * The enforcement body. Extracted so that every rejection leaves through one
    * catch in `guard` below, rather than each throw site having to remember to
@@ -170,6 +219,12 @@ export function OxDeAIGuard(config: OxDeAIGuardConfig) {
     opts: GuardCallOptions | undefined,
     lifecycle: GuardLifecycle
   ): Promise<unknown> {
+    // F4-R8-01: read the caller's delegation container exactly once. It decides
+    // both the normalization-time agent_id requirement and which path runs, so
+    // two reads could disagree (e.g. skip the agent_id check, then take the
+    // delegation path with no delegatee binding).
+    const delegationInput: GuardDelegationInput | undefined = opts?.delegation;
+
     // ── 1. Load state + version ────────────────────────────────────────────
     const versioned = await config.getState();
     const state = versioned.state;
@@ -192,7 +247,7 @@ export function OxDeAIGuard(config: OxDeAIGuardConfig) {
     try {
       intent = normalize(action);
       // Custom normalizers must not disable the optional core recipient check.
-      if (opts?.delegation && (typeof intent?.agent_id !== "string" || intent.agent_id.length === 0)) {
+      if (delegationInput && (typeof intent?.agent_id !== "string" || intent.agent_id.length === 0)) {
         throw new OxDeAINormalizationError("Delegation requires a non-empty normalized intent.agent_id.");
       }
     } catch (err) {
@@ -224,9 +279,45 @@ export function OxDeAIGuard(config: OxDeAIGuardConfig) {
     lifecycle.intentId = intent.intent_id;
 
     // ── 3. Delegation path ─────────────────────────────────────────────────
-    if (opts?.delegation) {
+    if (delegationInput) {
       lifecycle.stage = "DELEGATION";
-      const { delegation, parentAuth } = opts.delegation;
+
+      // F4-R8-04: the delegation path does not run the PolicyEngine, so the
+      // engine's INTENT_AMOUNT_INVALID check never sees the intent. Apply the
+      // same amount contract here, before any verification: the normalized
+      // amount must be a non-negative bigint (a negative amount would pass
+      // every `amount > cap` comparison). Read once, inside the delegation
+      // branch, and reused for enforcement below, so no separate read can
+      // skip the check or substitute a different value.
+      const delegatedAmount: unknown = intent.amount;
+      if (typeof delegatedAmount !== "bigint" || delegatedAmount < 0n) {
+        throw reject(
+          "NORMALIZATION",
+          "NORMALIZATION_FAILURE",
+          new OxDeAINormalizationError("Delegation requires normalized intent.amount to be a non-negative bigint.")
+        );
+      }
+
+      // ── F4-R8-01: one immutable authorization-input snapshot ─────────────
+      // Every later step — parent verification, chain/signature verification,
+      // scope enforcement, action binding, replay consumption and the audit
+      // hooks — reads ONLY this snapshot, never the caller's object again. An
+      // input outside the supported plain-data model (Proxy, accessor,
+      // class instance, cycle, …) fails closed here, before any verification
+      // and before any replay state is touched. See delegationSnapshot.ts.
+      let snapshot: GuardDelegationInput;
+      try {
+        snapshot = snapshotPlainData(delegationInput, "delegation input");
+      } catch (err) {
+        throw reject(
+          "DELEGATION",
+          "DELEGATION_INPUT_INVALID",
+          new OxDeAIAuthorizationError(
+            `Delegation input is not supported plain data (${err instanceof DelegationSnapshotError ? err.message : "snapshot failed"}). Execution blocked.`
+          )
+        );
+      }
+      const { delegation, parentAuth } = snapshot;
 
       if (!delegation || !parentAuth) {
         throw reject(
@@ -265,7 +356,7 @@ export function OxDeAIGuard(config: OxDeAIGuardConfig) {
 
       // Validate parentScope before anything trusts it. Fail closed on missing
       // or malformed scope.
-      const { parentScope } = opts.delegation;
+      const { parentScope } = snapshot;
       if (!isValidDelegationScope(parentScope)) {
         throw reject(
           "DELEGATION",
@@ -370,12 +461,17 @@ export function OxDeAIGuard(config: OxDeAIGuardConfig) {
       //   - delegation expiry
       //   - delegation signature (if trustedKeySets provided)
       //   - scope narrowing against parent (enforced via parentScope)
+      //   - delegation signer authority, when config.trustedDelegationSigners
+      //     is configured (F4-1/F4-2). Not to be confused with
+      //     config.trustedDelegationAuthorities, which authorized the PARENT
+      //     above and has a different type and meaning.
       const chainResult = verifyDelegationChain(delegation, parentAuth, {
         now,
         trustedKeySets: config.trustedKeySets,
         requireSignatureVerification: true,
         parentScope,
         expectedDelegatee: intent.agent_id,
+        ...(delegationSigners !== undefined ? { trustedDelegationAuthorities: delegationSigners } : {}),
       });
 
       if (!chainResult.ok) {
@@ -399,9 +495,9 @@ export function OxDeAIGuard(config: OxDeAIGuardConfig) {
         );
       }
 
-      if (effectiveScope.max_amount !== undefined && intent.amount > effectiveScope.max_amount) {
+      if (effectiveScope.max_amount !== undefined && delegatedAmount > effectiveScope.max_amount) {
         violationMessages.push(
-          `intent amount ${intent.amount} exceeds delegation scope.max_amount ${effectiveScope.max_amount}`
+          `intent amount ${delegatedAmount} exceeds delegation scope.max_amount ${effectiveScope.max_amount}`
         );
       }
 
