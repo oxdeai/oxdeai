@@ -302,7 +302,11 @@ evaluated intent's provenance is established.
 | No `trustedDelegationAuthorities` configured on a delegation call | `OxDeAIGuardConfigurationError` thrown, execute not called |
 | `trustedDelegationSigners` configured and the delegation's `(delegator, issuer)` is not listed | `OxDeAIDelegationError` thrown, execute not called, nothing consumed |
 | `trustedDelegationSigners` set to a non-array or a malformed entry | `OxDeAIGuardConfigurationError` thrown at construction |
-| In-scope delegation action | `execute` called; `PolicyEngine` not evaluated; `setState` not called on delegation path |
+| Revocation required but no provider configured | `OxDeAIDelegationError`, boundary code `DELEGATION_REVOCATION_UNAVAILABLE`; execution blocked |
+| Revocation provider unavailable or response indeterminate | `OxDeAIDelegationError`, boundary code `DELEGATION_REVOCATION_UNAVAILABLE`; execution blocked |
+| Revocation provider returns `REVOKED` | `OxDeAIDelegationError`, boundary code `DELEGATION_REVOKED`; execution blocked |
+| Revocation provider returns `ACTIVE` | Revocation gate passed; remaining execution checks still apply |
+| In-scope delegation action | `execute` called only after all enabled checks succeed; `PolicyEngine` not evaluated; `setState` not called on delegation path |
 | (Tier 1 only) proposer claim conflicts with `TrustedExecutionContext` | `OxDeAIProvenanceConflictError` thrown, execute not called |
 
 **There is no code path that executes without a valid, verified authorization.**
@@ -569,11 +573,19 @@ await guard(childContext, { name: "provision_gpu", args: request }, async () => 
 6. Checks the action against the effective delegation scope: `action.name` must
    be in `scope.tools`, and the normalized `amount` must not exceed
    `scope.max_amount`.
-7. Consumes `delegation_id` (when the replay store supports it), then the parent
+7. If `delegationRevocationProvider` is configured, queries it with an immutable
+   key derived from the verified delegation: `delegationId`, `issuer`,
+   `delegator`, and `parentAuthHash`. Only an explicit `ACTIVE` response permits
+   continuation. `REVOKED` denies with `DELEGATION_REVOKED`; provider failures,
+   malformed responses, or indeterminate results deny with
+   `DELEGATION_REVOCATION_UNAVAILABLE`. If no provider is configured and
+   `requireDelegationRevocation` is true, execution is denied with
+   `DELEGATION_REVOCATION_UNAVAILABLE`.
+8. Consumes `delegation_id` (when the replay store supports it), then the parent
    `auth_id`.
-8. Runs `beforeExecute`, then `execute()`, then reports `onDecision` (ALLOW).
+9. Runs `beforeExecute`, then `execute()`, then reports `onDecision` (ALLOW).
 
-Any failure in steps 1 to 6 throws before replay consumption, state mutation, or
+Any failure in steps 1 to 7 throws before replay consumption, state mutation, or
 execution. After a rejected presentation (for example by the wrong agent), the
 unconsumed artifacts remain usable by the real delegatee.
 
@@ -584,6 +596,60 @@ decision or authorization is issued for it. The delegation chain and the
 effective delegation scope are the constraints. `setState` is not called, so no
 policy state is committed. Because the parent `auth_id` is consumed, a parent
 authorization backs at most one delegated execution within a replay domain.
+
+### Delegation revocation (F4-C, opt-in)
+
+`@oxdeai/guard` supports an authoritative revocation check for delegated
+execution. This is a guard-side enforcement extension; the signed `DelegationV1`
+format is unchanged.
+
+```typescript
+const guard = createSecureGuard({
+  // Existing required guard configuration:
+  engine,
+  getState,
+  setState,
+  expectedAudience: "agent-A",
+  trustedKeySets,
+  trustedDelegationAuthorities,
+
+  requireDelegationRevocation: true,
+  delegationRevocationProvider: {
+    async check(key) {
+      // Query the deployment's authoritative revocation state using the
+      // verified delegation identity. Do not use stale cached ACTIVE results.
+      const revoked = await revocationStore.isRevoked(key);
+      return { status: revoked ? "REVOKED" : "ACTIVE" };
+    },
+  },
+  { tenancy: "single-tenant" }
+);
+```
+
+The provider receives a frozen `DelegationRevocationKey` containing
+`delegationId`, `issuer`, `delegator`, and `parentAuthHash`. Its `check()` method
+must return a promise resolving to `{ status: "ACTIVE" }` or
+`{ status: "REVOKED" }`. The backing `revocationStore` above is illustrative;
+the application must supply an authoritative implementation.
+
+- With a provider, every delegated execution requires an explicit `ACTIVE`
+  result, even when `requireDelegationRevocation` is false.
+- With `requireDelegationRevocation: true` and no provider, delegated execution
+  fails closed (`DELEGATION_REVOCATION_UNAVAILABLE`).
+- With neither option configured, legacy delegation behavior is preserved.
+- Invalid configuration fails at construction. Provider errors, malformed
+  responses, and indeterminate status fail closed before replay consumption.
+- Direct (non-delegated) authorization is not subject to this revocation check.
+- Rejection emits a boundary event with the corresponding failure code.
+
+**Security boundary and limitations:** the check occurs after delegation
+verification and scope enforcement, before replay consumption and protected
+execution. It does not cancel execution already started, and it does not make
+the revocation lookup and external side effect atomic. The provider must
+consult sufficiently current, authoritative state; stale `ACTIVE` caching can
+permit execution after revocation. Distributed deployments must account for
+consistency, availability, and revocation propagation latency. This mechanism
+revokes delegation grants, not signing keys; SignedKRLV1 is a separate concern.
 
 ### Delegation signer authority (opt-in)
 

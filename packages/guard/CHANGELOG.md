@@ -11,6 +11,17 @@ This project follows Semantic Versioning.
 
 ### Security
 
+- F4-C: adds opt-in delegation revocation enforcement to `OxDeAIGuard`
+  through `delegationRevocationProvider` and
+  `requireDelegationRevocation`. A verified delegation must receive an
+  explicit `ACTIVE` result before replay consumption and execution.
+  `REVOKED` denies with `DELEGATION_REVOKED`; unavailable or indeterminate
+  revocation state denies with `DELEGATION_REVOCATION_UNAVAILABLE`.
+  Missing required providers and malformed configuration fail closed.
+  Direct authorization and the signed `DelegationV1` format are unchanged.
+  The check is not atomic with external execution and does not cancel
+  already-started operations.
+
 - F4-1/F4-2: new opt-in `trustedDelegationSigners: DelegationAuthority[]` option
   enforces delegation signer authority on the delegation path by forwarding it to
   core `verifyDelegationChain`. When configured, a delegation whose

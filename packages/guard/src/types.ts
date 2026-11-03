@@ -87,8 +87,38 @@ export type VersionedState = {
   version: StateVersion;
 };
 
+/** Identity used by the authoritative delegation revocation provider. */
+export type DelegationRevocationKey = Readonly<{
+  delegationId: string;
+  issuer: string;
+  delegator: string;
+  parentAuthHash: string;
+}>;
+
+export type DelegationRevocationStatus =
+  | Readonly<{ status: "ACTIVE" }>
+  | Readonly<{ status: "REVOKED" }>;
+
+export interface DelegationRevocationProvider {
+  check(
+    key: DelegationRevocationKey
+  ): Promise<DelegationRevocationStatus>;
+}
+
 /** Configuration for OxDeAIGuard. */
 export type OxDeAIGuardConfig = {
+  /**
+   * Optional authoritative delegation revocation provider.
+   * An invalid, unavailable or indeterminate result must deny execution.
+   */
+  delegationRevocationProvider?: DelegationRevocationProvider;
+
+  /**
+   * Require revocation enforcement for every delegated execution.
+   * Defaults to false for backward compatibility.
+   */
+  requireDelegationRevocation?: boolean;
+
   /** The PolicyEngine instance that evaluates intent policy. */
   engine: PolicyEngine;
   /**

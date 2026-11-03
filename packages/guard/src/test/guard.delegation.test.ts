@@ -22,6 +22,7 @@ import {
   OxDeAIAuthorizationError,
   OxDeAIDelegationError,
 } from "../errors.js";
+import { OxDeAIGuardConfigurationError } from "../errors.js";
 import type { ProposedAction, OxDeAIGuardConfig } from "../types.js";
 import { TEST_KEYSET, TEST_KEYPAIR, DELEGATION_AUTHORITIES } from "./helpers/fixtures.js";
 
@@ -431,4 +432,727 @@ test("standard path: unaffected when no opts.delegation provided", async () => {
 
   const result = await guard(baseAction, async () => "standard-ok");
   assert.equal(result, "standard-ok");
+});
+
+// F4-C: A verified delegation may execute only after the revocation
+// provider explicitly returns ACTIVE. Assert that the lookup key
+// matches the signed delegation and is frozen before execution.
+test("F4-C: ACTIVE delegation revocation status permits execution", async () => {
+  const parentAuth = makeParentAuth();
+  const delegation = makeDelegation(parentAuth);
+
+  let checked = false;
+  let executed = false;
+
+  const guard = OxDeAIGuard(
+    makeGuardConfig({
+      delegationRevocationProvider: {
+        async check(key) {
+          checked = true;
+
+          assert.equal(key.delegationId, delegation.delegation_id);
+          assert.equal(key.issuer, delegation.issuer);
+          assert.equal(key.delegator, delegation.delegator);
+          assert.equal(key.parentAuthHash, delegation.parent_auth_hash);
+          assert.ok(Object.isFrozen(key));
+
+          return { status: "ACTIVE" };
+        },
+      },
+      requireDelegationRevocation: true,
+    })
+  );
+
+  const result = await guard(
+    baseAction,
+    async () => {
+      executed = true;
+      return "ok";
+    },
+    {
+      delegation: {
+        delegation,
+        parentAuth,
+        parentScope: PARENT_SCOPE,
+      },
+    }
+  );
+
+  assert.equal(checked, true);
+  assert.equal(executed, true);
+  assert.equal(result, "ok");
+});
+
+// F4-C: A revoked delegation must be denied at the execution boundary,
+// even when its signature and authorization chain remain valid.
+test("F4-C: REVOKED delegation blocks execution", async () => {
+  const parentAuth = makeParentAuth();
+  const delegation = makeDelegation(parentAuth);
+
+  let checks = 0;
+  let executed = false;
+  let beforeExecuteCalled = false;
+
+  const events: Array<{
+    stage: string;
+    boundaryFailure: string;
+    authorizationConsumed: boolean;
+    delegationConsumed: boolean;
+    executionStarted: boolean;
+  }> = [];
+
+  const guard = OxDeAIGuard(
+    makeGuardConfig({
+      delegationRevocationProvider: {
+        async check() {
+          checks++;
+          return { status: "REVOKED" };
+        },
+      },
+      requireDelegationRevocation: true,
+      beforeExecute: () => {
+        beforeExecuteCalled = true;
+      },
+      onBoundaryEvent: (event) => {
+        events.push(event);
+      },
+    })
+  );
+
+  await assert.rejects(
+    guard(
+      baseAction,
+      async () => {
+        executed = true;
+        return "SHOULD_NOT_EXECUTE";
+      },
+      {
+        delegation: {
+          delegation,
+          parentAuth,
+          parentScope: PARENT_SCOPE,
+        },
+      }
+    ),
+    OxDeAIDelegationError
+  );
+
+  assert.equal(checks, 1);
+  assert.equal(executed, false);
+  assert.equal(beforeExecuteCalled, false);
+
+  assert.equal(events.length, 1);
+  assert.equal(events[0]!.stage, "DELEGATION");
+  assert.equal(events[0]!.boundaryFailure, "DELEGATION_REVOKED");
+  assert.equal(events[0]!.authorizationConsumed, false);
+  assert.equal(events[0]!.delegationConsumed, false);
+  assert.equal(events[0]!.executionStarted, false);
+});
+
+// F4-C: A required revocation check must not silently fall back
+// to legacy behavior when no provider is configured.
+test("F4-C: required revocation without provider fails closed", async () => {
+  const parentAuth = makeParentAuth();
+  const delegation = makeDelegation(parentAuth);
+
+  let executed = false;
+  let beforeExecuteCalled = false;
+  const events: Array<{
+    stage: string;
+    boundaryFailure: string;
+    authorizationConsumed: boolean;
+    delegationConsumed: boolean;
+    executionStarted: boolean;
+  }> = [];
+
+  const guard = OxDeAIGuard(
+    makeGuardConfig({
+      requireDelegationRevocation: true,
+      beforeExecute: () => {
+        beforeExecuteCalled = true;
+      },
+      onBoundaryEvent: (event) => {
+        events.push(event);
+      },
+    })
+  );
+
+  await assert.rejects(
+    guard(
+      baseAction,
+      async () => {
+        executed = true;
+        return "SHOULD_NOT_EXECUTE";
+      },
+      {
+        delegation: {
+          delegation,
+          parentAuth,
+          parentScope: PARENT_SCOPE,
+        },
+      }
+    ),
+    OxDeAIDelegationError
+  );
+
+  assert.equal(executed, false);
+  assert.equal(beforeExecuteCalled, false);
+  assert.equal(events.length, 1);
+  assert.equal(events[0]!.stage, "DELEGATION");
+  assert.equal(
+    events[0]!.boundaryFailure,
+    "DELEGATION_REVOCATION_UNAVAILABLE"
+  );
+  assert.equal(events[0]!.authorizationConsumed, false);
+  assert.equal(events[0]!.delegationConsumed, false);
+  assert.equal(events[0]!.executionStarted, false);
+});
+
+// F4-C: A provider failure must never be interpreted as ACTIVE.
+test("F4-C: provider failure blocks execution", async () => {
+  const parentAuth = makeParentAuth();
+  const delegation = makeDelegation(parentAuth);
+
+  let checks = 0;
+  let executed = false;
+  let beforeExecuteCalled = false;
+  const events: Array<{
+    stage: string;
+    boundaryFailure: string;
+    authorizationConsumed: boolean;
+    delegationConsumed: boolean;
+    executionStarted: boolean;
+  }> = [];
+
+  const guard = OxDeAIGuard(
+    makeGuardConfig({
+      requireDelegationRevocation: true,
+      delegationRevocationProvider: {
+        async check() {
+          checks++;
+          throw new Error("Synthetic revocation provider outage");
+        },
+      },
+      beforeExecute: () => {
+        beforeExecuteCalled = true;
+      },
+      onBoundaryEvent: (event) => {
+        events.push(event);
+      },
+    })
+  );
+
+  await assert.rejects(
+    guard(
+      baseAction,
+      async () => {
+        executed = true;
+        return "SHOULD_NOT_EXECUTE";
+      },
+      {
+        delegation: {
+          delegation,
+          parentAuth,
+          parentScope: PARENT_SCOPE,
+        },
+      }
+    ),
+    OxDeAIDelegationError
+  );
+
+  assert.equal(checks, 1);
+  assert.equal(executed, false);
+  assert.equal(beforeExecuteCalled, false);
+
+  assert.equal(events.length, 1);
+  assert.equal(events[0]!.stage, "DELEGATION");
+  assert.equal(
+    events[0]!.boundaryFailure,
+    "DELEGATION_REVOCATION_UNAVAILABLE"
+  );
+  assert.equal(events[0]!.authorizationConsumed, false);
+  assert.equal(events[0]!.delegationConsumed, false);
+  assert.equal(events[0]!.executionStarted, false);
+});
+
+// F4-C: Malformed or hostile provider responses must never authorize execution.
+test("F4-C: invalid revocation responses fail closed", async (t) => {
+  const cases: Array<{ name: string; result: unknown }> = [
+    { name: "unknown status", result: { status: "UNKNOWN" } },
+    { name: "missing status", result: {} },
+    {
+      name: "throwing getter",
+      result: Object.defineProperty({}, "status", {
+        get() {
+          throw new Error("Synthetic getter failure");
+        },
+      }),
+    },
+    {
+      name: "hostile Proxy",
+      result: new Proxy({}, {
+        getOwnPropertyDescriptor() {
+          throw new Error("Synthetic Proxy failure");
+        },
+      }),
+    },
+  ];
+
+  for (const scenario of cases) {
+    await t.test(scenario.name, async () => {
+      const parentAuth = makeParentAuth();
+      const delegation = makeDelegation(parentAuth);
+
+      let executed = false;
+      let beforeExecuteCalled = false;
+      let checks = 0;
+
+      const events: Array<{
+        stage: string;
+        boundaryFailure: string;
+        authorizationConsumed: boolean;
+        delegationConsumed: boolean;
+        executionStarted: boolean;
+      }> = [];
+
+      const guard = OxDeAIGuard(
+        makeGuardConfig({
+          requireDelegationRevocation: true,
+          delegationRevocationProvider: {
+            async check() {
+              checks++;
+              return scenario.result as { status: "ACTIVE" | "REVOKED" };
+            },
+          },
+          beforeExecute: () => {
+            beforeExecuteCalled = true;
+          },
+          onBoundaryEvent: (event) => {
+            events.push(event);
+          },
+        })
+      );
+
+      await assert.rejects(
+        guard(
+          baseAction,
+          async () => {
+            executed = true;
+            return "SHOULD_NOT_EXECUTE";
+          },
+          {
+            delegation: {
+              delegation,
+              parentAuth,
+              parentScope: PARENT_SCOPE,
+            },
+          }
+        ),
+        OxDeAIDelegationError
+      );
+
+      assert.equal(checks, 1);
+      assert.equal(executed, false);
+      assert.equal(beforeExecuteCalled, false);
+      assert.equal(events.length, 1);
+      assert.equal(events[0]!.stage, "DELEGATION");
+      assert.equal(
+        events[0]!.boundaryFailure,
+        "DELEGATION_REVOCATION_UNAVAILABLE"
+      );
+      assert.equal(events[0]!.authorizationConsumed, false);
+      assert.equal(events[0]!.delegationConsumed, false);
+      assert.equal(events[0]!.executionStarted, false);
+    });
+  }
+});
+
+// F4-C: The revocation extension is opt-in. Without a provider and
+// without the required flag, valid legacy delegations still execute.
+test("F4-C: optional revocation without provider preserves legacy execution", async () => {
+  const parentAuth = makeParentAuth();
+  const delegation = makeDelegation(parentAuth);
+
+  let executed = false;
+  let beforeExecuteCalled = false;
+  let boundaryEvents = 0;
+
+  const guard = OxDeAIGuard(
+    makeGuardConfig({
+      requireDelegationRevocation: false,
+      beforeExecute: () => {
+        beforeExecuteCalled = true;
+      },
+      onBoundaryEvent: () => {
+        boundaryEvents++;
+      },
+    })
+  );
+
+  const result = await guard(
+    baseAction,
+    async () => {
+      executed = true;
+      return "ok";
+    },
+    {
+      delegation: {
+        delegation,
+        parentAuth,
+        parentScope: PARENT_SCOPE,
+      },
+    }
+  );
+
+  assert.equal(result, "ok");
+  assert.equal(executed, true);
+  assert.equal(beforeExecuteCalled, true);
+  assert.equal(boundaryEvents, 0);
+});
+
+// F4-C: The Guard must retain the provider check function captured
+// at construction, rather than resolving a mutable method at execution.
+test("F4-C: provider method mutation cannot bypass revocation", async () => {
+  const parentAuth = makeParentAuth();
+  const delegation = makeDelegation(parentAuth);
+
+  let originalChecks = 0;
+  let replacementChecks = 0;
+  let executed = false;
+  const events: string[] = [];
+
+  const provider: {
+    check(): Promise<{ status: "ACTIVE" | "REVOKED" }>;
+  } = {
+    async check() {
+      originalChecks++;
+      return { status: "REVOKED" };
+    },
+  };
+
+  const guard = OxDeAIGuard(
+    makeGuardConfig({
+      requireDelegationRevocation: true,
+      delegationRevocationProvider: provider,
+      onBoundaryEvent: (event) => {
+        events.push(event.boundaryFailure);
+      },
+    })
+  );
+
+  // Attempt to replace the authorization-relevant provider method.
+  provider.check = async () => {
+    replacementChecks++;
+    return { status: "ACTIVE" as const };
+  };
+
+  await assert.rejects(
+    guard(
+      baseAction,
+      async () => {
+        executed = true;
+        return "SHOULD_NOT_EXECUTE";
+      },
+      {
+        delegation: {
+          delegation,
+          parentAuth,
+          parentScope: PARENT_SCOPE,
+        },
+      }
+    ),
+    OxDeAIDelegationError
+  );
+
+  assert.equal(originalChecks, 1);
+  assert.equal(replacementChecks, 0);
+  assert.equal(executed, false);
+  assert.deepEqual(events, ["DELEGATION_REVOKED"]);
+});
+
+// F4-C: Revocation rejection must happen before either replay ID
+// is consumed. Verify actual store calls, not just audit flags.
+test("F4-C: revocation rejection does not consume replay IDs", async (t) => {
+  for (const status of ["REVOKED", "UNAVAILABLE"] as const) {
+    await t.test(status, async () => {
+      const parentAuth = makeParentAuth();
+      const delegation = makeDelegation(parentAuth);
+      const calls: string[] = [];
+      let executed = false;
+
+      const guard = OxDeAIGuard(
+        makeGuardConfig({
+          replayProtection: {
+            mode: "shared",
+            store: {
+              async consumeAuthId() {
+                calls.push("consumeAuthId");
+                return true;
+              },
+              async consumeDelegationId() {
+                calls.push("consumeDelegationId");
+                return true;
+              },
+            },
+          },
+          requireDelegationRevocation: true,
+          delegationRevocationProvider: {
+            async check() {
+              calls.push("revocationCheck");
+              if (status === "UNAVAILABLE") {
+                throw new Error("Synthetic provider outage");
+              }
+              return { status: "REVOKED" };
+            },
+          },
+        })
+      );
+
+      await assert.rejects(
+        guard(
+          baseAction,
+          async () => {
+            executed = true;
+            return "SHOULD_NOT_EXECUTE";
+          },
+          {
+            delegation: {
+              delegation,
+              parentAuth,
+              parentScope: PARENT_SCOPE,
+            },
+          }
+        ),
+        OxDeAIDelegationError
+      );
+
+      assert.deepEqual(calls, ["revocationCheck"]);
+      assert.equal(executed, false);
+    });
+  }
+});
+
+// F4-C: A fresh authorization check must observe a changed revocation
+// status. Independent replay stores isolate revocation from replay denial.
+test("F4-C: revocation state change blocks a subsequent execution", async () => {
+  const parentAuth = makeParentAuth();
+  const delegation = makeDelegation(parentAuth);
+
+  let status: "ACTIVE" | "REVOKED" = "ACTIVE";
+  let checks = 0;
+  let executions = 0;
+  const events: string[] = [];
+
+  const provider = {
+    async check() {
+      checks++;
+      return { status };
+    },
+  };
+
+  const config = () =>
+    makeGuardConfig({
+      replayProtection: { mode: "process-local" },
+      requireDelegationRevocation: true,
+      delegationRevocationProvider: provider,
+      onBoundaryEvent: (event) => {
+        events.push(event.boundaryFailure);
+      },
+    });
+
+  const context = {
+    delegation: {
+      delegation,
+      parentAuth,
+      parentScope: PARENT_SCOPE,
+    },
+  };
+
+  const execute = async () => {
+    executions++;
+    return "ok";
+  };
+
+  const firstGuard = OxDeAIGuard(config());
+
+  assert.equal(await firstGuard(baseAction, execute, context), "ok");
+  assert.equal(executions, 1);
+  assert.equal(checks, 1);
+
+  status = "REVOKED";
+
+  const secondGuard = OxDeAIGuard(config());
+
+  await assert.rejects(
+    secondGuard(baseAction, execute, context),
+    OxDeAIDelegationError
+  );
+
+  assert.equal(checks, 2);
+  assert.equal(executions, 1);
+  assert.deepEqual(events, ["DELEGATION_REVOKED"]);
+});
+
+
+// F4-C-CONFIG-REGRESSION-TESTS
+// Configuration errors must not silently disable revocation enforcement.
+
+test("F4-C: invalid revocation configuration fails at construction", () => {
+  const invalidCases: Array<{
+    name: string;
+    overrides: Record<string, unknown>;
+  }> = [
+    {
+      name: "non-boolean required flag",
+      overrides: { requireDelegationRevocation: "true" },
+    },
+    {
+      name: "null provider",
+      overrides: { delegationRevocationProvider: null },
+    },
+    {
+      name: "provider without check",
+      overrides: { delegationRevocationProvider: {} },
+    },
+    {
+      name: "provider with non-function check",
+      overrides: { delegationRevocationProvider: { check: "ACTIVE" } },
+    },
+    {
+      name: "array provider",
+      overrides: { delegationRevocationProvider: [] },
+    },
+  ];
+
+  for (const { name, overrides } of invalidCases) {
+    assert.throws(
+      () => OxDeAIGuard(makeGuardConfig(
+        overrides as Partial<OxDeAIGuardConfig>
+      )),
+      {
+        name: "OxDeAIGuardConfigurationError",
+      },
+      name
+    );
+  }
+});
+
+test("F4-C: provider check getter is read once at construction", async () => {
+  let reads = 0;
+  let calls = 0;
+
+  const provider = {
+    get check() {
+      reads++;
+
+      if (reads !== 1) {
+        throw new Error("check getter read more than once");
+      }
+
+      return async function () {
+        calls++;
+        return { status: "ACTIVE" as const };
+      };
+    },
+  };
+
+  const guard = OxDeAIGuard(
+    makeGuardConfig({
+      delegationRevocationProvider: provider,
+      requireDelegationRevocation: true,
+    })
+  );
+
+  assert.equal(reads, 1);
+
+  const parentAuth = makeParentAuth();
+  const delegation = makeDelegation(parentAuth);
+
+  const result = await guard(
+    baseAction,
+    async () => "ok",
+    { delegation: { delegation, parentAuth, parentScope: PARENT_SCOPE } }
+  );
+
+  assert.equal(result, "ok");
+  assert.equal(reads, 1);
+  assert.equal(calls, 1);
+});
+
+test("F4-C: throwing provider check getter fails at construction", () => {
+  const provider = {
+    get check(): never {
+      throw new Error("synthetic getter failure");
+    },
+  };
+
+  assert.throws(
+    () => OxDeAIGuard(
+      makeGuardConfig({
+        delegationRevocationProvider: provider,
+        requireDelegationRevocation: true,
+      })
+    ),
+    {
+      name: "OxDeAIGuardConfigurationError",
+    }
+  );
+});
+
+test("F4-C: required revocation does not affect direct authorization", async () => {
+  let providerCalls = 0;
+  let executions = 0;
+
+  const guard = OxDeAIGuard(
+    makeGuardConfig({
+      requireDelegationRevocation: true,
+      delegationRevocationProvider: {
+        async check() {
+          providerCalls++;
+          return { status: "REVOKED" };
+        },
+      },
+    })
+  );
+
+  const result = await guard(
+    baseAction,
+    async () => {
+      executions++;
+      return "direct-ok";
+    }
+  );
+
+  assert.equal(result, "direct-ok");
+  assert.equal(executions, 1);
+  assert.equal(providerCalls, 0);
+});
+
+test("F4-C: provider bind failure is a configuration error", () => {
+  const hostileCheck = new Proxy(
+    async (_key: unknown) => ({ status: "ACTIVE" as const }),
+    {
+      get(target, property, receiver) {
+        if (property === "bind") {
+          throw new Error("synthetic bind failure");
+        }
+        return Reflect.get(target, property, receiver);
+      },
+    }
+  );
+
+  assert.throws(
+    () =>
+      OxDeAIGuard(
+        makeGuardConfig({
+          delegationRevocationProvider: {
+            check: hostileCheck,
+          },
+          requireDelegationRevocation: true,
+        })
+      ),
+    (error: unknown) =>
+      error instanceof OxDeAIGuardConfigurationError &&
+      error.message.includes("could not be bound")
+  );
 });

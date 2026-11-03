@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import type { Authorization, AuthorizationV1, DelegationAuthority, DelegationScope, Intent, KeySet } from "@oxdeai/core";
 import { verifyDelegationChain, verifyAuthorization as strictVerifyAuthorization, intentHash, resolveEffectiveChildScope } from "@oxdeai/core";
-import type { OxDeAIGuardConfig, ProposedAction, GuardDecisionRecord, GuardCallOptions, GuardDelegationInput } from "./types.js";
+import type { OxDeAIGuardConfig, ProposedAction, GuardDecisionRecord, GuardCallOptions, GuardDelegationInput, DelegationRevocationProvider } from "./types.js";
 import { defaultNormalizeAction } from "./normalizeAction.js";
 import { snapshotPlainData, DelegationSnapshotError } from "./delegationSnapshot.js";
 import { resolveReplayProtection, strictFromConfig } from "./replayProtection.js";
@@ -90,6 +90,75 @@ function resolveDelegationSigners(value: unknown): readonly DelegationAuthority[
     copy.push(Object.freeze({ delegator: e.delegator, issuer: e.issuer }));
   }
   return Object.freeze(copy);
+}
+
+/**
+ * Resolve F4-C revocation configuration at construction.
+ * Invalid explicit configuration must never silently disable enforcement.
+ */
+function resolveDelegationRevocation(config: OxDeAIGuardConfig): {
+  provider: DelegationRevocationProvider | undefined;
+  required: boolean;
+} {
+  const rawRequired: unknown = config.requireDelegationRevocation;
+
+  if (rawRequired !== undefined && typeof rawRequired !== "boolean") {
+    throw new OxDeAIGuardConfigurationError(
+      "config.requireDelegationRevocation must be a boolean when provided."
+    );
+  }
+
+  const rawProvider: unknown = config.delegationRevocationProvider;
+
+  if (rawProvider === undefined) {
+    return {
+      provider: undefined,
+      required: rawRequired === true,
+    };
+  }
+
+  if (
+    rawProvider === null ||
+    typeof rawProvider !== "object" ||
+    Array.isArray(rawProvider)
+  ) {
+    throw new OxDeAIGuardConfigurationError(
+      "config.delegationRevocationProvider must provide a check() function."
+    );
+  }
+
+  let check: unknown;
+
+  try {
+    check = (rawProvider as { check?: unknown }).check;
+  } catch {
+    throw new OxDeAIGuardConfigurationError(
+      "config.delegationRevocationProvider.check could not be read."
+    );
+  }
+
+  if (typeof check !== "function") {
+    throw new OxDeAIGuardConfigurationError(
+      "config.delegationRevocationProvider must provide a check() function."
+    );
+  }
+
+  let boundCheck: DelegationRevocationProvider["check"];
+
+  try {
+    boundCheck = check.bind(rawProvider);
+  } catch {
+    throw new OxDeAIGuardConfigurationError(
+      "config.delegationRevocationProvider.check could not be bound."
+    );
+  }
+
+  return {
+    provider: Object.freeze({
+      check: boundCheck,
+    }),
+    required: rawRequired === true,
+  };
 }
 
 function validateConfig(config: OxDeAIGuardConfig): void {
@@ -207,6 +276,9 @@ export function OxDeAIGuard(config: OxDeAIGuardConfig) {
 
   // F4-1/F4-2: opt-in delegation signer authority, validated and frozen now.
   const delegationSigners = resolveDelegationSigners(config.trustedDelegationSigners);
+
+  // F4-C: capture revocation posture at construction.
+  const delegationRevocation = resolveDelegationRevocation(config);
 
   /**
    * The enforcement body. Extracted so that every rejection leaves through one
@@ -512,6 +584,93 @@ export function OxDeAIGuard(config: OxDeAIGuardConfig) {
           "DELEGATION_VERIFICATION_FAILED",
           new OxDeAIDelegationError(violationMessages)
         );
+      }
+
+      // F4-C: authoritative revocation check before replay consumption.
+      // Only an explicit ACTIVE result permits continued processing.
+      lifecycle.stage = "DELEGATION";
+
+      if (delegationRevocation.provider === undefined) {
+        if (delegationRevocation.required) {
+          throw reject(
+            "DELEGATION",
+            "DELEGATION_REVOCATION_UNAVAILABLE",
+            new OxDeAIDelegationError(
+              ["Delegation revocation is required but no provider is configured."]
+            )
+          );
+        }
+      } else {
+        let result: unknown;
+
+        try {
+          result = await delegationRevocation.provider.check(
+            Object.freeze({
+              delegationId: delegation.delegation_id,
+              issuer: delegation.issuer,
+              delegator: delegation.delegator,
+              parentAuthHash: delegation.parent_auth_hash,
+            })
+          );
+        } catch {
+          throw reject(
+            "DELEGATION",
+            "DELEGATION_REVOCATION_UNAVAILABLE",
+            new OxDeAIDelegationError(
+              ["Delegation revocation provider unavailable. Execution blocked."]
+            )
+          );
+        }
+
+        let status: unknown;
+        let validResponse = false;
+
+        try {
+          if (
+            result !== null &&
+            typeof result === "object" &&
+            !Array.isArray(result)
+          ) {
+            const descriptor = Object.getOwnPropertyDescriptor(result, "status");
+
+            if (descriptor && Object.hasOwn(descriptor, "value")) {
+              status = descriptor.value;
+              validResponse = true;
+            }
+          }
+        } catch {
+          // A revoked or hostile Proxy is an unavailable provider response.
+        }
+
+        if (!validResponse) {
+          throw reject(
+            "DELEGATION",
+            "DELEGATION_REVOCATION_UNAVAILABLE",
+            new OxDeAIDelegationError(
+              ["Invalid delegation revocation provider response."]
+            )
+          );
+        }
+
+        if (status === "REVOKED") {
+          throw reject(
+            "DELEGATION",
+            "DELEGATION_REVOKED",
+            new OxDeAIDelegationError(
+              ["Delegation revoked. Execution blocked."]
+            )
+          );
+        }
+
+        if (status !== "ACTIVE") {
+          throw reject(
+            "DELEGATION",
+            "DELEGATION_REVOCATION_UNAVAILABLE",
+            new OxDeAIDelegationError(
+              ["Indeterminate delegation revocation status. Execution blocked."]
+            )
+          );
+        }
       }
 
       // ── Replay consumption: after every verification, before any execution ──
