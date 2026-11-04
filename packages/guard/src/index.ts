@@ -72,3 +72,14 @@ export type {
   UpstreamResponse,
   UpstreamSuccessContract,
 } from "./gateway.js";
+
+export {
+  createInMemoryKrlWatermarkStore,
+} from "./revocation.js";
+
+export type {
+  GuardRevocationConfig,
+  GuardRevocationScope,
+  GuardKrlWatermark,
+  GuardKrlWatermarkStore,
+} from "./revocation.js";

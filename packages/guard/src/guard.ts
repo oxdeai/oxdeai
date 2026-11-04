@@ -3,6 +3,7 @@ import type { Authorization, AuthorizationV1, DelegationAuthority, DelegationSco
 import { verifyDelegationChain, verifyAuthorization as strictVerifyAuthorization, intentHash, resolveEffectiveChildScope } from "@oxdeai/core";
 import type { OxDeAIGuardConfig, ProposedAction, GuardDecisionRecord, GuardCallOptions, GuardDelegationInput, DelegationRevocationProvider } from "./types.js";
 import { defaultNormalizeAction } from "./normalizeAction.js";
+import { resolveRevocationConfig, evaluateRevocation, resolveAuthorizationSigningKid, pinKeySet, validatedTrustSnapshot } from "./revocation.js";
 import { snapshotPlainData, DelegationSnapshotError } from "./delegationSnapshot.js";
 import { resolveReplayProtection, strictFromConfig } from "./replayProtection.js";
 import type { ReplayStore } from "./replayStore.js";
@@ -280,6 +281,37 @@ export function OxDeAIGuard(config: OxDeAIGuardConfig) {
   // F4-C: capture revocation posture at construction.
   const delegationRevocation = resolveDelegationRevocation(config);
 
+  // Opt-in SignedKRLV1 enforcement, resolved at construction.
+  const signedKrlRevocation = resolveRevocationConfig(
+    config.revocation,
+    trustedKeySets
+  );
+
+  /**
+   * F4-LOT-C-R3 (A5): `trustedKeySets` is read live (the caller's array and
+   * KeySet objects are retained, not copied), so a construction-time check
+   * alone could be bypassed by later mutation. With SignedKRLV1 enforcement
+   * enabled, every protected verification instead uses a frozen snapshot of
+   * the current trust state, validated immediately before use (canonical key
+   * identity, KRL/artifact domain separation, one identity per key). Without
+   * `config.revocation` this returns `undefined` and every call site keeps its
+   * existing trust source unchanged.
+   */
+  function validatedTrust(stage: "AUTHORIZATION_VERIFICATION" | "DELEGATION"): readonly KeySet[] | undefined {
+    if (!signedKrlRevocation) return undefined;
+    try {
+      return validatedTrustSnapshot(trustedKeySets, signedKrlRevocation.krlKeyIdentities);
+    } catch (err) {
+      throw reject(
+        stage,
+        "AUTHORIZATION_VERIFICATION_FAILED",
+        err instanceof OxDeAIGuardConfigurationError
+          ? err
+          : new OxDeAIGuardConfigurationError("trustedKeySets: validation failed.")
+      );
+    }
+  }
+
   /**
    * The enforcement body. Extracted so that every rejection leaves through one
    * catch in `guard` below, rather than each throw site having to remember to
@@ -475,14 +507,18 @@ export function OxDeAIGuard(config: OxDeAIGuardConfig) {
       // `config.trustedDelegationAuthorities`, configured before this request.
       // `expectedAudience` remains an independent deployer-supplied scalar and
       // is still enforced.
-      const parentAuthResult = strictVerifyAuthorization(parentAuth as AuthorizationV1, {
+      // F4-LOT-C-R3: one validated snapshot for parent AND chain verification
+      // (both synchronous below; no await between validation and use).
+      const parentTrust = validatedTrust("AUTHORIZATION_VERIFICATION");
+      const parentVerifyOptions = {
         now,
         mode: "strict",
-        trustedKeySets,
+        trustedKeySets: parentTrust ?? trustedKeySets,
         requireSignatureVerification: true,
         expectedAudience: config.expectedAudience,
         trustedAuthorizationAuthorities: delegationAuthorities,
-      });
+      } as const;
+      const parentAuthResult = strictVerifyAuthorization(parentAuth as AuthorizationV1, parentVerifyOptions);
 
       if (parentAuthResult.status !== "ok") {
         const codes = parentAuthResult.violations?.map((v) => v.code) ?? [];
@@ -539,7 +575,7 @@ export function OxDeAIGuard(config: OxDeAIGuardConfig) {
       //     above and has a different type and meaning.
       const chainResult = verifyDelegationChain(delegation, parentAuth, {
         now,
-        trustedKeySets: config.trustedKeySets,
+        trustedKeySets: parentTrust ?? config.trustedKeySets,
         requireSignatureVerification: true,
         parentScope,
         expectedDelegatee: intent.agent_id,
@@ -669,6 +705,78 @@ export function OxDeAIGuard(config: OxDeAIGuardConfig) {
             new OxDeAIDelegationError(
               ["Indeterminate delegation revocation status. Execution blocked."]
             )
+          );
+        }
+      }
+
+      // SignedKRLV1: fail closed before replay consumption.
+      if (signedKrlRevocation) {
+        // F4-LOT-C-R1 (F1): check revocation of the key that ACTUALLY verified
+        // the parent signature. Core selects it from `signature.kid` for an
+        // object-valued signature, so top-level `kid` alone can be a decoy.
+        // Resolve the kid as core does, reject top-level/nested mismatches,
+        // then re-verify with trust pinned to that single key so core itself
+        // confirms the identity.
+        const parentKid = resolveAuthorizationSigningKid(parentAuth);
+        // F4-LOT-C-R3: re-read and re-validate trust AFTER the awaited
+        // delegation-revocation provider, so the confirmation reflects the
+        // current (validated) state rather than the pre-await snapshot.
+        const confirmTrust = validatedTrust("DELEGATION") as readonly KeySet[];
+        let parentKidConfirmed = false;
+        if (parentKid !== undefined) {
+          try {
+            parentKidConfirmed = strictVerifyAuthorization(parentAuth as AuthorizationV1, {
+              ...parentVerifyOptions,
+              trustedKeySets: pinKeySet(confirmTrust, parentAuth.issuer, parentKid),
+            }).status === "ok";
+          } catch {
+            parentKidConfirmed = false;
+          }
+        }
+        if (!parentKidConfirmed) {
+          throw reject(
+            "DELEGATION",
+            "AUTHORIZATION_VERIFICATION_FAILED",
+            new OxDeAIAuthorizationError(
+              "Parent authorization signing-key identity is ambiguous or unconfirmed. Execution blocked."
+            )
+          );
+        }
+
+        const denial = await evaluateRevocation(signedKrlRevocation, now, [
+          { role: "parent", issuer: parentAuth.issuer, kid: parentKid as string },
+          { role: "delegation", issuer: delegation.issuer, kid: delegation.kid },
+        ]);
+
+        if (denial) {
+          if (denial.kind === "REVOKED") {
+            if (denial.role === "parent") {
+              throw reject(
+                "DELEGATION",
+                "AUTHORIZATION_VERIFICATION_FAILED",
+                new OxDeAIAuthorizationError(
+                  "Signing key revoked by a verified SignedKRLV1. Execution blocked."
+                )
+              );
+            }
+
+            throw reject(
+              "DELEGATION",
+              "DELEGATION_VERIFICATION_FAILED",
+              new OxDeAIDelegationError([
+                "Delegation signing key revoked by a verified SignedKRLV1. Execution blocked."
+              ])
+            );
+          }
+
+          throw reject(
+            "DELEGATION",
+            denial.kind === "UNAVAILABLE"
+              ? "REVOCATION_STATE_UNAVAILABLE"
+              : "REVOCATION_STATE_INVALID",
+            new OxDeAIDelegationError([
+              "SignedKRLV1 revocation verification failed. Execution blocked."
+            ])
           );
         }
       }
@@ -845,7 +953,7 @@ export function OxDeAIGuard(config: OxDeAIGuardConfig) {
     const authResult = strictVerifyAuthorization(authorization as AuthorizationV1, {
       now,
       mode: "strict",
-      trustedKeySets,
+      trustedKeySets: validatedTrust("AUTHORIZATION_VERIFICATION") ?? trustedKeySets,
       requireSignatureVerification: true,
       // No `expectedPolicyId` is passed on this path (#316). Any value the
       // guard could supply here would come from `config.engine` — the same
