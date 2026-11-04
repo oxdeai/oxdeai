@@ -690,6 +690,59 @@ watermarks advanced.
 Revocation checks do not cancel execution already in progress and
 are not atomic with external side effects.
 
+**Trust-set requirements when `revocation` is configured.** SignedKRLV1
+revokes key IDs (`revoked_kids`), so a kid must denote exactly one key.
+With `revocation` set, the Guard enforces on `trustedKeySets`, comparing
+keys by canonical identity (SPKI DER), not by PEM text, so line endings,
+base64 wrapping and base64-wrapped PEM do not matter:
+
+- Every entry is a parseable Ed25519 public key. Other algorithms,
+  private-key material and unparseable keys are rejected.
+- No key is also a trusted KRL signing key (`trustedKrlKeySets`), under
+  any issuer or kid.
+- One public key has exactly one `(issuer, kid)` identity, within and
+  across issuers. Rotate by adding new key material under a new kid; do
+  not re-label existing material.
+- One `(issuer, kid)` has one registration. An exact duplicate (same key
+  and lifecycle fields) is tolerated; a conflicting one is rejected.
+
+A violation fails construction with `OxDeAIGuardConfigurationError`.
+
+**Changing trust after construction.** The Guard retains the array passed
+as `config.trustedKeySets` (or, for a single `KeySet`, an array it creates
+around that object) and the `KeySet` objects in it. It does not copy them.
+
+- *In-place mutation* (adding, removing or replacing entries of that
+  array, or changing fields of its `KeySet` and key objects) takes effect
+  for later requests. This is how to rotate keys.
+- *Reassigning* the property (`config.trustedKeySets = [...]`) is **not**
+  observed when `revocation` is configured: every verification keeps
+  using the retained array. A key removed only by reassignment therefore
+  stays trusted. Rotate in place instead.
+
+With `revocation` configured, each protected verification (parent
+authorization, delegation chain, the post-await parent confirmation, and
+direct authorization) copies the retained trust state into a frozen
+snapshot, validates it, and verifies against that snapshot only. Later
+changes to the live objects, including changes made by caller code that
+runs during verification, cannot affect a decision already validated. A
+violation introduced after construction denies that request with
+`OxDeAIGuardConfigurationError` (boundary code
+`AUTHORIZATION_VERIFICATION_FAILED`) before replay consumption,
+`beforeExecute` and execution. Trust objects must be plain data: a Proxy,
+accessor property or class instance in the trust set denies the request.
+
+Without `revocation`, none of these checks apply and trust-set behavior
+is unchanged: parent and direct authorization verify against the
+retained array (in-place mutation observed, reassignment not), while
+delegation-chain signature verification reads `config.trustedKeySets`
+on each request (reassignment observed).
+
+The Guard cannot detect key material that a KRL revoked under one kid
+and that is later registered under a fresh kid in a configuration where
+the old kid no longer appears: it keeps no key-material history. KRL
+publishers and trust-store operators must not re-register revoked keys.
+
 This mechanism revokes signing keys. It is separate from the existing
 F4-C delegation-grant revocation provider.
 

@@ -14,9 +14,11 @@
  * The Guard integration contract and limitations are documented in
  * packages/guard/README.md.
  */
+import { createHash, createPublicKey } from "node:crypto";
 import { sha256HexFromJson, signedKrlSigningPayload, verifySignedKrl } from "@oxdeai/core";
 import type { KeySet, SignedKRLV1 } from "@oxdeai/core";
 import { OxDeAIGuardConfigurationError } from "./errors.js";
+import { snapshotPlainData, DelegationSnapshotError } from "./delegationSnapshot.js";
 
 /**
  * Which key issuers a KRL publisher is authoritative for. SignedKRLV1
@@ -133,6 +135,8 @@ export function createInMemoryKrlWatermarkStore(): GuardKrlWatermarkStore {
 
 type ResolvedRevocation = {
   readonly trustedKrlKeySets: readonly KeySet[];
+  /** F4-LOT-C-R3 (A5.1): canonical identities of every trusted KRL signing key. */
+  readonly krlKeyIdentities: readonly string[];
   readonly scopes: readonly GuardRevocationScope[];
   readonly provider: GuardRevocationConfig["provider"];
   readonly watermarkStore: GuardKrlWatermarkStore;
@@ -157,10 +161,18 @@ export function resolveRevocationConfig(value: unknown, trustedKeySets: readonly
     if (!isRecord(ks) || !nonEmpty(ks.issuer) || !Array.isArray(ks.keys) || ks.keys.length === 0) fail("each trusted KRL key set needs an issuer and keys.");
   }
   // signed-krl-v1 §2: the KRL signing keys are a distinct trust domain.
-  const artifactKeys = new Set(trustedKeySets.flatMap((ks) => (Array.isArray(ks?.keys) ? ks.keys : [])).map((k) => String(k?.public_key ?? "").trim()));
-  for (const ks of krlSets) for (const k of ks.keys) {
-    if (artifactKeys.has(String(k?.public_key ?? "").trim())) fail("a KRL signing key is also present in trustedKeySets; the KRL trust domain must be separate.");
-  }
+  // F4-LOT-C-R3 (A5.1): compared by canonical key identity, never by PEM text.
+  const krlKeyIdentities: string[] = [];
+  krlSets.forEach((ks, i) => ks.keys.forEach((k, j) => {
+    try {
+      krlKeyIdentities.push(ed25519PublicKeyIdentity(isRecord(k) ? k.public_key : undefined));
+    } catch {
+      fail(`trustedKrlKeySets[${i}].keys[${j}] is not a valid Ed25519 public key.`);
+    }
+  }));
+  // Fail fast at construction; the same check is repeated on every protected
+  // decision (validatedTrustSnapshot) because trustedKeySets is read live.
+  validatedTrustSnapshot(trustedKeySets, krlKeyIdentities);
   const scopesRaw = value.scopes;
   if (!Array.isArray(scopesRaw) || scopesRaw.length === 0) fail("scopes must be a non-empty array.");
   const seen = new Set<string>();
@@ -186,6 +198,7 @@ export function resolveRevocationConfig(value: unknown, trustedKeySets: readonly
         keys: Object.freeze(ks.keys.map(k => Object.freeze({ ...k }))) as unknown as KeySet['keys'],
       })
     )),
+    krlKeyIdentities: Object.freeze(krlKeyIdentities),
     scopes: Object.freeze(scopes),
     provider: value.provider as GuardRevocationConfig["provider"],
     watermarkStore: Object.freeze({ accept: (store as GuardKrlWatermarkStore).accept.bind(store) }),
@@ -199,6 +212,139 @@ export type RevocationDenial =
   | { readonly kind: "REVOKED"; readonly role: "parent" | "delegation"; readonly issuer: string; readonly kid: string };
 
 export type CheckedKey = { readonly role: "parent" | "delegation"; readonly issuer: string; readonly kid: string };
+
+/**
+ * F4-LOT-C-R1 (F1): the AuthorizationV1 signing kid, selected exactly as core
+ * `verifyAuthorization` selects its verification key: an object-valued
+ * `signature` uses `signature.kid`; a string `signature` uses top-level `kid`.
+ * A top-level `kid` that differs from a nested `signature.kid` is ambiguous
+ * (the nested kid is not always signed) and yields `undefined`: fail closed.
+ * The guard then confirms this kid with core before checking revocation.
+ */
+export function resolveAuthorizationSigningKid(auth: unknown): string | undefined {
+  if (!isRecord(auth)) return undefined;
+  const sig = auth.signature;
+  if (isRecord(sig)) {
+    if (!nonEmpty(sig.kid)) return undefined;
+    if (auth.kid !== undefined && auth.kid !== sig.kid) return undefined;
+    return sig.kid;
+  }
+  if (typeof sig === "string") return nonEmpty(auth.kid) ? auth.kid : undefined;
+  return undefined;
+}
+
+/**
+ * Trust material restricted to the single key `(issuer, kid)`, mirroring core
+ * key lookup (first key set with a matching issuer). Verifying against it
+ * proves that this key, and no other, produced the signature.
+ */
+export function pinKeySet(keySets: readonly KeySet[], issuer: string, kid: string): KeySet[] {
+  const ks = keySets.find((k) => k.issuer === issuer);
+  return ks ? [{ ...ks, keys: ks.keys.filter((k) => k.kid === kid) }] : [];
+}
+
+/**
+ * Mirrors core's private `normalizePem` (crypto/signatures.ts) exactly, so the
+ * key identified here is the key core verifies with: a value containing
+ * "BEGIN" is PEM text, anything else is decoded as base64-wrapped PEM.
+ */
+function normalizePemLikeCore(key: string): string {
+  return key.includes("BEGIN") ? key : Buffer.from(key, "base64").toString("utf8");
+}
+
+const IDENTITY_CACHE_MAX = 1024;
+const identityCache = new Map<string, string>();
+
+/**
+ * F4-LOT-C-R3 (A5): canonical cryptographic identity of an Ed25519 public key:
+ * sha256 over its SPKI DER export. Equivalent encodings (line endings, base64
+ * wrapping, base64-wrapped PEM) yield the same identity; different keys yield
+ * different identities. Throws (without echoing key material) for anything
+ * that is not an Ed25519 PUBLIC key. Not re-exported by the package entry.
+ */
+export function ed25519PublicKeyIdentity(publicKey: unknown): string {
+  if (typeof publicKey !== "string" || publicKey.length === 0) throw new Error("public key must be a non-empty string");
+  const cached = identityCache.get(publicKey);
+  if (cached !== undefined) return cached;
+  const pem = normalizePemLikeCore(publicKey);
+  // A trust set holds public keys only. createPublicKey would silently derive a
+  // public key from private material; refuse it instead.
+  if (pem.includes("PRIVATE KEY")) throw new Error("private key material is not accepted as a trusted public key");
+  let der: Buffer;
+  try {
+    const key = createPublicKey(pem);
+    if (key.type !== "public" || key.asymmetricKeyType !== "ed25519") throw new Error("not Ed25519");
+    der = key.export({ type: "spki", format: "der" });
+  } catch {
+    throw new Error("not a parseable Ed25519 public key");
+  }
+  const identity = createHash("sha256").update(der).digest("hex");
+  if (identityCache.size >= IDENTITY_CACHE_MAX) identityCache.clear();
+  identityCache.set(publicKey, identity);
+  return identity;
+}
+
+/**
+ * F4-LOT-C-R3 (A5.1/A5.2): copy the CURRENT trusted key sets into frozen plain
+ * data and validate that copy. The caller must use the returned snapshot (and
+ * only it) for the verification that immediately follows, with no `await`
+ * between, so a later mutation of the caller-owned configuration can neither
+ * bypass nor invalidate the checked state.
+ *
+ * Enforced when SignedKRLV1 revocation is enabled (revocation is by kid, so a
+ * kid must denote exactly one key):
+ *  - every key is a parseable Ed25519 public key (fail closed otherwise);
+ *  - no key is also a trusted KRL signing key (signed-krl-v1 §2);
+ *  - one public key has exactly one (issuer, kid) identity (no aliases, within
+ *    or across issuers);
+ *  - one (issuer, kid) has exactly one registration; an exact duplicate entry
+ *    (same key and lifecycle fields) is tolerated, a conflicting one is not.
+ *
+ * Throws OxDeAIGuardConfigurationError. Messages name positions, issuers and
+ * kids only, never key material.
+ */
+export function validatedTrustSnapshot(live: unknown, krlKeyIdentities: readonly string[]): readonly KeySet[] {
+  const fail = (m: string): never => { throw new OxDeAIGuardConfigurationError(`trustedKeySets: ${m}`); };
+  let snap: unknown;
+  try {
+    snap = snapshotPlainData(live, "trustedKeySets");
+  } catch (err) {
+    return fail(`not supported plain data (${err instanceof DelegationSnapshotError ? err.message : "snapshot failed"}).`);
+  }
+  if (!Array.isArray(snap)) return fail("must be a KeySet array.");
+  const krl = new Set(krlKeyIdentities);
+  const ownerOfKey = new Map<string, string>();
+  const entryOfIdentity = new Map<string, string>();
+  (snap as unknown[]).forEach((ks, i) => {
+    if (!isRecord(ks) || !nonEmpty(ks.issuer) || !Array.isArray(ks.keys)) fail(`[${i}] must have a non-empty issuer and a keys array.`);
+    const set = ks as { issuer: string; keys: unknown[] };
+    set.keys.forEach((k, j) => {
+      const at = `[${i}].keys[${j}]`;
+      if (!isRecord(k) || !nonEmpty(k.kid)) fail(`${at} must have a non-empty kid.`);
+      const key = k as Record<string, unknown> & { kid: string };
+      const who = `(issuer ${JSON.stringify(set.issuer)}, kid ${JSON.stringify(key.kid)})`;
+      if (key.alg !== "Ed25519") fail(`${at} ${who}: only Ed25519 keys are supported when SignedKRLV1 revocation is enabled.`);
+      let id = "";
+      try {
+        id = ed25519PublicKeyIdentity(key.public_key);
+      } catch {
+        fail(`${at} ${who}: public_key is not a valid Ed25519 public key.`);
+      }
+      if (krl.has(id)) fail(`${at} ${who}: this key is also a trusted KRL signing key; the KRL trust domain must be separate (signed-krl-v1 §2).`);
+      const identity = JSON.stringify([set.issuer, key.kid]);
+      const owner = ownerOfKey.get(id);
+      if (owner !== undefined && owner !== identity) {
+        fail(`${at} ${who}: the same public key is already registered as (issuer, kid) ${owner}; a signing key must have exactly one identity.`);
+      }
+      ownerOfKey.set(id, identity);
+      const entry = [id, String(key.status), String(key.not_before), String(key.not_after)].join("|");
+      const prior = entryOfIdentity.get(identity);
+      if (prior !== undefined && prior !== entry) fail(`${at} ${who}: conflicting registrations for the same (issuer, kid).`);
+      entryOfIdentity.set(identity, entry);
+    });
+  });
+  return snap as readonly KeySet[];
+}
 
 /**
  * Obtain, verify and apply revocation evidence for `keys`. Returns `undefined`
