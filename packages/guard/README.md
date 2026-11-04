@@ -651,6 +651,48 @@ permit execution after revocation. Distributed deployments must account for
 consistency, availability, and revocation propagation latency. This mechanism
 revokes delegation grants, not signing keys; SignedKRLV1 is a separate concern.
 
+### SignedKRLV1 signing-key revocation (F4-LOT-C, opt-in)
+
+`@oxdeai/guard` supports optional SignedKRLV1 signing-key revocation
+enforcement for delegated execution. The SignedKRLV1 artifact and its
+cryptographic verification rules remain unchanged.
+
+Configure `revocation` with:
+
+- `trustedKrlKeySets`: trusted KRL signing keys, separate from the
+  authorization and delegation signing-key trust domain.
+- `scopes`: mappings from each KRL publisher (`krlIssuer`) to the
+  authorization/delegation key issuers (`keyIssuers`) it may revoke.
+- `provider`: a trusted function returning the current signed KRL
+  envelopes, exactly one for each configured KRL publisher.
+- `watermarkStore`: a required store implementing atomic, monotonic
+  per-publisher version and digest acceptance.
+
+When enabled, the Guard verifies KRL evidence before replay consumption
+and protected execution. Missing, invalid, expired, conflicting, or
+rolled-back evidence denies execution. A verified revocation of either
+the parent authorization signing key or delegation signing key also
+denies execution.
+
+If no revocation configuration is supplied, existing Guard behavior is
+preserved. Direct non-delegated execution is not covered by this
+extension.
+
+The provided `createInMemoryKrlWatermarkStore()` is process-local.
+It does not provide restart durability or distributed consistency.
+Production deployments requiring those properties must provide a
+shared, durable, atomic store.
+
+Watermark acceptance across multiple KRL issuers is not transactional.
+A failed later acceptance blocks execution but may leave earlier
+watermarks advanced.
+
+Revocation checks do not cancel execution already in progress and
+are not atomic with external side effects.
+
+This mechanism revokes signing keys. It is separate from the existing
+F4-C delegation-grant revocation provider.
+
 ### Delegation signer authority (opt-in)
 
 A valid delegation signature proves only that a key in `trustedKeySets` for the

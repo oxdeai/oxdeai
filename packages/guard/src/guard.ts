@@ -3,6 +3,7 @@ import type { Authorization, AuthorizationV1, DelegationAuthority, DelegationSco
 import { verifyDelegationChain, verifyAuthorization as strictVerifyAuthorization, intentHash, resolveEffectiveChildScope } from "@oxdeai/core";
 import type { OxDeAIGuardConfig, ProposedAction, GuardDecisionRecord, GuardCallOptions, GuardDelegationInput, DelegationRevocationProvider } from "./types.js";
 import { defaultNormalizeAction } from "./normalizeAction.js";
+import { resolveRevocationConfig, evaluateRevocation } from "./revocation.js";
 import { snapshotPlainData, DelegationSnapshotError } from "./delegationSnapshot.js";
 import { resolveReplayProtection, strictFromConfig } from "./replayProtection.js";
 import type { ReplayStore } from "./replayStore.js";
@@ -279,6 +280,12 @@ export function OxDeAIGuard(config: OxDeAIGuardConfig) {
 
   // F4-C: capture revocation posture at construction.
   const delegationRevocation = resolveDelegationRevocation(config);
+
+  // Opt-in SignedKRLV1 enforcement, resolved at construction.
+  const signedKrlRevocation = resolveRevocationConfig(
+    config.revocation,
+    trustedKeySets
+  );
 
   /**
    * The enforcement body. Extracted so that every rejection leaves through one
@@ -669,6 +676,46 @@ export function OxDeAIGuard(config: OxDeAIGuardConfig) {
             new OxDeAIDelegationError(
               ["Indeterminate delegation revocation status. Execution blocked."]
             )
+          );
+        }
+      }
+
+      // SignedKRLV1: fail closed before replay consumption.
+      if (signedKrlRevocation) {
+        const denial = await evaluateRevocation(signedKrlRevocation, now, [
+          { role: "parent", issuer: parentAuth.issuer, kid: parentAuth.kid },
+          { role: "delegation", issuer: delegation.issuer, kid: delegation.kid },
+        ]);
+
+        if (denial) {
+          if (denial.kind === "REVOKED") {
+            if (denial.role === "parent") {
+              throw reject(
+                "DELEGATION",
+                "AUTHORIZATION_VERIFICATION_FAILED",
+                new OxDeAIAuthorizationError(
+                  "Signing key revoked by a verified SignedKRLV1. Execution blocked."
+                )
+              );
+            }
+
+            throw reject(
+              "DELEGATION",
+              "DELEGATION_VERIFICATION_FAILED",
+              new OxDeAIDelegationError([
+                "Delegation signing key revoked by a verified SignedKRLV1. Execution blocked."
+              ])
+            );
+          }
+
+          throw reject(
+            "DELEGATION",
+            denial.kind === "UNAVAILABLE"
+              ? "REVOCATION_STATE_UNAVAILABLE"
+              : "REVOCATION_STATE_INVALID",
+            new OxDeAIDelegationError([
+              "SignedKRLV1 revocation verification failed. Execution blocked."
+            ])
           );
         }
       }

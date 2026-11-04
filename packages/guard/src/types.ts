@@ -3,6 +3,7 @@ import type { AuthorizationAuthority, AuthorizationV1, DelegationAuthority, Dele
 import type { ReplayStore } from "./replayStore.js";
 import type { ReplayProtection } from "./replayProtection.js";
 import type { GuardBoundaryEventHook } from "./boundaryEvent.js";
+import type { GuardRevocationConfig } from "./revocation.js";
 
 /**
  * A runtime-agnostic description of an action an agent wants to perform.
@@ -107,6 +108,13 @@ export interface DelegationRevocationProvider {
 
 /** Configuration for OxDeAIGuard. */
 export type OxDeAIGuardConfig = {
+  /**
+   * Optional SignedKRLV1 revocation enforcement configuration.
+   * When provided, invalid or unavailable revocation state must deny
+   * delegated execution. No implicit watermark store is permitted.
+   */
+  revocation?: GuardRevocationConfig;
+
   /**
    * Optional authoritative delegation revocation provider.
    * An invalid, unavailable or indeterminate result must deny execution.
