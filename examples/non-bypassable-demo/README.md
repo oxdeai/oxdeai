@@ -7,7 +7,8 @@ Invariant: no valid authorization → no execution path. The upstream refuses di
 ## Files
 - `protected-upstream.mjs` - protected target; enforces the internal executor token.
 - `pep-gateway.mjs` - policy enforcement point; verifies authorization, intent hash, audience, expiry, and replay; forwards only on success.
-- `agent.mjs` - simulates four scenarios.
+- `agent.mjs` - runs four scenarios (ALLOW, NOT_COVERED, REPLAY, BYPASS) and exits nonzero if any does not behave as expected. NOT_COVERED is a gateway refusal (intent hash mismatch), not a policy DENY.
+- `test.mjs` - automated test (`pnpm test`), run in CI.
 
 ## Run
 ```bash

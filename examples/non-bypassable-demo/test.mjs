@@ -27,6 +27,24 @@ function spawnService(name, command, args, env) {
   return child;
 }
 
+function runAgent(env) {
+  return new Promise((resolve) => {
+    const child = spawn("node", ["agent.mjs"], {
+      cwd: new URL(".", import.meta.url),
+      env: { ...process.env, ...env },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let output = "";
+    child.stdout.on("data", (chunk) => (output += chunk));
+    child.stderr.on("data", (chunk) => (output += chunk));
+    const timer = setTimeout(() => child.kill("SIGKILL"), 15_000);
+    child.on("close", (code) => {
+      clearTimeout(timer);
+      resolve({ code, output });
+    });
+  });
+}
+
 function stop(child) {
   if (!child.killed) child.kill("SIGTERM");
 }
@@ -181,6 +199,24 @@ async function main() {
     assert.equal(upstreamTimeout.status, 504);
     assert.equal(upstreamTimeout.body?.reason, "UPSTREAM_TIMEOUT");
     await expectNoExecution(upstreamTimeout);
+
+    // agent.mjs derives its summary and exit code from the responses.
+    const agentEnv = {
+      GATEWAY_URL: `http://localhost:${GATEWAY_PORT}`,
+      UPSTREAM_URL: `http://localhost:${UPSTREAM_PORT}`,
+      GATEWAY_AUDIENCE: AUDIENCE,
+    };
+    const agentRun = await runAgent(agentEnv);
+    assert.equal(agentRun.code, 0, agentRun.output);
+    for (const name of ["ALLOW", "NOT_COVERED", "REPLAY", "BYPASS"]) {
+      assert.match(agentRun.output, new RegExp(`${name}\\s+as expected`), agentRun.output);
+    }
+    // Negative control: point the "direct upstream" call at the gateway, where
+    // /charge is not served. The bypass check no longer sees a 403, so the agent
+    // must report it and exit nonzero instead of printing a fixed summary.
+    const agentNegative = await runAgent({ ...agentEnv, UPSTREAM_URL: `http://localhost:${GATEWAY_PORT}` });
+    assert.equal(agentNegative.code, 1, agentNegative.output);
+    assert.match(agentNegative.output, /BYPASS\s+UNEXPECTED/, agentNegative.output);
 
     console.log("non-bypassable gateway tests: OK");
   } finally {

@@ -190,6 +190,32 @@ An adapter must provide deterministic implementations for:
 
 Reference adapter: `@oxdeai/core` (implemented in `src/validate.ts`).
 
+## Deployment Checks (not conformance)
+
+`@oxdeai/conformance/deployment` exports `runDeploymentChecks(probes, context)`. It
+tests deployment assumptions that protocol conformance cannot establish:
+
+- an attributable transport request-size limit;
+- strict boolean replay-store answers;
+- a shared and atomic replay store across attested independent instances;
+- refusal when the replay store fails;
+- configured issuer/policy authority and delegation signer authority;
+- revocation;
+- configuration immutability;
+- bypass resistance.
+
+You supply the probes against your own deployment. Each check reports `PASS`,
+`FAIL` or `NOT_TESTED`:
+
+- Transport errors, timeouts, service failures, unattributed responses and missing
+  topology evidence are `NOT_TESTED`, never `PASS`.
+- A refusal counts only if a positive control still executes afterwards.
+- The aggregate is `PASS` only when every check passed and the report carries a
+  deployment identity.
+
+The report has `kind: "deployment"` and is separate from `validate` and its
+`evidenceScope`. See [`docs/conformance/deployment-checks.md`](../../docs/conformance/deployment-checks.md).
+
 ## Verification Artifact Scope
 
 ![Verification envelope flow](../../docs/diagrams/verification-envelope-flow.svg)

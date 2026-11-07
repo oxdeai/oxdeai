@@ -22,6 +22,10 @@
     ".": {
       "import": "./dist/src/trustedTimeConformance.js",
       "types": "./dist/src/trustedTimeConformance.d.ts"
+    },
+    "./deployment": {
+      "import": "./dist/src/deploymentChecks.js",
+      "types": "./dist/src/deploymentChecks.d.ts"
     }
   },
   "bin": {

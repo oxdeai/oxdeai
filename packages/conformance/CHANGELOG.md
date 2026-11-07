@@ -7,6 +7,19 @@ This project follows Semantic Versioning.
 
 ---
 
+## [Unreleased]
+
+### Added
+
+- `@oxdeai/conformance/deployment`: `runDeploymentChecks(probes, context)`,
+  deployment checks with `PASS` / `FAIL` / `NOT_TESTED` outcomes and a separate
+  `kind: "deployment"` report carrying deployment identity, execution time and
+  probe evidence references. Missing or non-attributable evidence (transport
+  errors, timeouts, service failures, unattributed size rejections, unattested
+  replay topology) is `NOT_TESTED`, never `PASS`. Additive subpath export; the
+  root export, the `oxdeai-conformance` CLI, the vector corpus and existing
+  reports are unchanged.
+
 ## [2.0.2] - 2026-10-19
 
 ### Security

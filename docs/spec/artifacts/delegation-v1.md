@@ -440,7 +440,7 @@ Both events MUST be included in the hash-chained audit log.
 | Feature | Status |
 |---|---|
 | Multi-hop delegation chains | Not supported (single hop only) |
-| Revocation system | Not included (stateless model) |
+| Revocation system | Not part of the `DelegationV1` artifact: it carries no revocation fields and its verification (Section 5) is stateless. Implementation note: `@oxdeai/guard` offers opt-in revocation checks on the delegation path, a key revocation list ([SignedKRLV1](./signed-krl-v1.md), Draft) and a delegation revocation provider. They are off unless configured and add no requirement to this specification. |
 | Federation across trust domains | Not included |
 | Dynamic scope expansion | Prohibited by invariant |
 | Delegation of delegation | Prohibited by §4.4 |
