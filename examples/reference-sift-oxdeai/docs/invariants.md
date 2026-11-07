@@ -27,6 +27,11 @@ first observes 0 → 1, restores 0 through the trusted test handle without reset
 the replay store, and then proves a second consume attempt returns
 `REPLAY_DETECTED` without a second effect. This reset is deliberate test setup.
 Store failure returns HTTP 500 `REPLAY_STORE_ERROR` with zero effect.
+The store's answer is checked as a strict boolean (RR-01). Only the literal
+`true` forwards to the upstream, and boolean `false` returns 403 `REPLAY_DETECTED`.
+Any other answer (`"OK"`, `"false"`, `1`, `{}`, `null`, `undefined`) is a store
+failure: HTTP 500 `REPLAY_STORE_ERROR` with zero effect
+(`test/replay-strict-result.test.ts`).
 
 ## Other preserved checks
 

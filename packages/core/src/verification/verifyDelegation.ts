@@ -481,8 +481,24 @@ function checkScopeNarrowing(
   const effective = resolveEffectiveChildScope(child, parent);
 
   // tools: effective child must be a subset of parent
+  //
+  // F4-AUD-03: membership via a Set, O(N + M) expected, instead of
+  // `parent.tools.includes(t)` per child tool, O(N × M). This check runs before
+  // the delegation signature is verified and both lists are caller-supplied
+  // (`parentScope` is not a signed claim), so the quadratic form let a large
+  // unsigned input block the event loop. `Set.has` and `Array.includes` both
+  // use SameValueZero, and the filter still walks `effective.tools` in order,
+  // so the result (including duplicates, order and the message) is identical.
+  //
+  // IR-02: the Set is filled by index, never through `Symbol.iterator`.
+  // Validation (`every()`) and the former `includes` both read indices, so an
+  // array with a custom own iterator yielding a tool held at no index must not
+  // gain that tool as a member.
   if (effective.tools !== undefined && parent.tools !== undefined) {
-    const notAllowed = effective.tools.filter((t) => !parent.tools!.includes(t));
+    const parentToolList = parent.tools;
+    const parentTools = new Set<string>();
+    for (let i = 0; i < parentToolList.length; i++) parentTools.add(parentToolList[i]);
+    const notAllowed = effective.tools.filter((t) => !parentTools.has(t));
     if (notAllowed.length > 0) {
       violations.push({
         code: "DELEGATION_SCOPE_VIOLATION",

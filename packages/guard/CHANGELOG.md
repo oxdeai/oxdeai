@@ -11,6 +11,155 @@ This project follows Semantic Versioning.
 
 ### Security
 
+- INVREG-F01/F02: `createPepGatewayExecutor` now takes one deep-frozen
+  plain-data snapshot of the request before any security decision. Action
+  hashing, authorization verification, intent binding, replay consumption,
+  upstream dispatch and the response body all read only that snapshot.
+  Previously the executor re-read the caller's live request object: a plain
+  mutation during the awaited replay consume changed the action sent upstream
+  after its hash was verified, and an accessor or Proxy on `auth_id` let one
+  single-use signed authorization be consumed under different identifiers and
+  executed more than once. Request input that is not plain data (Proxy,
+  accessor properties, class instances, `Date`, `Map`, `Buffer`/typed arrays,
+  functions, symbol keys, sparse arrays, cycles, and objects or arrays created
+  in another realm such as a `vm` context) is now denied with
+  `INVALID_REQUEST_INPUT:<path>: <reason>` before replay consumption; such
+  values were previously hashed as their enumerable own keys while the original
+  value was dispatched. The upstream executor receives a fresh mutable copy of
+  the verified snapshot (see GW-COMP-01), never the caller's object.
+  JSON-decoded input (the HTTP gateway) is unaffected, and the action hash and
+  signed payload formats are unchanged.
+- INVREG-F05: `trustedAuthorizationAuthorities` is validated and copied at
+  executor construction; later mutation of the caller's array or entries no
+  longer widens issuer-policy authority. A malformed entry (not a plain
+  `{ issuer, policyId }` object with non-empty strings) now fails construction
+  instead of silently never matching. `expectedAudience`,
+  `internalExecutorToken` and `executeUpstream` are likewise read once at
+  construction. To change authorities, construct a new executor. In-place
+  `trustedKeySets` rotation and replay-store state remain live.
+- RR-01: replay-store answers are now checked as strict booleans at every
+  consume site: the `OxDeAIGuard` / `createSecureGuard` direct path, both
+  delegation-path sites (`consumeDelegationId` and the parent
+  `consumeAuthId`), and `createPepGatewayExecutor`. Only `true` lets execution
+  proceed, and `false` is a replay denial. Previously any truthy value
+  (`"false"`, `"true"`, `1`, `"OK"`, `{}`, `[]`) counted as a successful
+  first consume, so a store violating the `Promise<boolean>` contract let one
+  authorization execute repeatedly. Any non-boolean answer is now denied
+  under the existing `REPLAY_STORE_UNAVAILABLE` category (gateway reason
+  `REPLAY_STORE_UNAVAILABLE:INVALID_RESULT`). No new public failure code was
+  added. **Compatibility:** a custom store that resolves `1` / `"OK"` instead
+  of `true` now denies every request. Return a boolean (the built-in
+  in-memory and Redis stores already do). A denial does not prove that the id
+  was left unconsumed: a store may record the id before answering. The replay
+  store call still has no timeout; a consume that never settles leaves the
+  request pending and never executes.
+- GW-COMP-01: `createPepGatewayExecutor` again calls `executeUpstream` with the
+  options object as `this`, as before INVREG-F05, so method-style executors
+  that use `this` work again. The function is still captured at construction:
+  reassigning `options.executeUpstream` afterwards has no effect. The executor
+  now receives its own mutable deep copy of the verified action,
+  value-identical to the hashed action. It may modify that copy, as before
+  INVREG-F01, without affecting the response binding or the caller's object.
+  The copy is made before replay consumption, so it cannot burn an
+  authorization.
+- F4-AUD-01: `createSecureGuard` now captures and validates its configuration
+  at construction. It previously rebuilt the shared body from the caller's
+  live `config` on every call, so mutating that object after construction
+  (pushing a pair into `trustedDelegationSigners`, setting `revocation` or
+  `delegationRevocationProvider` to `undefined`, replacing `provider.check`)
+  widened signer authority or disabled revocation enforcement. Signer and
+  parent authority lists are now frozen copies, the F4-C provider's `check` is
+  bound at construction, the SignedKRLV1 configuration is resolved and frozen
+  once, and hooks and other options are fixed at their construction values.
+  Provider and store *state* is still read per call, so revocation updates
+  take effect; in-place mutation of the retained `trustedKeySets` array (key
+  rotation) is still observed, reassigning `config.trustedKeySets` is not.
+  Invalid configuration now fails at `createSecureGuard()` instead of on the
+  first call.
+- REV-R1 / REV-R2: the construction-time capture reads every
+  `OxDeAIGuardConfig` option by name, once, through ordinary property access.
+  An earlier form of the F4-AUD-01 capture copied the config with
+  `{ ...config }`, which keeps only own enumerable properties. With it, a
+  `replayProtection: {mode:"shared", store}` or legacy `replayStore` supplied
+  as an inherited, non-enumerable, getter or `Proxy`-provided property was
+  dropped, and the guard silently fell back to a process-local store
+  (cross-instance replay accepted). `requireExplicitReplayProtection` and
+  replay-conflict detection were ignored in the same way, and so were
+  `trustedDelegationSigners`, `delegationRevocationProvider` /
+  `requireDelegationRevocation` and `revocation`. The same forms were
+  already not enforced before F4-AUD-01, because the per-call shared body was
+  built with the same spread. Nested security members (`replayProtection.mode`
+  and `.store`, signer and authority entries, provider `check`, SignedKRLV1
+  members) are now read once each. A throwing getter or `Proxy` trap fails
+  construction with `OxDeAIGuardConfigurationError`. The resolved replay
+  store's methods are bound at construction; its identity and state are
+  unchanged. Function-valued options run with the deployer's config object as
+  `this`.
+- RV-01 / RV-02: the capture's per-option handlers are looked up in a `Map`.
+  An earlier form looked them up on an ordinary object, so a function on a
+  polluted `Object.prototype` was called with the deployer's value and its
+  result adopted (for example, a substituted `trustedKeySets` or
+  `replayStore`). `createSecureGuard` now refuses to construct when
+  `Object.prototype` (or, for the names read there, `Array.prototype` /
+  `Function.prototype`) carries a property named after an option or a member
+  the capture reads. All captured data is held as own properties, so later
+  pollution cannot change the captured configuration. (It can still reach
+  values returned by callbacks at request time; see IR-03 below.) The replay store's methods are read once, before
+  the replay posture is validated, and a getter that throws is now an
+  `OxDeAIGuardConfigurationError` in both `shared` and legacy modes. That
+  includes a legacy store, which previously failed only on the first call.
+- F4-AUD-03 (`@oxdeai/core`, reached through the guard delegation path):
+  delegation scope narrowing used `parent.tools.includes(t)` per child tool,
+  O(N × M), before the delegation signature is checked and on caller-supplied
+  `parentScope`. It now uses a `Set` (O(N + M) expected) with identical
+  results, violation codes and messages. Measured on Node 24: a ≈1 MiB
+  pathological input (N = 40 000, M = 80 000) blocked the event loop for
+  ≈6.6 s before and ≈19 ms after. The guard still does not bound input size;
+  enforce request-size limits at the transport.
+- IR-01: the RV-01 prototype-pollution check ran once, before the
+  configuration was read. A deployer getter or `Proxy` trap run during that
+  read could pollute `Object.prototype` after the check, and later reads of an
+  omitted option then inherited the polluted value. For example, a
+  `replayStore` that always answers `true` made one authorization execute
+  twice, and a polluted ACTIVE `delegationRevocationProvider` satisfied
+  `requireDelegationRevocation`. The check now runs again after the last
+  option is read and once more when `createSecureGuard` construction
+  completes, so such pollution fails construction with
+  `OxDeAIGuardConfigurationError`.
+- IR-02 (`@oxdeai/core`, follow-up to F4-AUD-03): the scope-narrowing `Set`
+  was built with `new Set(parent.tools)`, which iterates through
+  `Symbol.iterator`, while scope validation and the former `includes` read by
+  index. A `parentScope.tools` array with a custom own iterator could yield a
+  tool held at no index and make it count as authorized (`ok: true` where the
+  baseline gives `DELEGATION_SCOPE_VIOLATION`). The `Set` is now filled by
+  index, which restores baseline results for these inputs and stays linear.
+  Not reachable through the guard: `snapshotPlainData` rejects arrays with
+  extra own properties. Only direct callers of `verifyDelegationChain` that
+  pass live objects were affected.
+- **IR-03 — Partial hardening:** a function on `Object.prototype.then` or
+  `Array.prototype.then` is called by promise resolution whenever a promise
+  settles with a plain object
+  or array, and decides what it settles with. It could turn an F4-C `REVOKED`
+  answer into `ACTIVE`, a denying `getState()` state into a permissive one, or
+  the current SignedKRLV1 list into an older, validly signed one, and the
+  request executed. `getState()`, the F4-C `check()` and the SignedKRLV1
+  `provider()` results are now obtained without promise resolution when they
+  are plain values. Genuine promises are awaited. A `then` on either prototype
+  before the call, right after it returns, or after its promise settles is
+  refused: `getState` with stage `STATE_LOAD` / `UNCLASSIFIED`, F4-C with
+  `DELEGATION_REVOCATION_UNAVAILABLE`, KRL with
+  `REVOCATION_STATE_UNAVAILABLE`, always before replay consumption and
+  `execute()`. Revocation denials are now prototype-less objects, so they
+  cannot be swapped for "nothing revoked" on the way through the guard. No
+  public type or failure code changed. **Compatibility:** any `then` on
+  `Object.prototype` / `Array.prototype`, including a non-callable one, now
+  denies these requests. **Limitation:** in-process code that installs a
+  `then` and removes it again while an `async` callback is pending after an
+  internal `await` is not detected. The substitution happens inside the
+  callback's own promise, before the guard sees the value. This requires
+  arbitrary code execution in the process and is outside the threat model; a
+  `todo` test records it (README "Callback results and inherited `then`").
+
 - F4-C: adds opt-in delegation revocation enforcement to `OxDeAIGuard`
   through `delegationRevocationProvider` and
   `requireDelegationRevocation`. A verified delegation must receive an
@@ -51,6 +200,31 @@ This project follows Semantic Versioning.
   fractional and negative `max_actions` / `max_depth`, negative `max_amount`
   and non-string `tools` entries (`DELEGATION_INPUT_INVALID`), consistent with
   core's child-scope rules. Valid ceilings, including zero, are unchanged.
+
+### Fixed
+
+- AUD-OBS-02: `createSecureGuard` combined with `replayProtection` failed every
+  call with "Ambiguous replay configuration", because the resolved store was
+  forwarded alongside the caller's `replayProtection`. The secure path now
+  forwards only the store it resolved at construction: `process-local` uses
+  one in-memory store for the secure guard's lifetime, `shared` uses the
+  configured store, and a legacy `replayStore` is still honored. Conflicting
+  or invalid replay configuration is still rejected at construction; strict
+  mode is unchanged.
+
+### Documentation
+
+- README: secure-guard configuration capture (option-by-option table),
+  provider identity versus provider state, replay modes on the secure path,
+  `parentScope` provenance (not a signed claim), and transport-level input-size
+  responsibility.
+- README: replay-store result contract (only `true` proceeds; `false` is a
+  replay; anything else is `REPLAY_STORE_UNAVAILABLE`), callback results and
+  inherited `then` (IR-03) with its supported trust boundary, IR-01, and an
+  "In-process JavaScript compromise" known limit. Corrected the statement
+  that pollution after construction cannot affect the guard: it does not
+  change the captured configuration, but callback results are a separate
+  surface (IR-03).
 
 ## [2.0.3] - 2026-10-19
 

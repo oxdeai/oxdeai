@@ -5,6 +5,7 @@ import type { OxDeAIGuardConfig, ProposedAction, GuardDecisionRecord, GuardCallO
 import { defaultNormalizeAction } from "./normalizeAction.js";
 import { resolveRevocationConfig, evaluateRevocation, resolveAuthorizationSigningKid, pinKeySet, validatedTrustSnapshot } from "./revocation.js";
 import { snapshotPlainData, DelegationSnapshotError } from "./delegationSnapshot.js";
+import { settleCallback, type SettledCallback } from "./settleCallback.js";
 import { resolveReplayProtection, strictFromConfig } from "./replayProtection.js";
 import type { ReplayStore } from "./replayStore.js";
 import { createLifecycle, emitBoundaryEvent, reject } from "./boundaryEvent.js";
@@ -39,6 +40,34 @@ function isValidDenyReasons(value: unknown): value is string[] {
 }
 
 /**
+ * RR-01: rejection for a replay-store answer that is not a boolean.
+ *
+ * `ReplayStore.consumeAuthId` / `consumeDelegationId` return
+ * `Promise<boolean>`: `true` = consumed now (first use), `false` = already
+ * consumed. Every consume site tests `typeof result === "boolean"` and then
+ * `result === true`. JavaScript truthiness is never used, so `"false"`, `1`,
+ * `{}` or `"OK"` cannot be read as a successful consume.
+ *
+ * Any other value is an indeterminate store answer. verification-v1 §4.3
+ * says an indeterminate result "MUST NOT be reported as successful
+ * consumption". It fails closed under the existing `REPLAY_STORE_UNAVAILABLE`
+ * category, with no new public failure code. The store may or may not have
+ * recorded the id before answering; the guard cannot tell, so the lifecycle
+ * flag stays `false` ("not confirmed consumed"), exactly as for a store that
+ * throws. Only the value's type is reported, never its content.
+ */
+function invalidReplayResult(what: string, value: unknown): Error {
+  const kind = value === null ? "null" : Array.isArray(value) ? "array" : typeof value;
+  return reject(
+    "REPLAY",
+    "REPLAY_STORE_UNAVAILABLE",
+    new OxDeAIAuthorizationError(
+      `Replay store returned a non-boolean result (${kind}) for ${what}; ReplayStore must resolve to true or false. Execution blocked.`
+    )
+  );
+}
+
+/**
  * Fail-closed validation of the deployer-supplied `parentScope` ceiling
  * (F4-R6-06/C9, Guard side). Mirrors core's child-scope rules
  * (`scopeTypeViolations` in verifyDelegation.ts): `tools` an array of strings,
@@ -68,8 +97,11 @@ function isValidDelegationScope(scope: unknown): scope is DelegationScope {
  * never be read as "not configured", which would silently disable a check the
  * deployer asked for. The result is a frozen copy so later mutation of the
  * caller's array cannot change enforcement.
+ *
+ * @internal Module export for createSecureGuard (F4-AUD-01); not re-exported
+ * by the package entry point.
  */
-function resolveDelegationSigners(value: unknown): readonly DelegationAuthority[] | undefined {
+export function resolveDelegationSigners(value: unknown): readonly DelegationAuthority[] | undefined {
   if (value === undefined) return undefined;
   if (!Array.isArray(value)) {
     throw new OxDeAIGuardConfigurationError(
@@ -96,8 +128,11 @@ function resolveDelegationSigners(value: unknown): readonly DelegationAuthority[
 /**
  * Resolve F4-C revocation configuration at construction.
  * Invalid explicit configuration must never silently disable enforcement.
+ *
+ * @internal Module export for createSecureGuard (F4-AUD-01); not re-exported
+ * by the package entry point.
  */
-function resolveDelegationRevocation(config: OxDeAIGuardConfig): {
+export function resolveDelegationRevocation(config: OxDeAIGuardConfig): {
   provider: DelegationRevocationProvider | undefined;
   required: boolean;
 } {
@@ -330,7 +365,20 @@ export function OxDeAIGuard(config: OxDeAIGuardConfig) {
     const delegationInput: GuardDelegationInput | undefined = opts?.delegation;
 
     // ── 1. Load state + version ────────────────────────────────────────────
-    const versioned = await config.getState();
+    // IR-03: settle the state store's answer without letting a `then`
+    // inherited from a built-in prototype substitute it (a denying state
+    // replaced by a permissive one). Errors propagate exactly as before.
+    const settledState = await settleCallback(() => config.getState());
+    if (settledState.tampered) {
+      throw reject(
+        "STATE_LOAD",
+        "UNCLASSIFIED",
+        new OxDeAIAuthorizationError(
+          "A built-in prototype defines `then` (prototype pollution); the state store's answer cannot be trusted. Execution blocked."
+        )
+      );
+    }
+    const versioned = settledState.value;
     const state = versioned.state;
     const version = versioned.version;
 
@@ -639,15 +687,20 @@ export function OxDeAIGuard(config: OxDeAIGuardConfig) {
       } else {
         let result: unknown;
 
+        // IR-03: settle the provider's answer without letting a `then`
+        // inherited from a built-in prototype substitute it (REVOKED → ACTIVE).
+        // A plain answer never passes through promise resolution; a promise is
+        // awaited; a polluted prototype at any check point fails closed.
+        let settled: SettledCallback<unknown>;
+        const provider = delegationRevocation.provider;
+        const request = Object.freeze({
+          delegationId: delegation.delegation_id,
+          issuer: delegation.issuer,
+          delegator: delegation.delegator,
+          parentAuthHash: delegation.parent_auth_hash,
+        });
         try {
-          result = await delegationRevocation.provider.check(
-            Object.freeze({
-              delegationId: delegation.delegation_id,
-              issuer: delegation.issuer,
-              delegator: delegation.delegator,
-              parentAuthHash: delegation.parent_auth_hash,
-            })
-          );
+          settled = await settleCallback(() => provider.check(request));
         } catch {
           throw reject(
             "DELEGATION",
@@ -657,6 +710,17 @@ export function OxDeAIGuard(config: OxDeAIGuardConfig) {
             )
           );
         }
+
+        if (settled.tampered) {
+          throw reject(
+            "DELEGATION",
+            "DELEGATION_REVOCATION_UNAVAILABLE",
+            new OxDeAIDelegationError(
+              ["A built-in prototype defines `then` (prototype pollution); the delegation revocation result cannot be trusted. Execution blocked."]
+            )
+          );
+        }
+        result = settled.value;
 
         let status: unknown;
         let validResponse = false;
@@ -791,7 +855,10 @@ export function OxDeAIGuard(config: OxDeAIGuardConfig) {
       // Atomicity is unchanged: each consume is still a single atomic
       // check-and-set, and both still strictly precede `execute()` below, so
       // two concurrent presentations of the same id cannot both execute.
-      let delegConsumed: boolean;
+      //
+      // RR-01: each consume result is checked as a strict boolean (see
+      // invalidReplayResult). Only `true` permits the next step.
+      let delegConsumed: unknown;
       try {
         delegConsumed = replayStore.consumeDelegationId
           ? await replayStore.consumeDelegationId(delegation.delegation_id, { expiry: delegation.expiry })
@@ -805,7 +872,8 @@ export function OxDeAIGuard(config: OxDeAIGuardConfig) {
           )
         );
       }
-      if (!delegConsumed) {
+      if (typeof delegConsumed !== "boolean") throw invalidReplayResult("delegation_id", delegConsumed);
+      if (delegConsumed !== true) {
         throw reject(
           "REPLAY",
           "DELEGATION_REPLAY",
@@ -816,7 +884,7 @@ export function OxDeAIGuard(config: OxDeAIGuardConfig) {
       // consumed anything; the fallback above assumes success without a store.
       lifecycle.delegationConsumed = replayStore.consumeDelegationId !== undefined;
 
-      let parentAuthConsumed: boolean;
+      let parentAuthConsumed: unknown;
       try {
         parentAuthConsumed = await replayStore.consumeAuthId(
           parentAuth.auth_id, { expiry: parentAuth.expiry }
@@ -830,7 +898,8 @@ export function OxDeAIGuard(config: OxDeAIGuardConfig) {
           )
         );
       }
-      if (!parentAuthConsumed) {
+      if (typeof parentAuthConsumed !== "boolean") throw invalidReplayResult("parentAuth auth_id", parentAuthConsumed);
+      if (parentAuthConsumed !== true) {
         throw reject(
           "REPLAY",
           "AUTHORIZATION_REPLAY",
@@ -1082,7 +1151,7 @@ export function OxDeAIGuard(config: OxDeAIGuardConfig) {
     // an authorization that turns out to be already consumed. A CAS conflict
     // after this point does burn the id, which is harmless here because the
     // engine mints a fresh `auth_id` on the next evaluation.
-    let authConsumed: boolean;
+    let authConsumed: unknown;
     try {
       authConsumed = await replayStore.consumeAuthId(
         authorization.auth_id, { expiry: (authorization as AuthorizationV1).expiry ?? 0 }
@@ -1096,7 +1165,9 @@ export function OxDeAIGuard(config: OxDeAIGuardConfig) {
         )
       );
     }
-    if (!authConsumed) {
+    // RR-01: strict boolean, never truthiness (see invalidReplayResult).
+    if (typeof authConsumed !== "boolean") throw invalidReplayResult("auth_id", authConsumed);
+    if (authConsumed !== true) {
       throw reject(
         "REPLAY",
         "AUTHORIZATION_REPLAY",

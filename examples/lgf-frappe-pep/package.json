@@ -7,7 +7,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "start": "pnpm build && node dist/server.js",
-    "test": "pnpm build && node --test dist/test/boundary.test.js dist/test/adapter-boundary.test.js dist/test/shutdown.test.js",
+    "test": "pnpm build && node --test dist/test/boundary.test.js dist/test/adapter-boundary.test.js dist/test/shutdown.test.js dist/test/replay-strict-result.test.js",
     "test:redis": "pnpm build && OXDEAI_LIVE_REDIS_TEST=1 node --test dist/test/live-redis.test.js"
   },
   "dependencies": {

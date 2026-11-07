@@ -19,6 +19,7 @@ import { sha256HexFromJson, signedKrlSigningPayload, verifySignedKrl } from "@ox
 import type { KeySet, SignedKRLV1 } from "@oxdeai/core";
 import { OxDeAIGuardConfigurationError } from "./errors.js";
 import { snapshotPlainData, DelegationSnapshotError } from "./delegationSnapshot.js";
+import { settleCallback, type SettledCallback } from "./settleCallback.js";
 
 /**
  * Which key issuers a KRL publisher is authoritative for. SignedKRLV1
@@ -347,25 +348,42 @@ export function validatedTrustSnapshot(live: unknown, krlKeyIdentities: readonly
 }
 
 /**
+ * IR-03: denials are null-prototype objects. `evaluateRevocation` is `async`,
+ * and an ordinary object returned from it is settled through promise
+ * resolution, which consults an inherited `then`; a polluting `then` could turn
+ * a denial into `undefined` ("nothing revoked").
+ */
+function denial(d: RevocationDenial): RevocationDenial {
+  return Object.freeze(Object.assign(Object.create(null) as object, d)) as RevocationDenial;
+}
+
+/**
  * Obtain, verify and apply revocation evidence for `keys`. Returns `undefined`
  * when every key is covered by verified evidence and none is revoked;
  * otherwise the first denial. Never throws.
  */
 export async function evaluateRevocation(cfg: ResolvedRevocation, now: number, keys: readonly CheckedKey[]): Promise<RevocationDenial | undefined> {
   let raw: unknown;
+  // IR-03: settle the provider's answer without letting a `then` inherited
+  // from a built-in prototype substitute it (e.g. an older KRL for the current one).
+  let settledRaw: SettledCallback<unknown>;
   try {
-    raw = await cfg.provider();
+    settledRaw = await settleCallback(() => cfg.provider());
   } catch (err) {
-    return { kind: "UNAVAILABLE", message: `revocation provider failed: ${err instanceof Error ? err.message : String(err)}` };
+    return denial({ kind: "UNAVAILABLE", message: `revocation provider failed: ${err instanceof Error ? err.message : String(err)}` });
   }
+  if (settledRaw.tampered) {
+    return denial({ kind: "UNAVAILABLE", message: "a built-in prototype defines `then` (prototype pollution); the revocation provider's answer cannot be trusted" });
+  }
+  raw = settledRaw.value;
   if (!Array.isArray(raw)) {
-    return { kind: "UNAVAILABLE", message: "revocation provider returned no KRL list" };
+    return denial({ kind: "UNAVAILABLE", message: "revocation provider returned no KRL list" });
   }
 
   try {
     raw = structuredClone(raw);
   } catch {
-    return { kind: "INVALID", message: "KRL provider returned a non-cloneable list" };
+    return denial({ kind: "INVALID", message: "KRL provider returned a non-cloneable list" });
   }
 
   const scopeIssuers = new Set(cfg.scopes.map((s) => s.krlIssuer));
@@ -375,12 +393,12 @@ export async function evaluateRevocation(cfg: ResolvedRevocation, now: number, k
     try {
       env = structuredClone(item); // one read of provider output; Proxy/function fails here
     } catch {
-      return { kind: "INVALID", message: "KRL envelope is not cloneable plain data" };
+      return denial({ kind: "INVALID", message: "KRL envelope is not cloneable plain data" });
     }
     const issuer = isRecord(env) && nonEmpty(env.issuer) ? env.issuer : undefined;
     // [DECISION] strict: unexpected issuer or duplicate issuer → deny.
-    if (issuer === undefined || !scopeIssuers.has(issuer)) return { kind: "INVALID", message: "KRL from an unconfigured or missing issuer" };
-    if (byIssuer.has(issuer)) return { kind: "INVALID", message: `more than one KRL for issuer "${issuer}"` };
+    if (issuer === undefined || !scopeIssuers.has(issuer)) return denial({ kind: "INVALID", message: "KRL from an unconfigured or missing issuer" });
+    if (byIssuer.has(issuer)) return denial({ kind: "INVALID", message: `more than one KRL for issuer "${issuer}"` });
     byIssuer.set(issuer, env as SignedKRLV1);
   }
 
@@ -395,7 +413,7 @@ export async function evaluateRevocation(cfg: ResolvedRevocation, now: number, k
   for (const scope of cfg.scopes) {
     const env = byIssuer.get(scope.krlIssuer);
     // Missing evidence is not "nothing revoked".
-    if (env === undefined) return { kind: "UNAVAILABLE", message: `no KRL for issuer "${scope.krlIssuer}"` };
+    if (env === undefined) return denial({ kind: "UNAVAILABLE", message: `no KRL for issuer "${scope.krlIssuer}"` });
     let result;
     try {
       result = verifySignedKrl(env, {
@@ -403,21 +421,21 @@ export async function evaluateRevocation(cfg: ResolvedRevocation, now: number, k
         trustedKeySets: cfg.trustedKrlKeySets,
       });
     } catch {
-      return { kind: "INVALID", message: `KRL "${scope.krlIssuer}" verification failed` };
+      return denial({ kind: "INVALID", message: `KRL "${scope.krlIssuer}" verification failed` });
     }
 
     if (!result.ok) {
-      return {
+      return denial({
         kind: "INVALID",
         message: `KRL "${scope.krlIssuer}" rejected: ${result.violations.map((v) => v.code).join(", ")}`,
-      };
+      });
     }
 
     let digest: string;
     try {
       digest = sha256HexFromJson(signedKrlSigningPayload(env));
     } catch {
-      return { kind: "INVALID", message: `KRL "${scope.krlIssuer}" canonicalization failed` };
+      return denial({ kind: "INVALID", message: `KRL "${scope.krlIssuer}" canonicalization failed` });
     }
 
     applied.push({
@@ -430,7 +448,7 @@ export async function evaluateRevocation(cfg: ResolvedRevocation, now: number, k
 
   for (const key of keys) {
     if (!applied.some(a => a.keyIssuers.includes(key.issuer))) {
-      return { kind: "UNAVAILABLE", message: `no revocation authority configured for key issuer "${key.issuer}"` };
+      return denial({ kind: "UNAVAILABLE", message: `no revocation authority configured for key issuer "${key.issuer}"` });
     }
   }
 
@@ -445,21 +463,21 @@ export async function evaluateRevocation(cfg: ResolvedRevocation, now: number, k
         entry.watermark
       );
     } catch {
-      return { kind: "UNAVAILABLE", message: "KRL watermark store unavailable" };
+      return denial({ kind: "UNAVAILABLE", message: "KRL watermark store unavailable" });
     }
 
     if (accepted === "REJECTED") {
-      return {
+      return denial({
         kind: "INVALID",
         message: `KRL "${entry.krlIssuer}" version regression or digest conflict`,
-      };
+      });
     }
 
     if (accepted !== "ACCEPTED") {
-      return {
+      return denial({
         kind: "UNAVAILABLE",
         message: "KRL watermark store returned an indeterminate result",
-      };
+      });
     }
   }
 
@@ -467,12 +485,12 @@ export async function evaluateRevocation(cfg: ResolvedRevocation, now: number, k
   for (const key of keys) {
     const covering = applied.filter((a) => a.keyIssuers.includes(key.issuer));
     if (covering.some((a) => a.revoked.has(key.kid))) {
-      return {
+      return denial({
         kind: "REVOKED",
         role: key.role,
         issuer: key.issuer,
         kid: key.kid,
-      };
+      });
     }
   }
 

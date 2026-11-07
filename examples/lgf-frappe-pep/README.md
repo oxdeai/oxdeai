@@ -136,6 +136,16 @@ Published image health result:
 
 Current limitation: this is the first generic-sidecar packaging step. The packaged runtime still comes from the `examples/lgf-frappe-pep` implementation source and still expects Frappe-oriented adapter configuration such as `FRAPPE_BASE_URL`. No live Frappe credentials are baked into the image, but a fuller extraction of platform adapter configuration remains future work.
 
+## Replay-store result contract
+
+The PEP treats the replay store's answer as a strict boolean (RR-01):
+
+* only the literal boolean `true` (first consumption) permits execution
+* boolean `false` is a replay and is denied with `AUTH_REPLAY`
+* any other answer (`"OK"`, `"false"`, `1`, `{}`, `null`, `undefined`, ...) is a replay-store failure and is denied with `REPLAY_STORE_UNAVAILABLE`, the same as a store that throws
+
+The target-platform adapter is never called on a denial. A custom store must return a boolean; the built-in memory and Redis stores do. `test/replay-strict-result.test.ts` covers each value.
+
 ## Live Redis replay integration test
 
 This example includes a live Redis integration test for the PEP replay persistence path.
