@@ -49,7 +49,8 @@
     "verify:s-freeze": "node scripts/s-freeze/verify.mjs",
     "test:s-freeze": "node --test scripts/s-freeze/verify.test.mjs",
     "test:release": "node --test --test-concurrency=1 scripts/release-2.0/*.test.mjs",
-    "verify:reproducible-pack": "node scripts/release-2.0/reproducible-pack.mjs"
+    "verify:reproducible-pack": "node scripts/release-2.0/reproducible-pack.mjs",
+    "demo": "node demo.mjs"
   },
   "devDependencies": {
     "@oxdeai/core": "workspace:*",

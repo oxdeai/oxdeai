@@ -2,432 +2,175 @@
 
 [![CI](https://github.com/oxdeai/oxdeai/actions/workflows/ci.yml/badge.svg)](https://github.com/oxdeai/oxdeai/actions/workflows/ci.yml)
 
-Execution authorization for AI agents.
-No valid authorization, no execution through the reviewed enforcement boundary.
-
-Deterministic boundary:
-(intent, state, policy) → ALLOW | DENY
-
-No authorization → no execution.
-
-Agents propose actions.  
-OxDeAI decides if they are allowed to execute.  
-No valid authorization → execution is unreachable.
-
-Authorization is evaluated before any side effect is reachable.
-
-## Core Model
-
-OxDeAI introduces an explicit decision phase:
-
-```text
-proposal → authorization → execution
-```
-
-```text
-(intent, state, policy) → deterministic decision
-```
-
-* `intent`: proposed action
-* `state`: evaluation context
-* `policy`: rule set
-
-If `ALLOW` → emits **AuthorizationV1**
-If `DENY` → execution is unreachable
-
-## Core Invariants
-
-- No authorization → no execution
-- (intent, state, policy) → deterministic ALLOW | DENY
-- Same input → same decision
-- Verification failure → fail closed
-
----
-
-## Execution Boundary
-
-OxDeAI enforces a strict invariant at the reviewed enforcement boundary:
-
-> **No valid authorization, no execution through the reviewed enforcement boundary.**
-
-A tool call routed through the PEP Gateway:
-
-* has its authorization verified before execution
-* has its intent hash checked against canonical input
-* is subject to replay protection
-* fails closed by default
-
-This holds for calls that go through the boundary. It does not by itself make
-every possible call path in a deployment non-bypassable: see
-[Scope and limits](#scope-and-limits).
-
----
-
-## Scope and limits
-
-The guarantees above apply to the reviewed enforcement boundary
-(`@oxdeai/guard`), not to a deployment as a whole. A deployment is only as
-strong as its weakest unreviewed call path.
-
-Current, authoritative scope and residual-limit documents for the 2.0 line:
-
-- [`docs/audits/2.0-residual-scope.md`](./docs/audits/2.0-residual-scope.md): what 2.0 targets and what remains out of scope (evaluator/state authority, external-resource TOCTOU, post-execution-start audit semantics).
-- [`docs/audits/external-review-scope-v2.md`](./docs/audits/external-review-scope-v2.md): the current external review scope.
-
-`docs/audits/protocol-audit-post-interoperability.md` is a historical snapshot
-dated 2026-06-04 and is not a current-state reference.
-
----
-
-## Non-Bypassable Execution Demo
-
-The agent cannot call tools directly.
-All execution goes through a **PEP Gateway**.
-
-```text
-Agent → Gateway → Protected Upstream
-       ↘ direct call → 403
-```
-
-### Expected outcomes
-
-* `ALLOW` → executed
-* `DENY` → blocked
-* `REPLAY` → blocked
-* `BYPASS` → rejected
-
-> **No valid authorization → no execution path**
-
-![Terminal Demo](./docs/media/non-bypassable-split-v2.gif)
----
-
-### Run it
-
-```bash
-export UPSTREAM_EXECUTOR_TOKEN=demo-internal-token
-
-node examples/non-bypassable-demo/protected-upstream.mjs
-node examples/non-bypassable-demo/pep-gateway.mjs
-node examples/non-bypassable-demo/agent.mjs
-```
-
----
-
-## Why This Matters
-
-Without an execution boundary:
-
-* retries duplicate side effects
-* budgets leak
-* permissions drift
-* control lives inside the model loop
-
-You are relying on **best-effort enforcement**.
-
-**OxDeAI makes execution conditional.**
-
----
-
-## Positioning
-
-Most agent systems control behavior.
-
-OxDeAI controls execution.
-
-Without an execution boundary, unauthorized or unintended execution is not prevented.
-
-## Applicability
-
-OxDeAI is not a replacement for inline PDP/PEP authorization.
-
-Inline or sidecar policy evaluation (OPA, Cedar, Cerbos) is the simpler
-baseline and should generally be preferred.
-
-A detachable authorization artifact is justified in two cases:
-
-* **Independent verification**: the party that must verify the authorization
-  is not the party that ran the decision point or controls the enforcement log
-  (counterparty, auditor, regulator). Decision logs are evidence the operator
-  produced about the operator's own enforcement.
-* **Unreachable premises**: the executor cannot reach the authoritative
-  inputs required to re-evaluate locally, across a separate trust/network zone
-  or third-party boundary.
-
-Topology alone does not justify it. Separate processes or multiple enforcement
-points are solved by placing a decision point next to the executor.
-
-When neither condition applies, do not make the decision detachable.
-
-This boundary came out of a public exchange with a Cerbos maintainer:
-[r/AskNetsec thread](https://www.reddit.com/r/AskNetsec/comments/1vkh8za/) · [applicability discussion](docs/architecture/why-oxdeai.md#applicability)
-
----
-
-## How It Works
-
-1. Agent proposes an action
-2. OxDeAI evaluates `(intent, state, policy)`
-3. `ALLOW` → AuthorizationV1 issued
-4. Gateway verifies authorization
-5. Execution becomes reachable
-
-`DENY` → blocked before any side effect
-
----
-
-## What This Prevents
-
-* unintended execution
-* duplicate or replayed actions
-* budget overruns
-* permission leakage
-* non-reproducible decisions
-
----
-
-## Why This Is Different
-
-* Prompt guardrails → probabilistic
-* Monitoring → after execution
-* **OxDeAI → deterministic, before execution**
-
-Logs explain what happened.
-Authorization artifacts prove what was allowed.
-
----
-
-## Determinism & Proof
-
-OxDeAI is validated through **verifiable invariants**, not claims:
-
-* frozen canonicalization vectors
-* cross-language verification on canonicalization, Profile-C state verification and SignedKRLV1 (TypeScript / Go / Python); other surfaces are TypeScript-only
-* conformance suite (CI validated)
-* cross-adapter equivalence
-
-```bash
-pnpm test:vectors:all
-```
-
-All implementations produce **identical canonical bytes and hashes**.
-
----
-
-## Specification
-
-OxDeAI is a protocol composed of:
-
-* **Canonicalization** → deterministic bytes
-* **ETA Core** → decision function
-* **Conformance** → verification rules
-* **PEP Gateway** → enforcement boundary
-
-→ **Implementation paths**
-- [`packages/core/src/`](./packages/core/src)
-- [`packages/conformance/`](./packages/conformance)
-- [`docs/spec/`](./docs/spec)
-
-## Document Model
-
-- `docs/spec/**` - normative protocol definitions
-- `docs/**` - non-normative guides and examples; if there is a conflict, `docs/spec/**` wins
-
----
-
-## Trust Model
-
-OxDeAI is **not a global authority**.
-
-* Any system can issue authorization
-* Signature ≠ trust
-* Trust is configured by the verifier
-
-```ts
-verifyAuthorization(auth, {
-  mode: "strict",
-  trustedKeySets: [...],
-});
-```
-
-> No trust configuration → fail closed
-
-| Concept        | Controlled by |
-| -------------- | ------------- |
-| Issuer         | Any system    |
-| Trusted keys   | Verifier      |
-| Execution gate | OxDeAI        |
-
----
-
-## Release Security Checks (CI)
-
-The repository uses two separate blocking checks:
-
-* **Security Policy Boundary** - a reproducible check of the repo-local
-  policy-boundary attack harness.
-* **Security Advisory Gate** - freshness-dependent security evidence produced
-  from mutable external advisory data and the repository vulnerability policy.
-
-The advisory gate can emit a hash-bound release-evidence record tied to the
-candidate SHA, lockfile, and retained advisory input. That record is not an
-OxDeAI runtime authorization artifact or an `ExecutionReceiptV1`. See
-[`docs/security/SECURITY-GATE.md`](./docs/security/SECURITY-GATE.md).
-
----
+**OxDeAI is a deterministic execution authorization protocol for AI agents.**
+Agents propose actions. Each action is authorized by a policy decision, and that
+authorization is then verified independently before anything executes, at a
+protected enforcement boundary.
+
+> **No valid authorization, no execution through the enforced boundary.**
+
+OxDeAI is not an agent framework, a prompt guardrail or a monitoring platform.
+It does not replace OPA, Cedar or Cerbos either (see [When to use it](#when-to-use-it)).
 
 ## Quick Start
 
-Prerequisites:
+**Prerequisites:** Node.js ≥ 20 (CI uses the version specified in [`.node-version`](./.node-version)) and pnpm ≥ 10.34.5.
 
-- Node.js 20+
-- pnpm 9+
+The demo runs entirely on localhost using a test key. No external services or production credentials are required.
 
 ```bash
 git clone https://github.com/oxdeai/oxdeai.git
 cd oxdeai
-pnpm install
-pnpm build
-
-export OXDEAI_ENGINE_SECRET='test-secret-must-be-at-least-32-chars!!'
-pnpm -C examples/openclaw start
+corepack enable
+pnpm install --frozen-lockfile
+pnpm build:protocol
+pnpm demo
 ```
 
-Runs an OpenClaw agent with enforced execution authorization.
+The executable demo starts a protected upstream and a PEP Gateway, then verifies HTTP responses and actual upstream side effects.
 
----
+### Expected results
 
-## Delegated Authorization
+| Scenario | HTTP | Expected behavior |
+| --- | --- | --- |
+| `ALLOW` | `200` | Valid authorization; action executed exactly once |
+| `NOT_COVERED` | `403` | Intent hash mismatch; rejected by the Gateway without execution |
+| `REPLAY` | `403` | `AUTH_REPLAY`; previously consumed authorization cannot execute again |
+| `BYPASS` | `403` | Direct upstream request rejected due to missing or invalid internal executor token |
 
-Delegation behaves like a capability system:
+Expected output:
 
 ```text
-parent → AuthorizationV1 (budget=1000)
-        ↓
-   DelegationV1 (max=300)
-        ↓
-child → verifyDelegationChain() → execute / DENY
+ALLOW        200  executed                 side effects +1  ✓
+NOT_COVERED  403  INTENT_HASH_MISMATCH     side effects +0  ✓
+REPLAY       403  AUTH_REPLAY              side effects +0  ✓
+BYPASS       403  missing or invalid internal executor token side effects +0  ✓
+
+All 4 scenarios behaved as expected. Total side effects: 1
 ```
 
-Properties:
+**Important:** `NOT_COVERED` demonstrates a Gateway verification failure, not a policy `DENY` decision from the PDP. The demo validates enforcement for requests passing through the protected boundary; it does not establish that every possible execution path in an arbitrary deployment is non-bypassable.
 
-* strictly narrowing
-* single-hop
-* locally verifiable
-* cryptographically bound (Ed25519)
+The command exits with a nonzero status if any assertion fails.
 
----
+For the multi-process example, see [`examples/non-bypassable-demo`](./examples/non-bypassable-demo).
 
-## Guarantees
-
-* deterministic evaluation
-* fail-closed execution
-* replay protection
-* evaluation isolation
-* cross-runtime equivalence
-
----
-
-## Benchmarks
-
-The synthetic protected-path benchmark measures policy evaluation,
-authorization verification, envelope verification, and deterministic in-memory
-tool work against the same tool work without OxDeAI checks. Current results are
-host- and runtime-specific and contain noise/outlier warnings, so no stable
-per-action overhead is claimed. See the
-[benchmark summary](./bench/BENCHMARK_SUMMARY.md) for exact observations and
-limitations.
-
----
-
- ## Adapter Ecosystem
- 
-Maintained TypeScript adapters:
-
-* LangGraph (LangGraph.js)
-* OpenAI Agents SDK (JS/TS)
-* OpenClaw
-
-Adapter-shape bindings (TypeScript; Python-native adapters for these frameworks are not yet published): 
-
- * CrewAI
- * AutoGen
-
- All adapters produce identical outcomes:
+## How it works
 
 ```text
-ALLOW / ALLOW / DENY / verifyEnvelope() => ok
+agent ──proposes──▶ PDP: (canonical intent, trusted state, policy)
+                     │
+                     ├──▶ ALLOW + signed AuthorizationV1
+                     └──▶ DENY  (no artifact issued)
+
+agent ──action + AuthorizationV1──▶ PEP (enforcement boundary) ──▶ protected tool
+                                     │
+                                     ├── Ed25519 signature, trusted keys
+                                     ├── issuer/policy authority
+                                     ├── audience, expiry
+                                     ├── intent hash = exact action
+                                     └── single use (auth_id consumed)
+
+Demo deployment: only the PEP holds the upstream executor token.
 ```
 
----
+1. **Decide.** The policy engine evaluates `(intent, state, policy)`.
+   For identical canonical intent, trusted state and policy inputs,
+   the deterministic decision function produces the same result.
+   `ALLOW` produces an [`AuthorizationV1`](./docs/spec/artifacts/authorization-v1.md)
+   bound to the intent hash, the state hash, the audience and an expiry.
+2. **Verify.** The enforcement point re-checks the artifact against its own
+   configuration: which keys it trusts, which issuer/policy pairs may authorize
+   it, and its audience. A valid signature alone is not trust.
+3. **Execute or refuse.** The tool runs only when verification passes, and each
+   `auth_id` is consumed once. On any verification failure, the action is
+   refused.
 
-## What OxDeAI Is
+A parent authorization can hand a narrower scope to another agent through a
+single-hop [`DelegationV1`](./docs/spec/artifacts/delegation-v1.md).
 
-* execution authorization protocol
-* deterministic decision layer
-* pre-execution enforcement
-* cryptographic authorization artifacts
+## When to use it
 
----
+Inline or sidecar policy evaluation (OPA, Cedar, Cerbos) is simpler, and is the
+better choice when the executor can evaluate policy itself. A detachable,
+signed authorization is justified when:
 
-## What OxDeAI Is Not
+- **independent verification is required**: the party that must check the
+  decision (a counterparty, auditor or separate executor) is not the operator of
+  the decision point; or
+- **the authoritative inputs are unavailable to the executor**: policy or state
+  lives across a trust, network or third-party boundary.
 
-* not an agent framework
-* not a prompt guardrail
-* not a monitoring system
-* not heuristic runtime logic
-* not a replacement for inline PDP/PEP authorization
+Separate processes alone do not justify it; putting a decision point next to
+the executor solves that. See
+[Why OxDeAI: applicability](./docs/architecture/why-oxdeai.md#applicability).
 
----
+## Security guarantees and limits
 
-## Protocol Status
+**What is specified and tested,** for calls that go through the reviewed boundary
+(`@oxdeai/guard`):
 
-| Artifact               | Status  |
-| ---------------------- | ------- |
-| AuthorizationV1        | Stable  |
-| DelegationV1           | Stable  |
-| VerificationEnvelopeV1 | Draft   |
-| ExecutionReceiptV1     | Planned |
+- deterministic decisions for identical canonical intent, trusted state and policy inputs;
+- authorization verified before execution, bound to the exact action by its intent hash;
+- issuer/policy authority and trusted keys configured by the verifier;
+- single use of each `auth_id` within the configured replay store;
+- refusal when verification fails or the replay store reports an error.
 
----
+**What OxDeAI does not guarantee by itself:**
 
-## Multi-language Support
+- **Other call paths.** A tool reachable by another path is not protected. The
+  deployment must make the boundary the only path, for example with the
+  executor token shown in the demo.
+- **Trust inputs.** Correct policy, state inputs and key management. A valid
+  signature proves who signed, not that the signer should be trusted.
+- **Replay scope.** Replay protection is process-local unless you configure a
+  shared, durable store (`replayProtection: { mode: "shared", store }`).
+- **Opt-in controls.** Delegation revocation (SignedKRLV1) and delegation signer
+  authority are off unless you configure them.
+- **What an authorization is.** It is not proof that the action happened.
+  Execution receipts (`ExecutionReceiptV1`) are planned and do not exist yet.
+- **Cross-language coverage.** Go and Python harnesses cover only some surfaces
+  (canonicalization, Profile-C state verification, SignedKRLV1). Everything else
+  is verified in TypeScript only.
 
-Artifacts are portable:
+- **Trusted-process integrity (IR-03).** OxDeAI does not protect against
+  arbitrary attacker-controlled JavaScript executing inside the trusted
+  Guard/PEP process. Partial hardening exists against inherited Promise
+  thenable manipulation, but a timed in-process attack remains a documented
+  residual risk. Untrusted agents, tools and plugins must execute outside
+  the trusted enforcement process.
 
-* TypeScript (reference)
-* Go
-* Python
+Scope and residual limits: [2.0 residual scope](./docs/audits/2.0-residual-scope.md) ·
+[external review scope](./docs/audits/external-review-scope-v2.md) ·
+[threat model](./docs/security/threat-model.md). Report vulnerabilities privately:
+[SECURITY.md](./SECURITY.md).
 
-Verification works across runtimes.
+## Protocol status
 
----
+| Specification | Status |
+| --- | --- |
+| [AuthorizationV1](./docs/spec/artifacts/authorization-v1.md), [DelegationV1](./docs/spec/artifacts/delegation-v1.md) | Stable |
+| [PEP Gateway](./docs/spec/enforcement/pep-gateway-v1.md), [Verification](./docs/spec/verification/verification-v1.md) | Stable |
+| [SignedKRLV1](./docs/spec/artifacts/signed-krl-v1.md) | Draft |
+| VerificationEnvelopeV1 | Draft |
+| ExecutionReceiptV1 | Planned |
 
-## Why This Exists
+Normative text lives in [`docs/spec/`](./docs/spec). If anything elsewhere in `docs/` conflicts with it, `docs/spec/` wins.
 
-Agents moved from **answering → acting**.
+## Documentation and integrations
 
-Execution is now the **risk surface**.
-
-* Prompt guardrails shape behavior
-* OxDeAI controls execution
-
-```text
-Probabilistic control < Deterministic authorization
-```
-
----
+- **Specification:** [`docs/spec/`](./docs/spec) ([canonicalization](./docs/spec/core/canonicalization-v1.md), [decision core](./docs/spec/core/eta-core-v1.md), [conformance](./docs/spec/conformance/conformance-v1.md))
+- **Conformance:** [`packages/conformance`](./packages/conformance) and [test vectors](./docs/spec/test-vectors). Run `pnpm test:vectors:ts` (TypeScript only), or `pnpm test:vectors:all`, which also needs Go and Python.
+- **Packages:** [`@oxdeai/core`](./packages/core) (decision, artifacts, verification) and [`@oxdeai/guard`](./packages/guard) (enforcement boundary, PEP gateway)
+- **Adapters (TypeScript):** LangGraph, OpenAI Agents SDK, OpenClaw. CrewAI and AutoGen have adapter-shape bindings. See [`examples/`](./examples).
+- **More examples:** [`examples/openclaw`](./examples/openclaw) (a budget-based policy `DENY`) · [`examples/delegation`](./examples/delegation)
+- **Performance:** [benchmark summary](./bench/BENCHMARK_SUMMARY.md). Results depend on the host, so no fixed per-action overhead is claimed.
+- **Release security checks:** [`docs/security/SECURITY-GATE.md`](./docs/security/SECURITY-GATE.md)
 
 ## Contributing
 
-* [CONTRIBUTING.md](./CONTRIBUTING.md)
-* [`docs/spec`](./docs/spec)
-* [`packages/conformance`](./packages/conformance)
+See [CONTRIBUTING.md](./CONTRIBUTING.md), [GOVERNANCE.md](./GOVERNANCE.md) and the
+[Code of Conduct](./CODE_OF_CONDUCT.md). Protocol changes need an issue discussion, a
+spec update in `docs/spec/`, and tests or vectors where applicable.
 
----
-
-## TL;DR
-
-Agents propose actions.
-OxDeAI decides if they can execute.
-
-> **No authorization → no execution.**
+Licensed under [Apache-2.0](./LICENSE).
