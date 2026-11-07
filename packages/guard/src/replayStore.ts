@@ -16,6 +16,11 @@
  *   authorization could otherwise still be accepted. An indeterminate result
  *   MUST NOT be reported as successful consumption. No backend is mandated.
  *
+ * Result type (RR-01): the consume methods MUST resolve to the boolean `true`
+ * or `false`. Every PEP checks the result strictly. Any other value, including
+ * truthy ones such as `1`, `"OK"` or `"true"`, is an indeterminate answer and
+ * is denied as `REPLAY_STORE_UNAVAILABLE`. Truthiness is never used.
+ *
  * Consumption spends the replay entitlement; it does not record a completed
  * effect. A crash or failure after consume may spend an authorization without
  * execution. Multiple consume calls are not one transaction with the effect.

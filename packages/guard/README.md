@@ -284,6 +284,132 @@ authorization verification, replay consumption, hash binding, CAS,
 execution ordering) is identical; the two entry points differ only in how the
 evaluated intent's provenance is established.
 
+### Secure guard configuration is captured at construction
+
+`createSecureGuard(config, options)` reads `config` **once**, when it is
+called, validates it with the same rules and messages as `OxDeAIGuard`, and
+fails with `OxDeAIGuardConfigurationError` if it is invalid. Each call then
+runs on that captured configuration, never on the caller's object. Changing
+`config` afterwards has no effect on the existing secure guard.
+
+**Supported configuration forms.** Every option is read **by name**, through
+ordinary property access, exactly as `OxDeAIGuard` reads it. An option may be
+an own property, an inherited or non-enumerable property, a getter (for
+example on a configuration class), or a value supplied by a `Proxy` `get` trap;
+all are honoured. Each option, and each security-relevant member of a nested
+option object (`replayProtection.mode` / `.store`, signer and authority
+entries, the F4-C provider's `check`, the SignedKRLV1 members), is read
+**exactly once**, so a getter that answers differently on a later read cannot
+make validation and enforcement disagree. A getter or `Proxy` trap that throws
+fails construction with `OxDeAIGuardConfigurationError`; it is never treated
+as "not configured", so it can never fall back to a weaker replay posture or
+switch an opt-in check off. Function-valued options (`getState`, `setState`,
+hooks, `mapActionToIntent`, `computeStateHash`) are invoked with your config
+object as `this`, so prototype methods keep working. Properties that are not
+`OxDeAIGuardConfig` options are ignored, as `OxDeAIGuard` ignores them.
+
+**Prototype pollution.** Inheriting options from *your own* prototypes is
+supported. Inheriting them from the language's built-in prototypes is not:
+`createSecureGuard` refuses to construct, with `OxDeAIGuardConfigurationError`,
+when `Object.prototype` has a property named after any option or any member it
+reads (for example `trustedKeySets`, `replayStore`, `issuer`, `check`,
+`consumeAuthId`), or when `Object.prototype` / `Array.prototype` has an
+array-index property. In that situation an inherited value could supply or
+replace security configuration, so the guard fails closed instead of
+honouring the value or silently ignoring it. A polluted configuration value
+is never invoked. The check runs before the configuration is read, again after every
+option has been read, and once more when construction completes, so pollution
+introduced *during* construction (for example by one of your getters, a
+`Proxy` trap or an engine accessor) also fails construction (IR-01).
+Everything the guard captures is stored as its own data, so pollution
+introduced *after* construction does not change the captured configuration.
+That is a statement about the configuration only: it does not mean that
+pollution after construction can never affect a request. Values your
+callbacks return at request time are a separate surface, covered in
+[Callback results and inherited `then`](#callback-results-and-inherited-then-ir-03).
+The replay store's `consumeAuthId` / `consumeDelegationId` are each read once,
+before the replay posture is validated, and a getter that throws is a
+configuration error.
+
+| Option | Captured as | Later mutation of the caller's value |
+|---|---|---|
+| `trustedDelegationSigners` | frozen copy of the validated pairs | adding, replacing or removing pairs, or reassigning / deleting the option: **not observed** |
+| `trustedDelegationAuthorities` | frozen copy of the `(issuer, policyId)` pairs | **not observed** (on this entry point; `OxDeAIGuard` reads it per request) |
+| `delegationRevocationProvider`, `requireDelegationRevocation` | `check` bound to the original provider object; the flag value | replacing `provider.check`, reassigning the provider or clearing the flag: **not observed** |
+| `revocation` (SignedKRLV1) | validated frozen copy: KRL trust, scopes, the `provider` function, the watermark store's bound `accept` | replacing `provider`, `watermarkStore.accept` or `scopes`, or removing `revocation`: **not observed** |
+| `replayProtection` / `replayStore` | the single resolved replay store, by identity, with `consumeAuthId` / `consumeDelegationId` bound to it | reassigning the option or replacing the store's methods: **not observed**; the store's own state is live (one store passed to several guards is one replay domain) |
+| `trustedKeySets` | the array (or a wrapper around a single `KeySet`) and its `KeySet` objects, **retained, not copied** | in-place mutation **observed** (this is how to rotate keys); reassigning `config.trustedKeySets` **not observed** |
+| hooks, `engine`, `getState`, `setState`, `expectedAudience`, `computeStateHash`, `mapActionToIntent` | the values present at construction | reassignment **not observed** |
+
+**Provider identity versus provider state.** What is fixed is *which* code
+answers: the provider object and method captured at construction. What that
+code returns is not frozen. A revocation provider that consults a live store,
+a KRL provider that returns the current signed list, the watermark store's
+state and the engine's own state are all read on every call, so legitimate
+revocation updates take effect immediately. To change the *configuration*
+itself (signers, authorities, providers), construct a new secure guard.
+Each secure guard has its own captured configuration and, for
+`{mode:"process-local"}`, its own replay store; instances do not share state.
+
+**Replay configuration on the secure path.** All modes in the
+[replay posture table](#replay-protection-posture-replayprotection) are
+supported: `{mode:"process-local"}` uses one in-memory store for the secure
+guard's lifetime, `{mode:"shared", store}` uses that store for every
+consumption, and a legacy `replayStore` is honored. Conflicting or invalid
+replay configuration is rejected at construction. (Before this release,
+`createSecureGuard` combined with `replayProtection` rejected every call with
+"Ambiguous replay configuration"; only the deprecated `replayStore` worked.)
+
+### Callback results and inherited `then` (IR-03)
+
+Applies to `OxDeAIGuard` and `createSecureGuard`. When a promise settles with
+a plain object or array, JavaScript looks up `then` on it. If
+`Object.prototype.then` or `Array.prototype.then` is a function, that function
+decides what the promise settles with. Unhandled, this let a polluted `then`
+replace an F4-C `REVOKED` answer with `ACTIVE`, a denying `getState()` state
+with a permissive one, or the current SignedKRLV1 list with an older,
+validly signed one, and the request executed.
+
+The guard now obtains the results of `getState()`, the F4-C provider's
+`check()` and the SignedKRLV1 `provider()` as follows:
+
+- A plain (non-promise) result is used as returned. It never passes through
+  promise resolution, so no inherited `then` is consulted, and synchronous
+  callbacks are not exposed at all.
+- A genuine promise or promise-like object is awaited, so asynchronous
+  callbacks work as before.
+- Before the call, immediately after it returns, and after its promise
+  settles, `Object.prototype` and `Array.prototype` must carry no `then`.
+  Otherwise the result is not trusted and the request is denied before replay
+  consumption, the state commit and `execute()`:
+
+| Callback | Denial |
+|---|---|
+| `getState()` | stage `STATE_LOAD`, failure `UNCLASSIFIED`, `OxDeAIAuthorizationError` |
+| F4-C `check()` | `DELEGATION_REVOCATION_UNAVAILABLE` |
+| SignedKRLV1 `provider()` | `REVOCATION_STATE_UNAVAILABLE` |
+
+Any `then` on those two built-in prototypes fails closed, even a non-callable
+one that could not substitute anything. A process whose dependencies install
+`Object.prototype.then` cannot use the guard. Revocation denials are held in
+objects without a prototype, so they cannot be swapped for "nothing revoked"
+on their way through the guard.
+
+**Supported trust boundary.** This enforces against data-only pollution (for
+example a JSON-merge gadget; a non-callable `then` cannot substitute values)
+and against a function-valued `then` that is present before a callback runs,
+installed during its synchronous part, or still present when its promise
+settles. It does **not** cover in-process code that installs a `then` and
+removes it again while an `async` callback is pending after an internal
+`await`. That callback's promise is resolved inside its own promise machinery,
+before the guard can see the value, so the guard cannot tell the substitution
+apart from a genuine answer. A test for this case is kept as a `todo` in
+`guard.secure-config.test.ts`. Doing it requires arbitrary code running in
+your process, timed to the request. Such code could equally replace your
+callbacks or `Promise.prototype.then`, and is outside the guard's threat
+model (see [Known limits](#known-limits)). A revocation provider is trusted
+to answer: a provider able to run such code can simply answer `ACTIVE`.
+
 ---
 
 ## Security invariants
@@ -331,6 +457,22 @@ ensure all accepting boundaries participate; local code cannot infer that topolo
 
 Consumption spends authorization; it does not prove execution completed. A crash
 between consume and effect can spend the authorization without producing the effect.
+
+**Result contract (RR-01).** `consumeAuthId` and `consumeDelegationId` must
+resolve to a boolean. Only `true` (first consumption) lets the request proceed.
+`false` is a replay and is denied as `AUTHORIZATION_REPLAY` or
+`DELEGATION_REPLAY` (gateway executor: `AUTH_REPLAY`). Any other answer
+(`"true"`, `"false"`, `1`, `0`, `"OK"`, `null`, `undefined`, objects or arrays)
+violates the contract and fails closed as `REPLAY_STORE_UNAVAILABLE` (gateway
+executor: `REPLAY_STORE_UNAVAILABLE:INVALID_RESULT`). This applies to the
+direct path, both delegation-path consumes and `createPepGatewayExecutor`.
+Earlier releases accepted any truthy value as a first consumption, so a store
+returning a raw Redis `SET NX` reply (`"OK"`) or a row count would let one
+authorization execute repeatedly. Such a store now denies every request: make
+it return a boolean. The built-in in-memory and Redis stores already do. A
+denial does not prove the id was left unconsumed (a store may record it before
+answering), and the consume call has no timeout: a store that never settles
+leaves the request pending, and it never executes.
 Generic conformance does not certify restart persistence, replica visibility, backend
 persistence configuration, topology correctness, HA/SLA, or recovery guarantees.
 
@@ -559,6 +701,14 @@ await guard(childContext, { name: "provision_gpu", args: request }, async () => 
    array of strings, `max_amount` a non-negative `bigint`, and `max_actions` /
    `max_depth` non-negative integers (NaN, Infinity, fractional and negative
    ceilings are rejected).
+
+   **`parentScope` is not a signed claim.** `AuthorizationV1` does not carry
+   the parent's scope, and the guard cannot derive it from `parentAuth`. The
+   delegation is narrowed against whatever `parentScope` you pass, so it must
+   come from a source you trust for that parent authorization (for example
+   your PDP's record of what it issued), never from the delegation presenter.
+   A presenter-supplied `parentScope` lets the presenter choose the ceiling it
+   is checked against.
 4. Verifies `parentAuth` in strict mode: signature against `trustedKeySets`,
    `expectedAudience`, expiry, and its `(issuer, policy_id)` pair against
    `trustedDelegationAuthorities` (`OxDeAIAuthorityError` when authority is the
@@ -639,6 +789,12 @@ the application must supply an authoritative implementation.
 - With neither option configured, legacy delegation behavior is preserved.
 - Invalid configuration fails at construction. Provider errors, malformed
   responses, and indeterminate status fail closed before replay consumption.
+  `status` must be an own data property of the answer (an inherited or
+  accessor `status` is a malformed response), and an answer that may have
+  been substituted through an inherited `then` is refused
+  (`DELEGATION_REVOCATION_UNAVAILABLE`; see
+  [Callback results and inherited `then`](#callback-results-and-inherited-then-ir-03)).
+  `check()` may also return its answer synchronously.
 - Direct (non-delegated) authorization is not subject to this revocation check.
 - Rejection emits a boundary event with the corresponding failure code.
 
@@ -855,6 +1011,31 @@ target:
   represented as an `onDecision` record or an `onBoundaryEvent`. It is the
   caller's own outcome, and the current lifecycle produces no final decision
   record for it on either stream.
+
+- **Input size.** The guard does not limit the size of `opts.delegation`
+  (including `scope.tools` and `parentScope.tools`) or of action arguments.
+  Delegation inputs are snapshotted and scope narrowing runs before the
+  delegation signature is checked, so their cost is paid for unauthenticated
+  input. That cost is linear in input size (scope narrowing was quadratic
+  before F4-AUD-03), but an unbounded request is still unbounded work. Enforce
+  request-size limits at your transport (HTTP body limits, message-size
+  limits) before input reaches the guard. No protocol-level `tools` length
+  limit is defined.
+- **In-process JavaScript compromise.** The guard runs inside your process
+  and trusts the JavaScript runtime it runs in. Its prototype-pollution
+  defences (construction-time capture, IR-01, IR-03) fail closed on
+  configuration and callback results reached through polluted built-in
+  prototypes. They do not defend against code already executing in the
+  process: such code can replace built-ins (`Promise.prototype.then`,
+  `Map` / `Set` methods, `Function.prototype`) before or after the guard
+  loads, replace your callbacks, or install and remove a `then` while an
+  `async` callback is pending. Nothing here claims protection against
+  arbitrary in-process code execution.
+- **Opt-in protections.** Delegation signer authority
+  (`trustedDelegationSigners`), F4-C delegation revocation and SignedKRLV1
+  revocation are opt-in and remain off unless configured; SignedKRLV1 is not
+  applied to direct (non-delegated) authorization. Capturing configuration at
+  construction (above) does not change these defaults.
 
 None of these are claimed as solved by 2.0. Do not describe this package as
 guaranteeing state-source authority, generic external-resource TOCTOU safety,

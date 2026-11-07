@@ -53,7 +53,7 @@ export class DelegationSnapshotError extends Error {
   }
 }
 
-function snapshotValue(value: unknown, path: string, depth: number, seen: Set<object>): unknown {
+function snapshotValue(value: unknown, path: string, depth: number, seen: Set<object>, maxDepth: number): unknown {
   switch (typeof value) {
     case "string":
     case "number":
@@ -70,7 +70,7 @@ function snapshotValue(value: unknown, path: string, depth: number, seen: Set<ob
   // Must be checked before ANY other operation: every reflective operation on
   // a Proxy (getPrototypeOf, ownKeys, getOwnPropertyDescriptor) runs a trap.
   if (types.isProxy(value)) throw new DelegationSnapshotError(path, "Proxy objects are not supported");
-  if (depth >= MAX_DEPTH) throw new DelegationSnapshotError(path, `nesting exceeds ${MAX_DEPTH}`);
+  if (depth >= maxDepth) throw new DelegationSnapshotError(path, `nesting exceeds ${maxDepth}`);
   if (seen.has(value)) throw new DelegationSnapshotError(path, "cyclic structure");
   seen.add(value);
   try {
@@ -89,7 +89,7 @@ function snapshotValue(value: unknown, path: string, depth: number, seen: Set<ob
       }
       const arr: unknown[] = [];
       for (let i = 0; i < length; i++) {
-        arr.push(readDataProperty(value, String(i), `${path}[${i}]`, depth, seen));
+        arr.push(readDataProperty(value, String(i), `${path}[${i}]`, depth, seen, maxDepth));
       }
       out = arr;
     } else {
@@ -99,7 +99,7 @@ function snapshotValue(value: unknown, path: string, depth: number, seen: Set<ob
         // Plain assignment of "__proto__" on {} would set the prototype
         // instead of creating an own property: define it explicitly.
         Object.defineProperty(obj, key, {
-          value: readDataProperty(value, key, `${path}.${key}`, depth, seen),
+          value: readDataProperty(value, key, `${path}.${key}`, depth, seen, maxDepth),
           enumerable: true, writable: true, configurable: true,
         });
       }
@@ -111,19 +111,26 @@ function snapshotValue(value: unknown, path: string, depth: number, seen: Set<ob
   }
 }
 
-function readDataProperty(owner: object, key: string, path: string, depth: number, seen: Set<object>): unknown {
+function readDataProperty(owner: object, key: string, path: string, depth: number, seen: Set<object>, maxDepth: number): unknown {
   const desc = Object.getOwnPropertyDescriptor(owner, key);
   if (desc === undefined) throw new DelegationSnapshotError(path, "missing own property");
   if (!("value" in desc)) throw new DelegationSnapshotError(path, "accessor properties are not supported");
   if (!desc.enumerable) throw new DelegationSnapshotError(path, "non-enumerable properties are not supported");
-  return snapshotValue(desc.value, path, depth + 1, seen);
+  return snapshotValue(desc.value, path, depth + 1, seen, maxDepth);
 }
 
 /**
  * Deep, deterministic, frozen plain-data copy of `value` under the contract
  * above. Throws `DelegationSnapshotError` for anything outside the supported
  * input model.
+ *
+ * `maxDepth` defaults to {@link MAX_DEPTH} (the delegation contract). The PEP
+ * gateway passes `Infinity` for its request snapshot (INVREG-F01/F02) so that
+ * no new protocol-level nesting limit is introduced for actions; nesting there
+ * remains bounded only by the call stack, exactly as it already was for
+ * `canonicalJson`. A stack overflow surfaces as a thrown `RangeError`, which
+ * the caller must treat as a rejection.
  */
-export function snapshotPlainData<T>(value: T, path = "input"): T {
-  return snapshotValue(value, path, 0, new Set()) as T;
+export function snapshotPlainData<T>(value: T, path = "input", maxDepth: number = MAX_DEPTH): T {
+  return snapshotValue(value, path, 0, new Set(), maxDepth) as T;
 }

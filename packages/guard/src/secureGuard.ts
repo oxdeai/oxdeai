@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
-import type { Intent } from "@oxdeai/core";
-import { OxDeAIGuard } from "./guard.js";
+import type { Intent, KeySet } from "@oxdeai/core";
+import { OxDeAIGuard, resolveDelegationRevocation, resolveDelegationSigners } from "./guard.js";
+import { resolveRevocationConfig } from "./revocation.js";
+import { assertIntrinsicsUnpolluted, captureSecureGuardConfig, isCapturedEphemeralReplayStore } from "./secureConfig.js";
 import { defaultNormalizeAction } from "./normalizeAction.js";
 import { resolveReplayProtection, strictFromConfig } from "./replayProtection.js";
 import { OxDeAIAuthorizationError, OxDeAIGuardConfigurationError } from "./errors.js";
@@ -95,15 +97,106 @@ export function createSecureGuard(config: OxDeAIGuardConfig, options: SecureGuar
         "would otherwise be indistinguishable from a legitimate single-tenant one."
     );
   }
+  // ── F4-AUD-01: construction-time configuration capture ────────────────────
+  //
+  // The shared body is rebuilt per call (below) so that each call's provenance
+  // capture is isolated. It used to be rebuilt from the deployer's LIVE config
+  // object, so every option OxDeAIGuard resolves at construction (signer
+  // authority, F4-C revocation, SignedKRLV1 revocation, …) was in fact re-read
+  // per call: pushing a pair into the caller's signer array, reassigning
+  // `config.revocation = undefined` or replacing `provider.check` after
+  // construction widened authority or disabled enforcement.
+  //
+  // The caller's config is now read ONCE, here. Every option is read once,
+  // by name, through ordinary property access (REV-R1/REV-R2: own, inherited,
+  // non-enumerable, accessor and Proxy-provided values alike, exactly as
+  // OxDeAIGuard reads them; a `{ ...config }` copy silently dropped all but own
+  // enumerable ones, downgrading shared replay protection and disabling signer
+  // and revocation enforcement). A read that throws is a configuration error,
+  // never "not configured". Every security option OxDeAIGuard resolves at
+  // construction is then resolved, with the same resolvers, into frozen data
+  // or bound callables, and per-call shared bodies are built only from that
+  // frozen template. What deliberately stays live is what OxDeAIGuard itself
+  // treats as live: the retained `trustedKeySets` array and KeySet objects
+  // (in-place rotation), and the internal state behind captured callables
+  // (provider and store state, engine state). See secureConfig.ts and README
+  // "Secure guard configuration".
+  const raw: OxDeAIGuardConfig = captureSecureGuardConfig(config);
+
   const baseNormalize: (action: ProposedAction) => Intent =
-    config.mapActionToIntent ?? defaultNormalizeAction;
+    raw.mapActionToIntent ?? defaultNormalizeAction;
 
   // Resolve the replay store ONCE through the shared replay-protection contract
-  // (P2-1). The guard closure is rebuilt per call so that each call's provenance
-  // capture is isolated, and a per-call default store would otherwise give every
-  // call a fresh replay namespace — silently disabling replay protection across
-  // calls. Unsafe/ambiguous config fails closed at construction.
-  const replayStore = resolveReplayProtection(config, { strict: strictFromConfig((config as { requireExplicitReplayProtection?: unknown }).requireExplicitReplayProtection) }).store;
+  // (P2-1). A per-call default store would give every call a fresh replay
+  // namespace, silently disabling replay protection across calls.
+  // Unsafe/ambiguous config fails closed at construction. `raw` holds exactly
+  // the values read once above, so the posture validated here is the posture
+  // enforced. A deployer-supplied store (`shared` or legacy) was captured by
+  // secureConfig.ts BEFORE resolution, with its methods read once and bound to
+  // it (RV-02, F4-AUD-01): the resolver validates that snapshot, the store's
+  // identity and state stay live and shared, and replacing its methods later
+  // is not observed. A `process-local` or implicit store is created by the
+  // resolver itself and is reachable from nowhere else.
+  const resolvedReplay = resolveReplayProtection(raw, { strict: strictFromConfig(raw.requireExplicitReplayProtection) });
+  if (resolvedReplay.source === "explicit-shared" && isCapturedEphemeralReplayStore(resolvedReplay.store)) {
+    // The resolver applies this rule by object identity, which it can no
+    // longer see through the snapshot; same rule, same message.
+    throw new OxDeAIGuardConfigurationError(
+      "replayProtection mode 'shared' requires a durable backend, but the OxDeAI built-in in-memory " +
+        "store is process-local. Provide an external shared store (e.g. Redis/DynamoDB) or use " +
+        "replayProtection:{mode:'process-local'} if a single-process store is intended."
+    );
+  }
+  const replayStore = resolvedReplay.store;
+
+  // AUD-OBS-02: hand the per-call body exactly ONE replay source, the store
+  // resolved above (the same object for `shared` and legacy `replayStore`; one
+  // instance-lifetime in-memory store for `process-local`). Forwarding the
+  // caller's `replayProtection` alongside it made every call fail with
+  // "Ambiguous replay configuration". `replayProtection` is removed rather than
+  // re-validated: it was validated once above, and re-resolving
+  // `{mode:'process-local'}` per call would mint a fresh store each time.
+  const { replayProtection: _validatedReplayPosture, ...rawWithoutReplayPosture } = raw;
+  void _validatedReplayPosture;
+  // `replayProtection: undefined` stays an OWN property (RV-01): every option
+  // in the per-call config is own, so no option read can reach a prototype
+  // polluted after construction.
+  const unresolved: OxDeAIGuardConfig = { ...rawWithoutReplayPosture, replayProtection: undefined, replayStore };
+
+  // Validate the whole configuration NOW (F4-AUD-01: invalid configuration
+  // fails at construction, as it does for OxDeAIGuard), with OxDeAIGuard's own
+  // validation and error messages. The instance is discarded.
+  OxDeAIGuard(unresolved);
+
+  // Capture each construction-resolved security option as frozen data.
+  const normalizedKeySets: readonly KeySet[] = Array.isArray(raw.trustedKeySets)
+    ? raw.trustedKeySets
+    : [raw.trustedKeySets as KeySet];
+  const signedKrl = resolveRevocationConfig(raw.revocation, normalizedKeySets);
+  const delegationRevocation = resolveDelegationRevocation(raw);
+  const template: OxDeAIGuardConfig = Object.freeze({
+    ...unresolved,
+    // Frozen copy of validated (delegator, issuer) pairs.
+    trustedDelegationSigners: resolveDelegationSigners(raw.trustedDelegationSigners),
+    // Read per request by OxDeAIGuard. Already a frozen copy (secureConfig.ts),
+    // so a later mutation of the caller's list can neither add nor remove a
+    // parent authority for this instance. `undefined` (not configured) and
+    // `[]` (authorizes nothing) stay distinct.
+    trustedDelegationAuthorities: raw.trustedDelegationAuthorities,
+    // `check` bound to the original provider object at construction: replacing
+    // `provider.check` later is not observed, while the provider's own
+    // revocation state (whatever `check` consults) is.
+    delegationRevocationProvider: delegationRevocation.provider,
+    requireDelegationRevocation: delegationRevocation.required,
+    // Already validated and frozen: KRL trust copied, scopes copied, the KRL
+    // provider function and the watermark store's bound `accept` captured.
+    revocation: signedKrl as unknown as OxDeAIGuardConfig["revocation"],
+  });
+  OxDeAIGuard(template); // the captured form must itself be valid.
+  // IR-01: resolution and validation above can still run deployer code (e.g.
+  // getters on the live `trustedKeySets` entries). Refuse to return a guard if
+  // an intrinsic prototype was polluted at any point during construction.
+  assertIntrinsicsUnpolluted();
 
   /**
    * The secure prelude plus delegation to the shared body. Extracted so that
@@ -146,9 +239,10 @@ export function createSecureGuard(config: OxDeAIGuardConfig, options: SecureGuar
 
     let provenance: ProvenanceRecord | undefined;
 
+    // Per-call fields only. Everything else comes from the frozen construction
+    // template, never from the caller's config object.
     const secureConfig: OxDeAIGuardConfig = {
-      ...config,
-      replayStore,
+      ...template,
       // Reconciliation runs on the OUTPUT of the deployment's normalizer, so a
       // custom mapActionToIntent cannot overwrite a trusted premise.
       mapActionToIntent: (a: ProposedAction): Intent => {
@@ -176,8 +270,8 @@ export function createSecureGuard(config: OxDeAIGuardConfig, options: SecureGuar
         provenance = reconciled.provenance;
         return reconciled.intent;
       },
-      onDecision: config.onDecision
-        ? (record) => config.onDecision!({ ...record, ...(provenance ? { provenance } : {}) })
+      onDecision: template.onDecision
+        ? (record) => template.onDecision!({ ...record, ...(provenance ? { provenance } : {}) })
         : undefined,
     };
 
@@ -202,7 +296,7 @@ export function createSecureGuard(config: OxDeAIGuardConfig, options: SecureGuar
       // Identical and unconditional to the shared body's catch: the rules for
       // what is emitted live only in emitBoundaryEvent, and the ORIGINAL error
       // is re-thrown regardless of what the audit sink does.
-      await emitBoundaryEvent(config.onBoundaryEvent, err, outerLifecycle);
+      await emitBoundaryEvent(template.onBoundaryEvent, err, outerLifecycle);
       throw err;
     }
   };

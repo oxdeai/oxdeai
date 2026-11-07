@@ -156,10 +156,18 @@ export function handleExecute(
     }
 
     // 6. Replay protection (last verification step before execution)
-    let consumed: boolean;
+    // RR-01: only the literal boolean `true` is a successful consume; any
+    // non-boolean result is a store malfunction and must not authorize.
+    let consumed: unknown;
     try {
       consumed = await replayStore.consumeAuthId(authorization.auth_id, { expiry: authorization.expiry });
     } catch {
+      return denyResult(
+        correlationId, "REPLAY_STORE_UNAVAILABLE", config,
+        envelope.action.tool, intentHash, authorization.auth_id, now,
+      );
+    }
+    if (consumed !== true && consumed !== false) {
       return denyResult(
         correlationId, "REPLAY_STORE_UNAVAILABLE", config,
         envelope.action.tool, intentHash, authorization.auth_id, now,

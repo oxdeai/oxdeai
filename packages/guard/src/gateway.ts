@@ -6,6 +6,7 @@ import type { AuthorizationAuthority, AuthorizationV1, KeySet } from "@oxdeai/co
 import { resolveReplayProtection, strictFromConfig } from "./replayProtection.js";
 import type { ReplayProtection } from "./replayProtection.js";
 import type { ReplayStore } from "./replayStore.js";
+import { snapshotPlainData } from "./delegationSnapshot.js";
 
 export const INTERNAL_EXECUTOR_TOKEN_HEADER = "x-internal-executor-token";
 
@@ -89,6 +90,19 @@ export type PepGatewayOptions = {
   expectedAudience: string;
   trustedKeySets: KeySet | readonly KeySet[];
   internalExecutorToken: string;
+  /**
+   * Dispatches an authorized action to the protected upstream.
+   *
+   * - Captured once at construction. Reassigning `options.executeUpstream`
+   *   later has no effect (INVREG-F05).
+   * - Invoked with this options object as `this`, as before INVREG-F05, so a
+   *   method that uses `this` keeps working (GW-COMP-01).
+   * - `action` is a fresh, mutable plain-data copy of the verified request
+   *   action, value-identical to what was hashed and bound to the
+   *   authorization. The executor may modify it. The gateway never reads it
+   *   back, and it shares no object with the caller's request or with the
+   *   gateway's own verified snapshot.
+   */
   executeUpstream: UpstreamExecutor;
   /**
    * Deployer-configured (issuer, policyId) pairs authorized to issue
@@ -115,6 +129,15 @@ export type PepGatewayOptions = {
    *
    * ⚠️ Supersedes the removed `expectedIssuer` option. To constrain the gateway
    * to a single issuer, list only that issuer's pairs.
+   *
+   * INVREG-F05: the list is validated and copied at construction. Every entry
+   * must be a plain `{ issuer, policyId }` object with non-empty string
+   * members (no Proxy, no accessor properties), or construction throws. Later
+   * changes to the caller's array or entry objects, or reassignment of this
+   * property, are NOT observed. There is no runtime rotation API for
+   * authorities: to change them, construct a new executor. (Contrast
+   * `trustedKeySets`, which is retained by reference so keys can be rotated in
+   * place; key trust is not policy authority.)
    */
   trustedAuthorizationAuthorities: readonly AuthorizationAuthority[];
   /**
@@ -176,6 +199,85 @@ function asKeySets(keySets: KeySet | readonly KeySet[]): readonly KeySet[] {
   return Array.isArray(keySets) ? (keySets as readonly KeySet[]) : [keySets as KeySet];
 }
 
+/**
+ * INVREG-F05: capture issuer-policy authority at construction.
+ *
+ * The caller's list is snapshotted (plain data only: a Proxy or accessor is
+ * rejected without being invoked), every entry is validated, and a frozen copy
+ * of exactly the `{ issuer, policyId }` pairs is retained. The caller's array
+ * and entry objects are never read again, so mutating them after construction
+ * cannot add a trusted (issuer, policy_id) pair. A malformed entry fails
+ * construction instead of silently never matching.
+ */
+function resolveTrustedAuthorizationAuthorities(value: unknown): readonly AuthorizationAuthority[] {
+  // Array.isArray does not run Proxy traps.
+  if (!Array.isArray(value)) {
+    throw new Error(
+      "trustedAuthorizationAuthorities is required: the gateway accepts authorizations from untrusted " +
+        "request input and cannot infer which issuer is authorized for which policy_id. " +
+        "An absent authority list is not an unconstrained mode."
+    );
+  }
+  let snapshot: readonly unknown[];
+  try {
+    snapshot = snapshotPlainData(value as readonly unknown[], "trustedAuthorizationAuthorities");
+  } catch (err) {
+    throw new Error(
+      `trustedAuthorizationAuthorities must be a plain array of plain { issuer, policyId } objects: ${
+        err instanceof Error ? err.message : String(err)
+      }`
+    );
+  }
+  const copy: AuthorizationAuthority[] = [];
+  for (const entry of snapshot) {
+    const e = entry as { issuer?: unknown; policyId?: unknown } | null;
+    if (
+      e === null || typeof e !== "object" || Array.isArray(e) ||
+      typeof e.issuer !== "string" || e.issuer.length === 0 ||
+      typeof e.policyId !== "string" || e.policyId.length === 0
+    ) {
+      throw new Error(
+        "trustedAuthorizationAuthorities entries must be { issuer: string, policyId: string } with non-empty values."
+      );
+    }
+    copy.push(Object.freeze({ issuer: e.issuer, policyId: e.policyId }));
+  }
+  return Object.freeze(copy);
+}
+
+/**
+ * GW-COMP-01: mutable deep copy of the gateway's verified request snapshot,
+ * handed to `executeUpstream`.
+ *
+ * Input is ONLY the output of `snapshotPlainData`: deep-frozen plain objects
+ * (prototype `Object.prototype` or `null`), dense plain arrays, own enumerable
+ * string-keyed data properties, and primitive leaves, with no cycles, no
+ * accessors and no Proxies. Plain property reads are therefore safe here and
+ * run no caller code.
+ *
+ * The copy keeps key order, leaf values (including bigint and -0), null
+ * prototypes and own `"__proto__"` keys (defined as data, never as a prototype
+ * change). It is value-identical to the snapshot at the moment it is made, so
+ * it canonicalizes to the same bytes and hash. It shares no object with the
+ * snapshot or the caller's request.
+ */
+function mutableCopyOfSnapshot(value: unknown): unknown {
+  if (value === null || typeof value !== "object") return value;
+  if (Array.isArray(value)) {
+    const arr: unknown[] = [];
+    for (let i = 0; i < value.length; i++) arr.push(mutableCopyOfSnapshot(value[i]));
+    return arr;
+  }
+  const out: Record<string, unknown> = Object.getPrototypeOf(value) === null ? Object.create(null) : {};
+  for (const key of Object.keys(value)) {
+    Object.defineProperty(out, key, {
+      value: mutableCopyOfSnapshot((value as Record<string, unknown>)[key]),
+      enumerable: true, writable: true, configurable: true,
+    });
+  }
+  return out;
+}
+
 function headerValue(headers: IncomingHttpHeaders | Record<string, string | string[] | undefined>, name: string): string | undefined {
   const raw = headers[name.toLowerCase()];
   if (Array.isArray(raw)) return raw.length === 1 ? raw[0] : undefined;
@@ -233,8 +335,21 @@ export async function protectUpstreamExecution<T = unknown>(
 }
 
 export function createPepGatewayExecutor(options: PepGatewayOptions) {
-  requireText(options.expectedAudience, "expectedAudience");
-  requireText(options.internalExecutorToken, "internalExecutorToken");
+  // INVREG-F05 (GATE-CFG-05): every option that decides the trust boundary is
+  // read exactly once, here. The returned executor never reads `options`
+  // again, so reassigning `expectedAudience`, `internalExecutorToken`,
+  // `executeUpstream` or `trustedAuthorizationAuthorities` on the caller's
+  // options object after construction has no effect.
+  const expectedAudience = options.expectedAudience;
+  const internalExecutorToken = options.internalExecutorToken;
+  const executeUpstream = options.executeUpstream;
+  // GW-COMP-01: receiver for executeUpstream, as at baseline. It is an object
+  // reference only; no property of it is read after construction.
+  const upstreamReceiver: unknown = options;
+  requireText(expectedAudience, "expectedAudience");
+  requireText(internalExecutorToken, "internalExecutorToken");
+  // Retained by reference on purpose: in-place mutation of the key-set array
+  // and its KeySet objects is the documented key-rotation mechanism.
   const trustedKeySets = asKeySets(options.trustedKeySets);
   if (trustedKeySets.length === 0) throw new Error("trustedKeySets are required");
   // Fail at construction, not at first request: a gateway that cannot decide
@@ -242,14 +357,7 @@ export function createPepGatewayExecutor(options: PepGatewayOptions) {
   // An explicitly configured empty array is accepted here and denies every
   // request at the authority check — a deliberate configuration, and distinct
   // from having configured nothing at all.
-  const trustedAuthorizationAuthorities = options.trustedAuthorizationAuthorities;
-  if (!Array.isArray(trustedAuthorizationAuthorities)) {
-    throw new Error(
-      "trustedAuthorizationAuthorities is required: the gateway accepts authorizations from untrusted " +
-        "request input and cannot infer which issuer is authorized for which policy_id. " +
-        "An absent authority list is not an unconstrained mode."
-    );
-  }
+  const trustedAuthorizationAuthorities = resolveTrustedAuthorizationAuthorities(options.trustedAuthorizationAuthorities);
   const replayStore = resolveReplayProtection(options, { strict: strictFromConfig(options.requireExplicitReplayProtection) }).store;
   const now = options.now ?? (() => Math.floor(Date.now() / 1000));
   const hashAction = options.hashAction ?? sha256HexFromJson;
@@ -261,25 +369,49 @@ export function createPepGatewayExecutor(options: PepGatewayOptions) {
       return deny(403, "INVALID_REQUEST");
     }
 
-    const requestBody = input as Partial<PepGatewayExecuteRequest>;
-    if (requestBody.action === undefined || !requestBody.authorization) {
+    // ── INVREG-F01 / INVREG-F02: one immutable request snapshot ────────────
+    // The caller's request object is live, in-process data. Before this
+    // snapshot the gateway re-read `action` and `authorization` fields at
+    // hashing, verification, replay consumption and dispatch; a getter, a
+    // Proxy, or a plain mutation during the awaited replay consume could make
+    // the verified action differ from the executed one, or the verified
+    // auth_id differ from the consumed one (one signature, many executions).
+    //
+    // The request graph is walked exactly once, here, before any security
+    // decision. Every later step - hashing, signature/authority verification,
+    // intent binding, replay consumption, dispatch and the response body -
+    // reads ONLY this deep-frozen plain-data copy. Proxies, accessors and
+    // non-plain values (class instances, Date, Map, Buffer/typed arrays,
+    // functions, symbol keys, sparse arrays, cycles) are rejected without
+    // invoking caller code, before replay state is touched. Values are copied
+    // verbatim (no coercion, key order preserved), so canonicalization and the
+    // action hash are unchanged for supported input. No nesting limit is added
+    // (maxDepth = Infinity); nesting stays stack-bounded as in canonicalJson.
+    let requestBody: Partial<PepGatewayExecuteRequest>;
+    try {
+      requestBody = snapshotPlainData(input as Partial<PepGatewayExecuteRequest>, "request", Infinity);
+    } catch (err) {
+      return deny(403, `INVALID_REQUEST_INPUT:${err instanceof Error ? err.message : String(err)}`);
+    }
+    const action = requestBody.action;
+    const authorization = requestBody.authorization;
+    if (action === undefined || !authorization) {
       return deny(403, "INVALID_REQUEST");
     }
 
     let intentHash: string;
     try {
-      intentHash = hashAction(requestBody.action);
+      intentHash = hashAction(action);
     } catch (err) {
       return deny(403, `ACTION_CANONICALIZATION_FAILED:${err instanceof Error ? err.message : String(err)}`);
     }
 
-    const authorization = requestBody.authorization;
     const verification = verifyAuthorization(authorization, {
       now: now(),
       mode: "strict",
       trustedKeySets,
       requireSignatureVerification: true,
-      expectedAudience: options.expectedAudience,
+      expectedAudience,
       // `expectedPolicyId: authorization.policy_id` was removed here (#301): it
       // compared the artifact against itself and proved nothing. Policy
       // authority now comes from deployer configuration that existed before the
@@ -296,19 +428,52 @@ export function createPepGatewayExecutor(options: PepGatewayOptions) {
       return deny(403, "INTENT_HASH_MISMATCH");
     }
 
-    let consumed: boolean;
+    // GW-COMP-01: the upstream executor gets its own mutable deep copy of the
+    // verified snapshot, built here, after verification and BEFORE replay
+    // consumption, so a failed copy cannot burn the authorization. At the
+    // moment of dispatch the copy is value-identical to the hashed snapshot
+    // (same keys in the same order, same leaves, same prototypes), so the
+    // executed action equals the authorized action (INVREG-F01). The executor
+    // may edit its copy, as it could edit its input at baseline. The gateway
+    // never reads the copy back: hashing, replay and the response body use only
+    // the frozen snapshot, and the caller's object is not reachable from it.
+    let upstreamAction: unknown;
     try {
+      upstreamAction = mutableCopyOfSnapshot(action);
+    } catch (err) {
+      return deny(403, `INVALID_REQUEST_INPUT:${err instanceof Error ? err.message : String(err)}`);
+    }
+
+    let consumed: unknown;
+    try {
+      // INVREG-F02: `authorization` is the frozen snapshot that was verified,
+      // so the consumed auth_id is the verified auth_id.
       consumed = await replayStore.consumeAuthId(authorization.auth_id, { expiry: authorization.expiry });
     } catch (err) {
       return deny(403, `REPLAY_STORE_UNAVAILABLE:${err instanceof Error ? err.message : String(err)}`);
     }
-    if (!consumed) return deny(403, "AUTH_REPLAY");
+    // RR-01: ReplayStore resolves to a boolean. Only `true` is a successful
+    // consume; `false` is a replay. Any other value is an indeterminate store
+    // answer (verification-v1 §4.3) and fails closed. JavaScript truthiness is
+    // never used: "false", 1, {} or "OK" must not open the gate. Whether the
+    // store recorded the id before answering is unknown to the gateway.
+    if (typeof consumed !== "boolean") return deny(403, "REPLAY_STORE_UNAVAILABLE:INVALID_RESULT");
+    if (consumed !== true) return deny(403, "AUTH_REPLAY");
 
     try {
+      // INVREG-F01: dispatch a copy of the verified snapshot - value-identical
+      // to the object that was hashed and bound to the authorization - never
+      // the caller's object.
+      // GW-COMP-01: invoke with the deployer's options object as `this`, as at
+      // baseline (`options.executeUpstream(...)`), so method-style executors
+      // keep working. Only the receiver is restored. The function was captured
+      // at construction, so reassigning `options.executeUpstream` later still
+      // has no effect, and the gateway reads no property of `options` here.
       const upstream = await withTimeout(
-        options.executeUpstream(requestBody.action, {
-          [INTERNAL_EXECUTOR_TOKEN_HEADER]: options.internalExecutorToken,
-        }),
+        Reflect.apply(executeUpstream, upstreamReceiver, [
+          upstreamAction,
+          { [INTERNAL_EXECUTOR_TOKEN_HEADER]: internalExecutorToken },
+        ]) as ReturnType<UpstreamExecutor>,
         timeoutMs
       );
 

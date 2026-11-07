@@ -291,7 +291,9 @@ export function startPepGateway(config: PepConfig): Promise<PepHandle> {
       // Replay check is LAST to prevent denial-of-service via replay of any
       // valid auth_id. Only a fully-valid authorization is consumed.
       // Store errors are fatal — fail-closed, never fall through to execution.
-      let consumed: boolean;
+      // RR-01: only the literal boolean `true` is a successful consume; any
+      // non-boolean result is a store malfunction and must not authorize.
+      let consumed: unknown;
       try {
         consumed = await config.replayStore.consumeAuthId(auth.auth_id, auth.expires_at);
       } catch (e) {
@@ -299,6 +301,13 @@ export function startPepGateway(config: PepConfig): Promise<PepHandle> {
           ok: false,
           code: "REPLAY_STORE_ERROR",
           message: e instanceof Error ? e.message : String(e),
+        });
+      }
+      if (consumed !== true && consumed !== false) {
+        return jsonResponse(res, 500, {
+          ok: false,
+          code: "REPLAY_STORE_ERROR",
+          message: "replay store returned a non-boolean result",
         });
       }
       if (!consumed) {
