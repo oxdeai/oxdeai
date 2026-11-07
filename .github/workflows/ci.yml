@@ -60,6 +60,13 @@ jobs:
         # Agentgram demo skipped in CI due to IPC/Unix socket permission limits; run locally if environment allows.
         run: pnpm -r --filter=!@examples/agentgram-demo test
 
+      - name: Executable demo
+        # Runs after Build: demo.mjs imports packages/core and packages/guard dist.
+        run: pnpm demo
+
+      - name: Executable demo regression tests
+        run: pnpm test:demo
+
       - name: Conformance
         run: pnpm -C packages/core build && pnpm -C packages/conformance validate
         env:

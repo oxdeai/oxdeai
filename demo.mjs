@@ -1,4 +1,4 @@
-// PROTOTYPE for a proposed `pnpm demo` (examples/non-bypassable-demo/demo.mjs).
+// Executable enforcement demo, run with `pnpm demo` after `pnpm build:protocol`.
 // Single process, loopback only, ephemeral ports, synthetic demo key, no network
 // or credentials. Asserts the four outcomes against a side-effect counter held by
 // the protected upstream itself; exits nonzero on any mismatch, error or timeout.
@@ -11,11 +11,14 @@
 //   REPLAY       same authorization presented again             -> refused
 //   BYPASS       direct call to the upstream, skipping the PEP  -> rejected upstream
 //
-// Usage (prototype): node demo.mjs <repo-root-with-built-core-and-guard>
+// Usage: node demo.mjs [repo-root]
+// The repository root defaults to this file's directory. It is converted from the
+// module URL with fileURLToPath, so paths containing spaces, `%` or Windows drive
+// letters resolve correctly.
 import assert from "node:assert/strict";
 import { request } from "node:http";
 import { join } from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const REQUEST_TIMEOUT_MS = 2_000; // per HTTP request
 const DEMO_TIMEOUT_MS = 10_000; // whole run; a hung demo must fail, not hang
@@ -27,7 +30,7 @@ const watchdog = setTimeout(() => {
 }, DEMO_TIMEOUT_MS);
 watchdog.unref();
 
-const ROOT = process.argv[2] ?? new URL(".", import.meta.url).pathname;
+const ROOT = process.argv[2] ?? fileURLToPath(new URL(".", import.meta.url));
 const imp = (p) => import(pathToFileURL(join(ROOT, p)).href);
 const { createPepGatewayHttpServer, createProtectedUpstreamHttpServer, createHttpUpstreamExecutor } =
   await imp("packages/guard/dist/index.js");

@@ -5,7 +5,9 @@
 // 3) node examples/non-bypassable-demo/agent.mjs
 //
 // This script simulates an agent/runtime issuing actions through the gateway.
-// It demonstrates: valid execution, replay denial, and direct-upstream bypass rejection.
+// It demonstrates: valid execution, a gateway refusal for an action the
+// authorization does not cover, replay denial, and direct-upstream bypass rejection.
+// It exits nonzero if any scenario does not behave as expected.
 
 import { request } from "node:http";
 import { hashAction, makeAuthorization } from "./auth-fixture.mjs";
@@ -54,6 +56,9 @@ const ACTION = {
   params: { amount: "500", currency: "USD", user_id: "user_123" },
 };
 
+const GATEWAY_URL = process.env.GATEWAY_URL || "http://localhost:8787";
+const UPSTREAM_URL = process.env.UPSTREAM_URL || "http://localhost:8788";
+
 const intentHash = hashAction(ACTION);
 const audience = process.env.GATEWAY_AUDIENCE || "pep-gateway.local";
 
@@ -62,42 +67,52 @@ function makeAuth({ authId, hash }) {
 }
 
 // ---- Scenarios ----
+// Each scenario returns { name, ok, detail }. The summary and the exit code are
+// derived from the observed responses, never hard-coded.
 async function scenarioAllow() {
   const auth = makeAuth({ authId: `auth_${Date.now()}`, hash: intentHash });
-  const res = await postJson("http://localhost:8787/execute", { action: ACTION, authorization: auth });
-  console.log("SCENARIO: ALLOW");
-  console.log(`  status: ${res.status}`);
-  console.log(`  executed: ${res.body?.executed === true}`);
-  return auth;
+  const res = await postJson(`${GATEWAY_URL}/execute`, { action: ACTION, authorization: auth });
+  const ok = res.status === 200 && res.body?.executed === true;
+  return { auth, result: { name: "ALLOW", ok, detail: `status=${res.status} executed=${res.body?.executed === true}` } };
+}
+
+// Authorization issued for ACTION, presented with a different action (amount changed).
+// This is a gateway verification failure (INTENT_HASH_MISMATCH), not a policy DENY:
+// no policy engine runs in this example.
+async function scenarioNotCovered() {
+  const auth = makeAuth({ authId: `auth_nc_${Date.now()}`, hash: intentHash });
+  const altered = { ...ACTION, params: { ...ACTION.params, amount: "50000" } };
+  const res = await postJson(`${GATEWAY_URL}/execute`, { action: altered, authorization: auth });
+  const ok = res.status === 403 && res.body?.reason === "INTENT_HASH_MISMATCH" && res.body?.executed !== true;
+  return { name: "NOT_COVERED", ok, detail: `status=${res.status} reason=${res.body?.reason}` };
 }
 
 async function scenarioReplay(reusedAuth) {
-  const res = await postJson("http://localhost:8787/execute", { action: ACTION, authorization: reusedAuth });
-  console.log("SCENARIO: REPLAY");
-  console.log(`  status: ${res.status}`);
-  console.log(`  blocked: ${res.status === 403}`);
+  const res = await postJson(`${GATEWAY_URL}/execute`, { action: ACTION, authorization: reusedAuth });
+  const ok = res.status === 403 && res.body?.reason === "AUTH_REPLAY" && res.body?.executed !== true;
+  return { name: "REPLAY", ok, detail: `status=${res.status} reason=${res.body?.reason}` };
 }
 
 async function scenarioBypass() {
-  const res = await postJson("http://localhost:8788/charge", ACTION.params);
-  console.log("SCENARIO: BYPASS");
-  console.log(`  status: ${res.status}`);
-  const rejected = res.status === 403;
-  console.log(`  rejected: ${rejected}`);
+  const res = await postJson(`${UPSTREAM_URL}/charge`, ACTION.params);
+  const ok = res.status === 403 && res.body?.executed !== true;
+  return { name: "BYPASS", ok, detail: `status=${res.status}` };
 }
 
 async function main() {
-  const auth = await scenarioAllow();
-  await scenarioReplay(auth);
-  await scenarioBypass();
+  const allow = await scenarioAllow();
+  const results = [allow.result, await scenarioNotCovered(), await scenarioReplay(allow.auth), await scenarioBypass()];
 
   console.log("SUMMARY:");
-  console.log("  ALLOW: executed");
-  console.log("  REPLAY: blocked");
-  console.log("  BYPASS: rejected");
+  for (const r of results) console.log(`  ${r.name.padEnd(12)} ${r.ok ? "as expected" : "UNEXPECTED"}  (${r.detail})`);
+  const failed = results.filter((r) => !r.ok).length;
+  if (failed > 0) {
+    console.log(`${failed} scenario(s) did not behave as expected`);
+    process.exitCode = 1;
+  }
 }
 
 main().catch((err) => {
   console.error("unexpected error", err);
-  process.exit(1);
+  process.exitCode = 1;
 });

@@ -17,6 +17,7 @@ Corpus ownership and expected-value provenance remain distinct, as established b
 | `verify:spec-claims --json` | `{ issues, rows }` describing structural traceability | Adds `evidenceScope` with `kind: structural-only`; covers no executable claims. `--registry` exclusions use the supplied registry. |
 | `verify:corpus-authority --json` | `{ result, scope, inventory }` | Adds structural-only `evidenceScope`; inventory is not executed corpus coverage. |
 | Profile-C projection check | Representation consistency PASS | Appends a structural-only scoped JSON report. No execution coverage. |
+| `@oxdeai/conformance/deployment` (`runDeploymentChecks`) | Per-check PASS/FAIL/NOT_TESTED; aggregate PASS/FAIL/INCOMPLETE | Separate `kind: "deployment"` report about deployer-supplied probes, with its own provenance block (deployment identity, time, probe references); never an `evidenceScope` and not a conformance result. See [deployment checks](deployment-checks.md). |
 | Internal adapter RPC, Core/Rust artifact verification results, unit-test/TAP diagnostics | `{ ok, output }`, artifact statuses, test framework output | These are operations/diagnostics, not conformance reports. No protocol result format is changed. The optional package Go adapter driver remains diagnostic-only and blocked by #306 with its bundled adapter. |
 
 The official `test:vectors:*` and `test:rust` commands retain the underlying tests

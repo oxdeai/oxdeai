@@ -362,7 +362,7 @@ A `DelegationV1` artifact MUST include all of the following fields:
 ### 5.3 Field Semantics
 
 - `delegation_id`: Unique identifier for this delegation artifact instance.
-- `issuer`: Identifier of the principal issuing the delegation. MUST equal `parent.audience`.
+- `issuer`: Identifier of the principal that signed the delegation. It selects the KeySet used to verify `signature` (Section 5.8, step 12). It is not required to equal `parent.audience`; the authority binding to the parent is carried by `delegator`. Which issuers a relying party accepts as delegation signers for a given `delegator` is a local trust decision of the relying party, made in addition to key selection (Section 11).
 - `audience`: Intended audience for the delegation (typically the delegatee identifier).
 - `parent_auth_hash`: SHA-256 hex digest of the canonical parent `AuthorizationV1`, including its `signature` field. Used for cryptographic hash binding to the parent.
 - `delegator`: Identifier of the principal granting authority. MUST equal `parent.audience`.
@@ -397,7 +397,7 @@ A relying party MAY impose additional constraints beyond those in the effective 
 `DelegationV1` has the following protocol properties:
 
 - Single-use: `delegation_id` MUST be treated as consumable exactly once by the relying party.
-- Issuer-bound: validity is scoped to the delegating principal identified by `issuer`.
+- Delegator-bound: validity is scoped to the delegating principal identified by `delegator`, which MUST equal `parent.audience`. The signature binds the artifact to a key trusted for `issuer`.
 - Audience-bound: validity is scoped to the designated `delegatee`.
 - Parent-bound: validity is cryptographically bound to a specific parent `AuthorizationV1` via `parent_auth_hash`. A delegation presented with a mismatched parent MUST be rejected.
 - Policy-bound: `policy_id` MUST equal `parent.policy_id`. Cross-policy delegation is prohibited.

@@ -107,14 +107,16 @@ the executor solves that. See
 
 ## Security guarantees and limits
 
-**What is specified and tested,** for calls that go through the reviewed boundary
+**What is specified and tested,** for calls that go through the enforced boundary
 (`@oxdeai/guard`):
 
 - deterministic decisions for identical canonical intent, trusted state and policy inputs;
 - authorization verified before execution, bound to the exact action by its intent hash;
 - issuer/policy authority and trusted keys configured by the verifier;
 - single use of each `auth_id` within the configured replay store;
-- refusal when verification fails or the replay store reports an error.
+- refusal when verification fails, or when the replay store throws, rejects or
+  answers anything other than the boolean `true` (first use) or `false` (replay).
+  A refusal does not prove the `auth_id` was left unconsumed.
 
 **What OxDeAI does not guarantee by itself:**
 
@@ -132,7 +134,14 @@ the executor solves that. See
 - **Cross-language coverage.** Go and Python harnesses cover only some surfaces
   (canonicalization, Profile-C state verification, SignedKRLV1). Everything else
   is verified in TypeScript only.
-
+- **Configuration lifecycle.** `createSecureGuard` and `createPepGatewayExecutor`
+  capture and validate their security configuration at construction; later
+  changes to the caller's config object have no effect, except in-place updates
+  to the `trustedKeySets` array (key rotation) and the own state of the replay
+  store and revocation providers, which stay live. The low-level
+  `OxDeAIGuard` reads its configuration on each request, so the config object
+  must stay under the deployer's control. See the
+  [Guard README](./packages/guard/README.md#secure-guard-configuration-is-captured-at-construction).
 - **Trusted-process integrity (IR-03).** OxDeAI does not protect against
   arbitrary attacker-controlled JavaScript executing inside the trusted
   Guard/PEP process. Partial hardening exists against inherited Promise
@@ -152,7 +161,7 @@ Scope and residual limits: [2.0 residual scope](./docs/audits/2.0-residual-scope
 | [AuthorizationV1](./docs/spec/artifacts/authorization-v1.md), [DelegationV1](./docs/spec/artifacts/delegation-v1.md) | Stable |
 | [PEP Gateway](./docs/spec/enforcement/pep-gateway-v1.md), [Verification](./docs/spec/verification/verification-v1.md) | Stable |
 | [SignedKRLV1](./docs/spec/artifacts/signed-krl-v1.md) | Draft |
-| VerificationEnvelopeV1 | Draft |
+| VerificationEnvelopeV1 | Draft: codec and verifier in `@oxdeai/core`; no specification in `docs/spec/` yet ([overview](./docs/protocol/overview.md)) |
 | ExecutionReceiptV1 | Planned |
 
 Normative text lives in [`docs/spec/`](./docs/spec). If anything elsewhere in `docs/` conflicts with it, `docs/spec/` wins.

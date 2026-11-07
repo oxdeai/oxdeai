@@ -1,7 +1,7 @@
 # Security Policy
 
 **Status:** Working security disclosure policy for OxDeAI v1  
-**Last updated:** 2026-06-04
+**Last updated:** 2026-11-07
 
 This document explains how to report security issues in OxDeAI, what versions are supported, and how vulnerability disclosure is handled.
 
@@ -13,13 +13,15 @@ OxDeAI is an open-source execution-time authorization protocol. Security reports
 
 OxDeAI has not yet undergone independent security review.
 
-The current security posture is documented in:
+The current security scope, residual risks and deployment assumptions are documented in:
 
 ```text
-docs/audits/protocol-audit-post-interoperability.md
-````
+docs/audits/2.0-residual-scope.md
+docs/security/threat-model.md
+```
 
-That audit tracks known residual risks, production-readiness gaps, and standardization-readiness blockers.
+`docs/audits/protocol-audit-post-interoperability.md` is a historical snapshot dated
+2026-06-04. It is preserved for the record and does not describe the current state.
 
 Known residuals include, but are not limited to:
 
@@ -27,7 +29,7 @@ Known residuals include, but are not limited to:
 * **RT-TRUST-2:** KRL transport / migration-tracked revocation integrity posture
 * **RT-TRUST-3:** replay store bootstrapping and deployment residuals
 
-Production adopters should review the audit before relying on OxDeAI in high-assurance environments.
+Production adopters should review the residual scope before relying on OxDeAI in high-assurance environments.
 
 ---
 

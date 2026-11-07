@@ -31,6 +31,9 @@ const server = createPepGatewayHttpServer({
   expectedAudience: AUDIENCE,
   trustedAuthorizationAuthorities: TRUSTED_AUTHORIZATION_AUTHORITIES,
   trustedKeySets: [DEMO_KEYSET],
+  // Single-process demo: acknowledge the process-local replay store explicitly.
+  // Multi-instance or restart-durable deployments need { mode: "shared", store }.
+  replayProtection: { mode: "process-local" },
   internalExecutorToken: UPSTREAM_TOKEN,
   timeoutMs: UPSTREAM_TIMEOUT_MS,
   executeUpstream: createHttpUpstreamExecutor({

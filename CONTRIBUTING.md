@@ -375,13 +375,16 @@ When a contribution is not accepted, the reason should be explained.
 
 ## 8. Audit and Documentation Discipline
 
-OxDeAI maintains an internal protocol audit at:
+OxDeAI maintains its current security scope and residual risks at:
 
 ```text
-docs/audits/protocol-audit-post-interoperability.md
+docs/audits/2.0-residual-scope.md
 ```
 
-If a contribution changes maturity, coverage, risk, or conformance posture, update the audit.
+`docs/audits/protocol-audit-post-interoperability.md` is a historical snapshot
+(2026-06-04); do not update its conclusions.
+
+If a contribution changes maturity, coverage, risk, or conformance posture, update the residual scope.
 
 When a P-item or residual changes state, check all affected sections, not only the primary follow-up entry.
 
