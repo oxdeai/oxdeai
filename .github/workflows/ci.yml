@@ -58,7 +58,12 @@ jobs:
 
       - name: Test
         # Agentgram demo skipped in CI due to IPC/Unix socket permission limits; run locally if environment allows.
+        # test-evidence: every node:test run records which tests executed; the test-evidence gate below verifies it.
         run: pnpm -r --filter=!@examples/agentgram-demo test
+        env:
+          OXDEAI_TEST_EVIDENCE_DIR: ${{ runner.temp }}/test-evidence
+          OXDEAI_TEST_EVIDENCE_ROOT: ${{ github.workspace }}
+          NODE_OPTIONS: --test-reporter=tap --test-reporter-destination=stdout --test-reporter=${{ github.workspace }}/scripts/ci/test-evidence-reporter.mjs --test-reporter-destination=stderr
 
       - name: Executable demo
         # Runs after Build: demo.mjs imports packages/core and packages/guard dist.
@@ -66,29 +71,58 @@ jobs:
 
       - name: Executable demo regression tests
         run: pnpm test:demo
+        env:
+          OXDEAI_TEST_EVIDENCE_DIR: ${{ runner.temp }}/test-evidence
+          OXDEAI_TEST_EVIDENCE_ROOT: ${{ github.workspace }}
+          NODE_OPTIONS: --test-reporter=tap --test-reporter-destination=stdout --test-reporter=${{ github.workspace }}/scripts/ci/test-evidence-reporter.mjs --test-reporter-destination=stderr
+
+      - name: Test-evidence gate self-tests
+        run: pnpm test:ci-gate
+        env:
+          OXDEAI_TEST_EVIDENCE_DIR: ${{ runner.temp }}/test-evidence
+          OXDEAI_TEST_EVIDENCE_ROOT: ${{ github.workspace }}
+          NODE_OPTIONS: --test-reporter=tap --test-reporter-destination=stdout --test-reporter=${{ github.workspace }}/scripts/ci/test-evidence-reporter.mjs --test-reporter-destination=stderr
 
       - name: Conformance
         run: pnpm -C packages/core build && pnpm -C packages/conformance validate
         env:
           OXDEAI_ENGINE_SECRET: test-secret-must-be-at-least-32-chars!!
 
+      # Vector steps keep their native exit codes; with --json the verifier output goes to the log (stderr)
+      # and the machine-readable result is kept for the test-evidence gate, which requires every corpus case.
       - name: Vectors (TS canonicalization)
-        run: pnpm test:vectors:ts
+        run: pnpm -s test:vectors:ts --json > "$RUNNER_TEMP/vectors-ts.json"
 
       - name: Vectors (Authorization)
-        run: pnpm test:vectors:auth
+        run: pnpm -s test:vectors:auth --json > "$RUNNER_TEMP/vectors-auth.json"
 
       - name: Vectors (PEP gateway)
-        run: pnpm test:vectors:pep
+        run: pnpm -s test:vectors:pep --json > "$RUNNER_TEMP/vectors-pep.json"
 
       - name: Vectors (Delegation)
-        run: pnpm test:vectors:delegation
+        run: pnpm -s test:vectors:delegation --json > "$RUNNER_TEMP/vectors-delegation.json"
 
       - name: Vectors (Go canonicalization)
-        run: pnpm test:vectors:go
+        run: pnpm -s test:vectors:go --json > "$RUNNER_TEMP/vectors-go.json"
 
       - name: Vectors (Python canonicalization)
-        run: pnpm test:vectors:py
+        run: pnpm -s test:vectors:py --json > "$RUNNER_TEMP/vectors-py.json"
+
+      - name: Test-evidence gate (test-evidence, fail-closed)
+        # Fails the job unless every mandatory test and conformance case was observed to execute and pass.
+        # Manifest: docs/conformance/required-tests.json. Design: test-evidence CI hardening.
+        run: >-
+          node scripts/ci/verify-test-evidence.mjs
+          --manifest docs/conformance/required-tests.json
+          --job build-test
+          --evidence "$RUNNER_TEMP/test-evidence"
+          --root "$GITHUB_WORKSPACE"
+          --vectors ts="$RUNNER_TEMP/vectors-ts.json"
+          --vectors auth="$RUNNER_TEMP/vectors-auth.json"
+          --vectors pep="$RUNNER_TEMP/vectors-pep.json"
+          --vectors delegation="$RUNNER_TEMP/vectors-delegation.json"
+          --vectors go="$RUNNER_TEMP/vectors-go.json"
+          --vectors py="$RUNNER_TEMP/vectors-py.json"
 
   spec-claims:
     runs-on: ubuntu-latest
@@ -293,6 +327,18 @@ jobs:
         run: pnpm --filter @oxdeai/example-lgf-frappe-pep test:redis
         env:
           REDIS_URL: redis://127.0.0.1:6379
+          OXDEAI_TEST_EVIDENCE_DIR: ${{ runner.temp }}/test-evidence
+          OXDEAI_TEST_EVIDENCE_ROOT: ${{ github.workspace }}
+          NODE_OPTIONS: --test-reporter=tap --test-reporter-destination=stdout --test-reporter=${{ github.workspace }}/scripts/ci/test-evidence-reporter.mjs --test-reporter-destination=stderr
+
+      - name: Test-evidence gate (test-evidence, fail-closed)
+        # The live Redis suite is env-gated; a skipped suite exits 0, so its execution is verified by name.
+        run: >-
+          node scripts/ci/verify-test-evidence.mjs
+          --manifest docs/conformance/required-tests.json
+          --job pep-redis-replay
+          --evidence "$RUNNER_TEMP/test-evidence"
+          --root "$GITHUB_WORKSPACE"
 
 concurrency:
   group: ci-${{ github.ref }}
