@@ -51,7 +51,9 @@
     "test:release": "node --test --test-concurrency=1 scripts/release-2.0/*.test.mjs",
     "verify:reproducible-pack": "node scripts/release-2.0/reproducible-pack.mjs",
     "demo": "node demo.mjs",
-    "test:demo": "node --test scripts/demo/demo.test.mjs"
+    "test:demo": "node --test scripts/demo/demo.test.mjs",
+    "test:ci-gate": "node --test scripts/ci/verify-test-evidence.test.mjs",
+    "verify:test-evidence": "node scripts/ci/verify-test-evidence.mjs"
   },
   "devDependencies": {
     "@oxdeai/core": "workspace:*",

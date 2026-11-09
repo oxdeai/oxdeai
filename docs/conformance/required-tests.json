@@ -1,0 +1,664 @@
+{
+  "$comment": "test-evidence required-test manifest. Read by scripts/ci/verify-test-evidence.mjs in CI jobs build-test and pep-redis-replay. Floors (minTests) are observed counts on the baseline; lowering a floor, removing a required test or adding a permitted skip requires a reviewed change with a reason. Run the gate with --emit-observed to print current counts.",
+  "version": 1,
+  "jobs": {
+    "build-test": {
+      "minTests": 1713,
+      "requiredFiles": [
+        {
+          "file": "examples/lgf-frappe-pep/dist/test/adapter-boundary.test.js",
+          "minTests": 1
+        },
+        {
+          "file": "examples/lgf-frappe-pep/dist/test/boundary.test.js",
+          "minTests": 37
+        },
+        {
+          "file": "examples/lgf-frappe-pep/dist/test/replay-strict-result.test.js",
+          "minTests": 8
+        },
+        {
+          "file": "examples/lgf-frappe-pep/dist/test/shutdown.test.js",
+          "minTests": 5
+        },
+        {
+          "file": "packages/core/dist/test/audit.genesis.test.js",
+          "minTests": 2
+        },
+        {
+          "file": "packages/core/dist/test/authorization-v1-boundary.compile.test.js",
+          "minTests": 1
+        },
+        {
+          "file": "packages/core/dist/test/authorization.trusted-time-issuance.test.js",
+          "minTests": 13
+        },
+        {
+          "file": "packages/core/dist/test/budget.negative-amount.test.js",
+          "minTests": 7
+        },
+        {
+          "file": "packages/core/dist/test/canonicalization.property.test.js",
+          "minTests": 12
+        },
+        {
+          "file": "packages/core/dist/test/create-verifier.test.js",
+          "minTests": 12
+        },
+        {
+          "file": "packages/core/dist/test/cross_process.test.js",
+          "minTests": 2
+        },
+        {
+          "file": "packages/core/dist/test/decision.test.js",
+          "minTests": 17
+        },
+        {
+          "file": "packages/core/dist/test/delegation.matrix.test.js",
+          "minTests": 37
+        },
+        {
+          "file": "packages/core/dist/test/delegation.property.test.js",
+          "minTests": 6
+        },
+        {
+          "file": "packages/core/dist/test/delegation.test.js",
+          "minTests": 20
+        },
+        {
+          "file": "packages/core/dist/test/intent.hash.test.js",
+          "minTests": 2
+        },
+        {
+          "file": "packages/core/dist/test/key-lifecycle.property.test.js",
+          "minTests": 11
+        },
+        {
+          "file": "packages/core/dist/test/policy.adapters.test.js",
+          "minTests": 2
+        },
+        {
+          "file": "packages/core/dist/test/property.decision.test.js",
+          "minTests": 8
+        },
+        {
+          "file": "packages/core/dist/test/property.test.js",
+          "minTests": 4
+        },
+        {
+          "file": "packages/core/dist/test/public-artifact-boundary.test.js",
+          "minTests": 7
+        },
+        {
+          "file": "packages/core/dist/test/readme-envelope-example.test.js",
+          "minTests": 1
+        },
+        {
+          "file": "packages/core/dist/test/replay.capacity-retention.test.js",
+          "minTests": 12
+        },
+        {
+          "file": "packages/core/dist/test/replay.trusted-time.test.js",
+          "minTests": 11
+        },
+        {
+          "file": "packages/core/dist/test/replay.verify.test.js",
+          "minTests": 7
+        },
+        {
+          "file": "packages/core/dist/test/signing.payload.test.js",
+          "minTests": 2
+        },
+        {
+          "file": "packages/core/dist/test/state.leaf-validation.test.js",
+          "minTests": 12
+        },
+        {
+          "file": "packages/core/dist/test/toctou.test.js",
+          "minTests": 20
+        },
+        {
+          "file": "packages/core/dist/test/tool-amplification.trusted-classifier.test.js",
+          "minTests": 16
+        },
+        {
+          "file": "packages/core/dist/test/tool-window.trusted-time.test.js",
+          "minTests": 14
+        },
+        {
+          "file": "packages/core/dist/test/trusted-time-integration.test.js",
+          "minTests": 20
+        },
+        {
+          "file": "packages/core/dist/test/velocity.trusted-time.test.js",
+          "minTests": 16
+        },
+        {
+          "file": "packages/core/dist/test/verification-result.schema.contract.test.js",
+          "minTests": 12
+        },
+        {
+          "file": "packages/core/dist/test/verify.audit.test.js",
+          "minTests": 6
+        },
+        {
+          "file": "packages/core/dist/test/verify.authorization.property.test.js",
+          "minTests": 2
+        },
+        {
+          "file": "packages/core/dist/test/verify.authorization.surface.test.js",
+          "minTests": 11
+        },
+        {
+          "file": "packages/core/dist/test/verify.authorization.test.js",
+          "minTests": 23
+        },
+        {
+          "file": "packages/core/dist/test/verify.div01-delegation-issuer.test.js",
+          "minTests": 7
+        },
+        {
+          "file": "packages/core/dist/test/verify.engine-authorization.expiry-binding.test.js",
+          "minTests": 6
+        },
+        {
+          "file": "packages/core/dist/test/verify.engine-authorization.surface.test.js",
+          "minTests": 6
+        },
+        {
+          "file": "packages/core/dist/test/verify.envelope.test.js",
+          "minTests": 10
+        },
+        {
+          "file": "packages/core/dist/test/verify.f4-aud-03-scope-narrowing.test.js",
+          "minTests": 6
+        },
+        {
+          "file": "packages/core/dist/test/verify.f4-delegation-authority.test.js",
+          "minTests": 10
+        },
+        {
+          "file": "packages/core/dist/test/verify.f4-delegation-temporal-ceiling.test.js",
+          "minTests": 15
+        },
+        {
+          "file": "packages/core/dist/test/verify.result.test.js",
+          "minTests": 4
+        },
+        {
+          "file": "packages/core/dist/test/verify.s2-noncanonical-id.test.js",
+          "minTests": 4
+        },
+        {
+          "file": "packages/core/dist/test/verify.s3-small-order-ed25519.test.js",
+          "minTests": 7
+        },
+        {
+          "file": "packages/core/dist/test/verify.s4-canonical-signature.test.js",
+          "minTests": 17
+        },
+        {
+          "file": "packages/core/dist/test/verify.snapshot.test.js",
+          "minTests": 5
+        },
+        {
+          "file": "packages/core/dist/test/verify.sufficiency.test.js",
+          "minTests": 5
+        },
+        {
+          "file": "packages/core/dist/test/verify.trusted-time.test.js",
+          "minTests": 30
+        },
+        {
+          "file": "packages/guard/dist/test/authorizationAuthority.test.js",
+          "minTests": 8
+        },
+        {
+          "file": "packages/guard/dist/test/gateway.authority.test.js",
+          "minTests": 10
+        },
+        {
+          "file": "packages/guard/dist/test/gateway.enforcement.test.js",
+          "minTests": 11
+        },
+        {
+          "file": "packages/guard/dist/test/gateway.h1-execution-outcome.security.test.js",
+          "minTests": 7
+        },
+        {
+          "file": "packages/guard/dist/test/gateway.h1-http-phase.security.test.js",
+          "minTests": 5
+        },
+        {
+          "file": "packages/guard/dist/test/gateway.input-integrity.security.test.js",
+          "minTests": 29
+        },
+        {
+          "file": "packages/guard/dist/test/gateway.vectors.test.js",
+          "minTests": 6
+        },
+        {
+          "file": "packages/guard/dist/test/guard.authorization.test.js",
+          "minTests": 8
+        },
+        {
+          "file": "packages/guard/dist/test/guard.boundary-audit.test.js",
+          "minTests": 33
+        },
+        {
+          "file": "packages/guard/dist/test/guard.boundary.test.js",
+          "minTests": 11
+        },
+        {
+          "file": "packages/guard/dist/test/guard.cas.test.js",
+          "minTests": 6
+        },
+        {
+          "file": "packages/guard/dist/test/guard.delegation.authority.test.js",
+          "minTests": 11
+        },
+        {
+          "file": "packages/guard/dist/test/guard.delegation.input-validation.test.js",
+          "minTests": 7
+        },
+        {
+          "file": "packages/guard/dist/test/guard.delegation.matrix.test.js",
+          "minTests": 17
+        },
+        {
+          "file": "packages/guard/dist/test/guard.delegation.property.test.js",
+          "minTests": 3
+        },
+        {
+          "file": "packages/guard/dist/test/guard.delegation.revocation.test.js",
+          "minTests": 47
+        },
+        {
+          "file": "packages/guard/dist/test/guard.delegation.signer-authority.test.js",
+          "minTests": 12
+        },
+        {
+          "file": "packages/guard/dist/test/guard.delegation.snapshot.test.js",
+          "minTests": 9
+        },
+        {
+          "file": "packages/guard/dist/test/guard.delegation.test.js",
+          "minTests": 37
+        },
+        {
+          "file": "packages/guard/dist/test/guard.intent-binding.test.js",
+          "minTests": 7
+        },
+        {
+          "file": "packages/guard/dist/test/guard.pep-conformance.test.js",
+          "minTests": 11
+        },
+        {
+          "file": "packages/guard/dist/test/guard.property.test.js",
+          "minTests": 17
+        },
+        {
+          "file": "packages/guard/dist/test/guard.provenance.property.test.js",
+          "minTests": 2
+        },
+        {
+          "file": "packages/guard/dist/test/guard.provenance.test.js",
+          "minTests": 26
+        },
+        {
+          "file": "packages/guard/dist/test/guard.readme-examples.test.js",
+          "minTests": 10
+        },
+        {
+          "file": "packages/guard/dist/test/guard.replay-capacity-retention.test.js",
+          "minTests": 3
+        },
+        {
+          "file": "packages/guard/dist/test/guard.replay-consume-ordering.test.js",
+          "minTests": 11
+        },
+        {
+          "file": "packages/guard/dist/test/guard.replay-protection.security.test.js",
+          "minTests": 26
+        },
+        {
+          "file": "packages/guard/dist/test/guard.replay-store.redis.test.js",
+          "minTests": 9
+        },
+        {
+          "file": "packages/guard/dist/test/guard.replay-store.test.js",
+          "minTests": 9
+        },
+        {
+          "file": "packages/guard/dist/test/guard.replay-strict.security.test.js",
+          "minTests": 21
+        },
+        {
+          "file": "packages/guard/dist/test/guard.secure-config.test.js",
+          "minTests": 175
+        },
+        {
+          "file": "packages/guard/dist/test/guard.state-binding.test.js",
+          "minTests": 13
+        },
+        {
+          "file": "packages/guard/dist/test/guard.test.js",
+          "minTests": 29
+        },
+        {
+          "file": "packages/guard/dist/test/guard.toctou.test.js",
+          "minTests": 3
+        },
+        {
+          "file": "packages/guard/dist/test/replay.strict-result.security.test.js",
+          "minTests": 95
+        },
+        {
+          "file": "packages/guard/dist/test/website-examples.test.js",
+          "minTests": 14
+        },
+        {
+          "file": "packages/sift/dist/test/contract-vector.test.js",
+          "minTests": 10
+        },
+        {
+          "file": "packages/sift/dist/test/intent.property.test.js",
+          "minTests": 9
+        },
+        {
+          "file": "packages/sift/dist/test/parameter-binding.test.js",
+          "minTests": 4
+        },
+        {
+          "file": "packages/sift/dist/test/receiptToAuthorization.property.test.js",
+          "minTests": 24
+        },
+        {
+          "file": "packages/sift/dist/test/siftKeyStore.krl-modes.test.js",
+          "minTests": 31
+        },
+        {
+          "file": "packages/sift/dist/test/siftKeyStore.lkg.test.js",
+          "minTests": 18
+        },
+        {
+          "file": "packages/sift/dist/test/siftKeyStore.migration.test.js",
+          "minTests": 11
+        },
+        {
+          "file": "packages/sift/dist/test/siftKeyStore.test.js",
+          "minTests": 25
+        },
+        {
+          "file": "packages/sift/dist/test/siftKeyStore.watermark.test.js",
+          "minTests": 17
+        },
+        {
+          "file": "packages/sift/dist/test/smallOrderEd25519.core-equivalence.test.js",
+          "minTests": 2
+        },
+        {
+          "file": "packages/sift/dist/test/staging-vectors.test.js",
+          "minTests": 11
+        },
+        {
+          "file": "packages/sift/dist/test/state.property.test.js",
+          "minTests": 7
+        },
+        {
+          "file": "packages/sift/dist/test/verifyReceipt.property.test.js",
+          "minTests": 18
+        },
+        {
+          "file": "packages/sift/dist/test/verifyReceipt.s3-small-order.test.js",
+          "minTests": 6
+        },
+        {
+          "file": "packages/sift/dist/test/verifyReceiptWithKeyStore.test.js",
+          "minTests": 11
+        },
+        {
+          "file": "scripts/ci/verify-test-evidence.test.mjs",
+          "minTests": 34
+        },
+        {
+          "file": "tests/dist/fuzz/fuzz_budget_velocity.test.js",
+          "minTests": 2
+        },
+        {
+          "file": "tests/dist/fuzz/meta_property_allow_implies_predicates.test.js",
+          "minTests": 1
+        },
+        {
+          "file": "tests/dist/invariants/inv_budget.test.js",
+          "minTests": 4
+        },
+        {
+          "file": "tests/dist/invariants/inv_concurrency_leases.test.js",
+          "minTests": 3
+        },
+        {
+          "file": "tests/dist/invariants/inv_failclosed_state.test.js",
+          "minTests": 1
+        },
+        {
+          "file": "tests/dist/invariants/inv_killswitch.test.js",
+          "minTests": 1
+        },
+        {
+          "file": "tests/dist/invariants/inv_replay.test.js",
+          "minTests": 1
+        },
+        {
+          "file": "tests/dist/invariants/inv_velocity.test.js",
+          "minTests": 1
+        },
+        {
+          "file": "tests/dist/unit/auditLog.test.js",
+          "minTests": 1
+        },
+        {
+          "file": "tests/dist/unit/authorization.test.js",
+          "minTests": 1
+        },
+        {
+          "file": "tests/dist/unit/authorization/authorizationV1.test.js",
+          "minTests": 15
+        },
+        {
+          "file": "tests/dist/unit/gpuGuardDemo.test.js",
+          "minTests": 1
+        },
+        {
+          "file": "tests/dist/unit/intentHash.test.js",
+          "minTests": 1
+        }
+      ],
+      "requiredTests": [
+        {
+          "file": "packages/core/dist/test/authorization.trusted-time-issuance.test.js",
+          "name": "identical trusted inputs produce deterministic Ed25519 authorizations"
+        },
+        {
+          "file": "packages/core/dist/test/canonicalization.property.test.js",
+          "name": "C-P2: canonical output is invariant to object key insertion order at every nesting level"
+        },
+        {
+          "file": "packages/core/dist/test/canonicalization.property.test.js",
+          "name": "C-P6: floats, NaN, and ±Infinity are always rejected with FLOAT_NOT_ALLOWED"
+        },
+        {
+          "file": "packages/core/dist/test/trusted-time-integration.test.js",
+          "name": "future-dated intent → exactly DENY/INTENT_FRESHNESS_FUTURE"
+        },
+        {
+          "file": "packages/core/dist/test/trusted-time-integration.test.js",
+          "name": "issuance tripwire: issued_at and expiry derive from evaluationTime, not intent.timestamp"
+        },
+        {
+          "file": "packages/guard/dist/test/gateway.authority.test.js",
+          "name": "#301 gateway ANTI-CARTESIAN: trusted issuer A signing unauthorized policy P2 is rejected; upstream never called"
+        },
+        {
+          "file": "packages/guard/dist/test/guard.authorization.test.js",
+          "name": "A-1 tampered signature: execute is blocked and OxDeAIAuthorizationError is thrown"
+        },
+        {
+          "file": "packages/guard/dist/test/guard.authorization.test.js",
+          "name": "A-2 unknown issuer: execute is blocked and OxDeAIAuthorizationError is thrown"
+        },
+        {
+          "file": "packages/guard/dist/test/guard.authorization.test.js",
+          "name": "A-3 wrong audience: execute is blocked and OxDeAIAuthorizationError is thrown"
+        },
+        {
+          "file": "packages/guard/dist/test/guard.authorization.test.js",
+          "name": "A-4 expired auth: execute is blocked and OxDeAIAuthorizationError is thrown"
+        },
+        {
+          "file": "packages/guard/dist/test/guard.authorization.test.js",
+          "name": "A-5 missing trustedKeySets: OxDeAIGuardConfigurationError thrown at construction"
+        },
+        {
+          "file": "packages/guard/dist/test/guard.delegation.authority.test.js",
+          "name": "#301 delegation ANTI-CARTESIAN: validly signed parent A/P2 is rejected; execute never called"
+        },
+        {
+          "file": "packages/guard/dist/test/guard.intent-binding.test.js",
+          "name": "IB-2 wrong intent_hash in auth: OxDeAIAuthorizationError thrown, execute blocked"
+        },
+        {
+          "file": "packages/guard/dist/test/guard.replay-store.test.js",
+          "name": "RS-1 default store: auth_id replay blocked on second call to same guard instance"
+        },
+        {
+          "file": "packages/guard/dist/test/guard.replay-store.test.js",
+          "name": "RS-3 shared store: auth_id replay blocked across two distinct guard instances"
+        },
+        {
+          "file": "packages/guard/dist/test/guard.state-binding.test.js",
+          "name": "SB-2 mismatched state_hash: execute is blocked and OxDeAIAuthorizationError is thrown"
+        }
+      ],
+      "permittedSkips": [
+        {
+          "file": "packages/guard/dist/test/guard.secure-config.test.js",
+          "name": "IR-03 (8) RESIDUAL: a then installed and removed while an async provider is pending after an internal await",
+          "kind": "todo",
+          "reason": "IR-03 residual: not closable inside the guard; outside the documented threat model",
+          "ref": "packages/guard/README.md 'Callback results and inherited then'"
+        }
+      ],
+      "sourceCoverage": [
+        {
+          "sourceDir": "packages/guard/src/test",
+          "sourceSuffix": ".test.ts",
+          "compiledDir": "packages/guard/dist/test",
+          "compiledSuffix": ".test.js"
+        },
+        {
+          "sourceDir": "packages/core/src/test",
+          "sourceSuffix": ".test.ts",
+          "compiledDir": "packages/core/dist/test",
+          "compiledSuffix": ".test.js"
+        },
+        {
+          "sourceDir": "packages/sift/test",
+          "sourceSuffix": ".test.ts",
+          "compiledDir": "packages/sift/dist/test",
+          "compiledSuffix": ".test.js"
+        },
+        {
+          "sourceDir": "tests/src",
+          "sourceSuffix": ".test.ts",
+          "compiledDir": "tests/dist",
+          "compiledSuffix": ".test.js"
+        },
+        {
+          "sourceDir": "examples/lgf-frappe-pep/test",
+          "sourceSuffix": ".test.ts",
+          "compiledDir": "examples/lgf-frappe-pep/dist/test",
+          "compiledSuffix": ".test.js"
+        },
+        {
+          "sourceDir": "scripts/ci",
+          "sourceSuffix": ".test.mjs",
+          "compiledDir": "scripts/ci",
+          "compiledSuffix": ".test.mjs"
+        }
+      ],
+      "notExecuted": [
+        {
+          "file": "examples/lgf-frappe-pep/test/live-redis.test.ts",
+          "reason": "Requires a live Redis service; executed and verified by name in job pep-redis-replay",
+          "ref": ".github/workflows/ci.yml job pep-redis-replay"
+        }
+      ],
+      "conformance": [
+        {
+          "surface": "ts",
+          "corpora": {
+            "docs-canonicalization-v1": 11
+          }
+        },
+        {
+          "surface": "auth",
+          "corpora": {
+            "docs-authorization-v1": 12
+          }
+        },
+        {
+          "surface": "pep",
+          "corpora": {
+            "docs-pep-vectors-v1": 9
+          }
+        },
+        {
+          "surface": "delegation",
+          "corpora": {
+            "docs-delegation-vectors-v1": 12
+          }
+        },
+        {
+          "surface": "go",
+          "corpora": {
+            "docs-canonicalization-v1": 11,
+            "docs-signed-krl-v1": 9,
+            "profile-c": 8
+          }
+        },
+        {
+          "surface": "py",
+          "corpora": {
+            "docs-canonicalization-v1": 11,
+            "docs-signed-krl-v1": 9,
+            "profile-c": 8
+          }
+        }
+      ]
+    },
+    "pep-redis-replay": {
+      "minTests": 3,
+      "requiredFiles": [
+        {
+          "file": "examples/lgf-frappe-pep/dist/test/live-redis.test.js",
+          "minTests": 3
+        }
+      ],
+      "requiredTests": [
+        {
+          "file": "examples/lgf-frappe-pep/dist/test/live-redis.test.js",
+          "name": "LGF Frappe PEP live Redis replay integration > first execution succeeds, replay key is created with expected prefix and positive TTL"
+        },
+        {
+          "file": "examples/lgf-frappe-pep/dist/test/live-redis.test.js",
+          "name": "LGF Frappe PEP live Redis replay integration > replay is denied and no second side effect occurs"
+        },
+        {
+          "file": "examples/lgf-frappe-pep/dist/test/live-redis.test.js",
+          "name": "LGF Frappe PEP live Redis replay integration > Redis outage fails closed with REPLAY_STORE_UNAVAILABLE"
+        }
+      ]
+    }
+  }
+}
