@@ -2,21 +2,49 @@
 
 [![CI](https://github.com/oxdeai/oxdeai/actions/workflows/ci.yml/badge.svg)](https://github.com/oxdeai/oxdeai/actions/workflows/ci.yml)
 
-**OxDeAI is a deterministic execution authorization protocol for AI agents.**
-Agents propose actions. Each action is authorized by a policy decision, and that
-authorization is then verified independently before anything executes, at a
-protected enforcement boundary.
+Execution-time authorization for AI agents: verify permission before a tool executes, not after the damage is done.
+
+**Your AI agent was approved to charge $500. What stops it from charging $50,000 instead, or charging twice?**
+
+Not the prompt. Not the logs: they explain what happened, after it happened.
+
+OxDeAI puts a checkpoint in front of your tools. Every protected action requires
+a signed, single-use authorization for that exact action, verified at the
+execution boundary before anything runs.
+
+```text
+AI agent
+   │
+   ▼
+Request: charge $500
+   │
+   ▼
+OxDeAI: verify signed permission
+   │
+   ├── valid, exact action, first use ──▶ execute
+   │
+   └── invalid, changed or reused ─────▶ block, nothing runs
+```
 
 > **No valid authorization, no execution through the enforced boundary.**
 
-OxDeAI is not an agent framework, a prompt guardrail or a monitoring platform.
-It does not replace OPA, Cedar or Cerbos either (see [When to use it](#when-to-use-it)).
+## Is it for you?
 
-## Quick Start
+OxDeAI is for when **the party that executes is not the party that decides**: a
+separate executor, a counterparty, an auditor, or policy that lives across a
+trust boundary. The decision travels as a signed, single-use authorization the
+executor can verify on its own.
+
+If your executor can evaluate the policy itself, a policy engine such as OPA,
+Cedar or Cerbos called right before the action is enough. Details in
+[When to use it](#when-to-use-it).
+
+OxDeAI is not an agent framework, a prompt guardrail or a monitoring platform.
+
+## See it in 60 seconds
 
 **Prerequisites:** Node.js ≥ 20 (CI uses the version specified in [`.node-version`](./.node-version)) and pnpm ≥ 10.34.5.
-
-The demo runs entirely on localhost using a test key. No external services or production credentials are required.
+Runs entirely on localhost with a test key. No external services or production credentials.
 
 ```bash
 git clone https://github.com/oxdeai/oxdeai.git
@@ -27,19 +55,6 @@ pnpm build:protocol
 pnpm demo
 ```
 
-The executable demo starts a protected upstream and a PEP Gateway, then verifies HTTP responses and actual upstream side effects.
-
-### Expected results
-
-| Scenario | HTTP | Expected behavior |
-| --- | --- | --- |
-| `ALLOW` | `200` | Valid authorization; action executed exactly once |
-| `NOT_COVERED` | `403` | Intent hash mismatch; rejected by the Gateway without execution |
-| `REPLAY` | `403` | `AUTH_REPLAY`; previously consumed authorization cannot execute again |
-| `BYPASS` | `403` | Direct upstream request rejected due to missing or invalid internal executor token |
-
-Expected output:
-
 ```text
 ALLOW        200  executed                 side effects +1  ✓
 NOT_COVERED  403  INTENT_HASH_MISMATCH     side effects +0  ✓
@@ -49,11 +64,34 @@ BYPASS       403  missing or invalid internal executor token side effects +0  �
 All 4 scenarios behaved as expected. Total side effects: 1
 ```
 
-**Important:** `NOT_COVERED` demonstrates a Gateway verification failure, not a policy `DENY` decision from the PDP. The demo validates enforcement for requests passing through the protected boundary; it does not establish that every possible execution path in an arbitrary deployment is non-bypassable.
+| Scenario | What the agent tries | Result |
+| --- | --- | --- |
+| `ALLOW` | Charge $500 with a valid authorization for $500 | Executed exactly once |
+| `NOT_COVERED` | Charge $50,000 with the authorization issued for $500 | Refused, nothing runs |
+| `REPLAY` | Reuse the same authorization a second time | Refused, nothing runs |
+| `BYPASS` | Call the payment service directly, skipping the checkpoint | Refused, nothing runs |
 
-The command exits with a nonzero status if any assertion fails.
+One action approved, one action executed. The demo counts real side effects at
+the protected service, not just HTTP responses, and exits with a nonzero status
+if any assertion fails.
 
-For the multi-process example, see [`examples/non-bypassable-demo`](./examples/non-bypassable-demo).
+`NOT_COVERED` is a verification failure at the checkpoint, not a policy `DENY`.
+The demo shows enforcement for requests through the protected boundary; it does
+not prove that every execution path in an arbitrary deployment is
+non-bypassable. For the multi-process version, see
+[`examples/non-bypassable-demo`](./examples/non-bypassable-demo).
+
+### Beyond payments
+
+The same boundary can protect other high-impact agent actions:
+
+- deploying code to production;
+- modifying customer records;
+- transferring funds or executing trades;
+- calling privileged infrastructure APIs.
+
+The principle stays the same: an agent's access to a tool is not proof that a
+specific action was authorized.
 
 ## How it works
 
