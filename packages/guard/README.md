@@ -442,6 +442,71 @@ authority, external-resource TOCTOU, post-execution-start failures).
 
 ---
 
+## HTTP PEP gateway and protected upstream: request handling
+
+`createPepGatewayHttpServer` and `createProtectedUpstreamHttpServer` apply the
+following rules to every request.
+
+**Bounded bodies (`maxBodyBytes`).** Both servers accept a `maxBodyBytes`
+option: default `1_048_576` (1 MiB), allowed range `1_024`-`67_108_864`. Other
+values are rejected at construction.
+
+- A declared `Content-Length` above the limit is rejected before the body is
+  read; a chunked body is rejected as soon as it exceeds the limit.
+- An oversized body is never truncated and parsed: the partial buffer is
+  discarded, even if its prefix happens to be valid JSON.
+- Gateway: 403 `{ decision: "DENY", outcome: "NOT_DISPATCHED", executed: false,
+  reason: "BODY_TOO_LARGE" }`. The executor is not invoked and replay state is
+  not touched. Protected upstream: 413 `{ error: "BODY_TOO_LARGE" }`;
+  `execute` is not called.
+- `createPepGatewayExecutor` (in-process) receives already-parsed input and
+  ignores `maxBodyBytes`.
+- The legacy gateway forwards `JSON.stringify(action.params ?? action)` to the
+  upstream. For valid UTF-8 input this is no larger than the inbound request;
+  invalid UTF-8 is decoded with replacement characters and can grow up to 3x.
+  If clients may send arbitrary bytes, set the upstream's `maxBodyBytes` to at
+  least 3x the gateway's. A 413 from the upstream is reported by the gateway as
+  `INDETERMINATE` (the authorization is spent).
+
+**Token before body.** The protected upstream checks
+`x-internal-executor-token` from the headers before reading the body. The
+comparison is constant-time (`hasValidInternalExecutorToken` uses the same
+check). A missing, duplicated or wrong token gets 403 and the body is not read.
+An empty `expectedToken` is rejected at construction.
+
+**Graceful early rejection.** When a response is sent before the request body
+has been read (oversized body, invalid token, unknown path with a body), the
+server sends the complete response with `Connection: close`, then reads and
+discards at most 64 KiB or 2 s of the remaining upload before closing the
+connection, so the client reliably receives the status instead of a reset.
+Nothing read during that drain is parsed or dispatched. Bodiless requests
+(for example `GET /healthz`) keep normal keep-alive behaviour.
+
+**Custom `hashAction` (deprecated).** By default the gateway binds the whole
+action: `intent_hash` must equal `sha256HexFromJson(action)`. If you supply
+`hashAction`, a request is accepted only when it returns exactly that same
+whole-action hash; anything else (a projection that omits fields, a prefixed
+or otherwise different digest, a non-string such as a Promise) is denied with
+403 `ACTION_HASH_UNCOVERED` before authorization verification and without
+touching replay state, so no field of the action can reach the upstream
+without being covered by `authorization.intent_hash`. There is no option to
+disable this check. `hashAction: null` or `undefined` means "use the default";
+any other non-function is rejected at construction. The function is captured
+once at construction. Supplying it emits a one-time `DeprecationWarning`
+(code `OXDEAI_DEP_HASH_ACTION`); under `node --throw-deprecation` that warning
+is thrown at construction. `hashAction` will be removed in the next major
+release: present exactly the object that was hashed into `intent_hash` and
+omit the option.
+
+**Coverage and Unicode normalization.** Coverage is defined by
+`canonicalization-v1`, which normalizes strings to NFC and orders keys. Two
+actions that differ only in Unicode normalization form therefore have the same
+`intent_hash`, while the gateway forwards the request's raw strings. Upstreams
+that compare strings should normalize to NFC. (Rejecting non-NFC input in
+legacy mode is planned for a major release.)
+
+---
+
 ## Replay store: contract and deployment requirements
 
 The guard verifies/authenticates before authoritative replay mutation and consumes

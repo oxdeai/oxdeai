@@ -11,6 +11,42 @@ This project follows Semantic Versioning.
 
 ### Security
 
+- HTTP gateway and protected upstream hardening (security release; see the
+  SemVer note below):
+  - **Custom `hashAction` coverage.** When `PepGatewayOptions.hashAction` is a
+    function, a request is accepted only if it returns exactly the whole-action
+    hash (`sha256HexFromJson(action)`). Any other result is denied with 403
+    `ACTION_HASH_UNCOVERED` before authorization verification and without
+    touching replay state. Previously a custom hash that omitted fields (for
+    example a projection) left those fields unbound while they were still
+    forwarded to the upstream. A throwing whole-action hash is reported as
+    `ACTION_CANONICALIZATION_FAILED:<reason>`. `hashAction: null` / `undefined`
+    keep the default hash; any other non-function is rejected at construction.
+    `hashAction` is deprecated (one-time `DeprecationWarning`, code
+    `OXDEAI_DEP_HASH_ACTION`) and will be removed in the next major release.
+  - **Bounded request bodies.** `createPepGatewayHttpServer` and
+    `createProtectedUpstreamHttpServer` accept a new `maxBodyBytes` option
+    (default 1 MiB, allowed 1 KiB-64 MiB). Larger bodies are rejected without
+    being parsed: gateway 403 `BODY_TOO_LARGE` (`NOT_DISPATCHED`), upstream 413
+    `BODY_TOO_LARGE`. A declared `Content-Length` above the limit is rejected
+    before the body is read; an oversized body is never truncated and parsed.
+  - **Token before body.** The protected upstream server checks
+    `x-internal-executor-token` before reading the request body, using a
+    constant-time comparison (also used by `hasValidInternalExecutorToken`).
+    An empty `expectedToken` is now rejected at construction instead of
+    answering 500 to every request.
+  - **Graceful early rejection.** Responses sent before a request body has been
+    read (oversized body, invalid token, unknown path with a body) carry
+    `Connection: close`; the server then reads and discards at most 64 KiB or
+    2 s of the remaining upload before closing the connection. Bodiless
+    requests keep their existing connection behaviour.
+  - **SemVer note.** Shipped as a minor release under a security exception: a
+    custom `hashAction` whose digest differs from the whole-action hash (for
+    example a domain-prefixed or projection hash) now denies requests, and
+    bodies over 1 MiB require `maxBodyBytes` (gateway and protected upstream).
+    Migrate by removing `hashAction` and presenting exactly the object that was
+    hashed into `intent_hash`.
+
 - INVREG-F01/F02: `createPepGatewayExecutor` now takes one deep-frozen
   plain-data snapshot of the request before any security decision. Action
   hashing, authorization verification, intent binding, replay consumption,

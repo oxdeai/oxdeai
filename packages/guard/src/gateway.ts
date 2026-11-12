@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
+import { createHash, timingSafeEqual } from "node:crypto";
 import { createServer, request as httpRequest } from "node:http";
 import type { IncomingHttpHeaders, IncomingMessage, Server, ServerResponse } from "node:http";
 import { sha256HexFromJson, verifyAuthorization } from "@oxdeai/core";
@@ -155,7 +156,34 @@ export type PepGatewayOptions = {
   requireExplicitReplayProtection?: boolean;
   now?: () => number;
   timeoutMs?: number;
-  hashAction?: (action: unknown) => string;
+  /**
+   * @deprecated Custom action hashing is deprecated and will be removed in the
+   * next major release. Omit it to use the default whole-action hash.
+   *
+   * Coverage rule (always enforced, no opt-out): a request is accepted only if
+   * this function returns exactly `sha256HexFromJson(action)` - the hash of the
+   * whole action under canonicalization-v1. Any other result (a different
+   * digest, a projection that omits fields, a non-string) is denied with
+   * `ACTION_HASH_UNCOVERED` before authorization verification and before any
+   * replay state is touched, so no field of the action can be forwarded to the
+   * upstream without being covered by `authorization.intent_hash`.
+   *
+   * `undefined` and `null` mean "not configured" (default hash). Any other
+   * non-function value is rejected at construction. The function is captured
+   * once at construction. Supplying it emits a one-time `DeprecationWarning`
+   * (code `OXDEAI_DEP_HASH_ACTION`); under `--throw-deprecation` that warning
+   * is thrown at construction.
+   */
+  hashAction?: ((action: unknown) => string) | null;
+  /**
+   * Maximum request body size, in bytes, accepted by
+   * {@link createPepGatewayHttpServer}. Default 1 MiB (1_048_576); allowed
+   * range 1_024..67_108_864. A larger body is rejected with 403
+   * `BODY_TOO_LARGE` (`NOT_DISPATCHED`) without being parsed. Validated by the
+   * HTTP server at construction; ignored by {@link createPepGatewayExecutor},
+   * which receives already-parsed input.
+   */
+  maxBodyBytes?: number;
   /**
    * H-1 (R3): the contract that decides a CONFIRMED upstream success
    * (-> EXECUTED). Defaults to {@link defaultUpstreamSuccess} (integer HTTP 2xx).
@@ -193,6 +221,171 @@ function requireText(value: string | undefined, name: string): void {
   if (typeof value !== "string" || value.length === 0) {
     throw new Error(`${name} is required`);
   }
+}
+
+// ── Request-body bounds (M-2) ─────────────────────────────────────────────
+/** Default {@link PepGatewayOptions.maxBodyBytes} for both HTTP servers: 1 MiB. */
+const DEFAULT_MAX_BODY_BYTES = 1_048_576;
+const MIN_MAX_BODY_BYTES = 1_024;
+const MAX_MAX_BODY_BYTES = 67_108_864;
+/** Lingering close after an early rejection: discard at most this many further request bytes... */
+const LINGER_MAX_BYTES = 64 * 1024;
+/** ...for at most this long, then destroy the socket. */
+const LINGER_MAX_MS = 2_000;
+
+/** Validate a configured body limit. Trusted configuration: malformed values throw at construction. */
+function resolveMaxBodyBytes(value: unknown): number {
+  if (value === undefined) return DEFAULT_MAX_BODY_BYTES;
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < MIN_MAX_BODY_BYTES || value > MAX_MAX_BODY_BYTES) {
+    throw new Error(`maxBodyBytes must be an integer between ${MIN_MAX_BODY_BYTES} and ${MAX_MAX_BODY_BYTES}`);
+  }
+  return value;
+}
+
+/** Marker for a request body that exceeded the configured limit. Never carries body data. */
+class BodyTooLargeError extends Error {
+  constructor() {
+    super("BODY_TOO_LARGE");
+    this.name = "BodyTooLargeError";
+  }
+}
+
+/** True when the request declares a body (chunked, or a non-zero Content-Length). */
+function requestDeclaresBody(req: IncomingMessage): boolean {
+  if (req.headers["transfer-encoding"] !== undefined) return true;
+  const declared = req.headers["content-length"];
+  return declared !== undefined && Number(declared) > 0;
+}
+
+/**
+ * Read and parse a JSON request body without ever buffering more than `limit`
+ * bytes. A declared Content-Length above the limit is rejected before any body
+ * byte is read; a chunked body is rejected as soon as the running total exceeds
+ * the limit. On overflow the partial buffer is discarded: it is never decoded
+ * or parsed, so an oversized body whose prefix happens to be valid JSON cannot
+ * be accepted. A body within the limit is decoded and parsed exactly as before
+ * (UTF-8, empty body -> {}, malformed JSON -> SyntaxError).
+ */
+async function readBoundedJson(req: IncomingMessage, limit: number): Promise<unknown> {
+  const declared = req.headers["content-length"];
+  if (declared !== undefined && Number(declared) > limit) throw new BodyTooLargeError();
+  const raw = await new Promise<Buffer>((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    let total = 0;
+    let settled = false;
+    const cleanup = () => {
+      req.off("data", onData);
+      req.off("end", onEnd);
+      req.off("error", onError);
+      req.off("close", onClose);
+    };
+    const settle = (fn: () => void) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      fn();
+    };
+    const onData = (chunk: Buffer | string) => {
+      const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+      total += buf.length;
+      if (total > limit) {
+        req.pause();
+        chunks.length = 0; // discard: never decoded, never parsed
+        settle(() => reject(new BodyTooLargeError()));
+        return;
+      }
+      chunks.push(buf);
+    };
+    const onEnd = () => settle(() => resolve(Buffer.concat(chunks, total)));
+    const onError = (err: Error) => settle(() => reject(err));
+    const onClose = () => settle(() => reject(new Error("request closed before the body was complete")));
+    req.on("data", onData);
+    req.on("end", onEnd);
+    req.on("error", onError);
+    req.on("close", onClose);
+  });
+  const text = raw.toString("utf8");
+  return text.trim() ? JSON.parse(text) : {};
+}
+
+/**
+ * Send a final rejection for a request whose body has not been (fully) read,
+ * then close the connection gracefully with a bounded drain:
+ *   1. the complete response is sent with `Connection: close`;
+ *   2. after it is flushed the connection is half-closed (FIN), keeping the
+ *      read side open - Node's default for `Connection: close` is to destroy
+ *      the socket after the flush, and destroying a socket with unread input
+ *      can make the kernel reset the connection before the client has read
+ *      the response;
+ *   3. further request bytes are read and discarded - at most
+ *      LINGER_MAX_BYTES or LINGER_MAX_MS, whichever comes first - and the
+ *      socket is then destroyed (immediately once both directions are done).
+ * Nothing read during the drain is buffered, parsed or dispatched: the
+ * rejection is final. Bodiless requests are answered normally.
+ */
+function rejectAndClose(req: IncomingMessage, res: ServerResponse, status: number, body: unknown): void {
+  if (!requestDeclaresBody(req)) return sendJson(res, status, body);
+  const socket = req.socket;
+  const destroy = () => {
+    if (!socket.destroyed) socket.destroy();
+  };
+  const timer = setTimeout(destroy, LINGER_MAX_MS);
+  timer.unref();
+  socket.once("close", () => clearTimeout(timer));
+  // Replace "end then destroy" with "end only" for this socket; the drain bounds below destroy it.
+  // If a future Node version does not use this hook, the server destroys after the flush instead:
+  // still bounded and fail-closed, only without the drain.
+  Object.defineProperty(socket, "destroySoon", {
+    configurable: true,
+    writable: true,
+    value: () => {
+      if (!socket.writableEnded) socket.end();
+    },
+  });
+  let drained = 0;
+  let inputEnded = false;
+  let outputDone = false;
+  const maybeDone = () => {
+    if (inputEnded && outputDone) destroy();
+  };
+  req.removeAllListeners("data");
+  req.on("data", (chunk: Buffer | string) => {
+    drained += typeof chunk === "string" ? Buffer.byteLength(chunk) : chunk.length;
+    if (drained > LINGER_MAX_BYTES) destroy();
+  });
+  req.once("end", () => {
+    inputEnded = true;
+    maybeDone();
+  });
+  req.once("error", destroy);
+  res.once("finish", () => {
+    outputDone = true;
+    maybeDone();
+  });
+  req.resume();
+  const data = JSON.stringify(body);
+  res.writeHead(status, {
+    "content-type": "application/json; charset=utf-8",
+    "content-length": Buffer.byteLength(data),
+    connection: "close",
+  });
+  res.end(data);
+}
+
+// ── Custom action hash deprecation (M-1) ─────────────────────────────────
+let hashActionDeprecationWarned = false;
+/** Test-only: reset the one-time deprecation latch. Not exported from the package entry point. */
+export function __resetHashActionDeprecationWarningForTests(): void {
+  hashActionDeprecationWarned = false;
+}
+function warnHashActionDeprecatedOnce(): void {
+  if (hashActionDeprecationWarned) return;
+  hashActionDeprecationWarned = true;
+  process.emitWarning(
+    "PepGatewayOptions.hashAction is deprecated and will be removed in the next major release. " +
+      "Requests are accepted only when it returns the whole-action hash (sha256HexFromJson(action)); omit it to use the default.",
+    { type: "DeprecationWarning", code: "OXDEAI_DEP_HASH_ACTION" }
+  );
 }
 
 function asKeySets(keySets: KeySet | readonly KeySet[]): readonly KeySet[] {
@@ -306,7 +499,13 @@ export function hasValidInternalExecutorToken(
   expectedToken: string
 ): boolean {
   requireText(expectedToken, "expectedToken");
-  return headerValue(headers, INTERNAL_EXECUTOR_TOKEN_HEADER) === expectedToken;
+  const supplied = headerValue(headers, INTERNAL_EXECUTOR_TOKEN_HEADER);
+  // Constant-time comparison of fixed-length digests: no early exit on the first
+  // differing byte or on a length difference. An absent header is hashed as ""
+  // so absence and presence take the same path.
+  const suppliedDigest = createHash("sha256").update(typeof supplied === "string" ? supplied : "", "utf8").digest();
+  const expectedDigest = createHash("sha256").update(expectedToken, "utf8").digest();
+  return timingSafeEqual(suppliedDigest, expectedDigest) && typeof supplied === "string";
 }
 
 export async function protectUpstreamExecution<T = unknown>(
@@ -360,7 +559,15 @@ export function createPepGatewayExecutor(options: PepGatewayOptions) {
   const trustedAuthorizationAuthorities = resolveTrustedAuthorizationAuthorities(options.trustedAuthorizationAuthorities);
   const replayStore = resolveReplayProtection(options, { strict: strictFromConfig(options.requireExplicitReplayProtection) }).store;
   const now = options.now ?? (() => Math.floor(Date.now() / 1000));
-  const hashAction = options.hashAction ?? sha256HexFromJson;
+  // Custom action hash (deprecated): captured once here. undefined/null keep the
+  // historical `options.hashAction ?? sha256HexFromJson` meaning (default hash,
+  // no coverage check, no warning); any other non-function is a configuration error.
+  const customHashAction: unknown = options.hashAction;
+  if (customHashAction !== undefined && customHashAction !== null && typeof customHashAction !== "function") {
+    throw new Error("hashAction must be a function");
+  }
+  const coverageGuard = typeof customHashAction === "function" ? (customHashAction as (action: unknown) => unknown) : null;
+  if (coverageGuard) warnHashActionDeprecatedOnce();
   const timeoutMs = options.timeoutMs ?? 30_000;
   const isUpstreamSuccess = options.isUpstreamSuccess ?? defaultUpstreamSuccess;
 
@@ -399,11 +606,36 @@ export function createPepGatewayExecutor(options: PepGatewayOptions) {
       return deny(403, "INVALID_REQUEST");
     }
 
+    // The bound hash is always the whole-action hash. A custom hashAction can
+    // only add denials: it must reproduce that hash exactly, so every field of
+    // the action is covered by authorization.intent_hash (canonicalization-v1).
+    // All of this runs before verification and before replay state is touched.
     let intentHash: string;
-    try {
-      intentHash = hashAction(action);
-    } catch (err) {
-      return deny(403, `ACTION_CANONICALIZATION_FAILED:${err instanceof Error ? err.message : String(err)}`);
+    if (coverageGuard) {
+      let customHash: unknown;
+      try {
+        customHash = coverageGuard(action);
+      } catch (err) {
+        return deny(403, `ACTION_CANONICALIZATION_FAILED:${err instanceof Error ? err.message : String(err)}`);
+      }
+      if (customHash !== null && typeof customHash === "object" && typeof (customHash as { then?: unknown }).then === "function") {
+        // An async hashAction is never a match; absorb its eventual rejection so it cannot crash the process.
+        Promise.resolve(customHash).catch(() => undefined);
+      }
+      try {
+        intentHash = sha256HexFromJson(action);
+      } catch (err) {
+        return deny(403, `ACTION_CANONICALIZATION_FAILED:${err instanceof Error ? err.message : String(err)}`);
+      }
+      if (typeof customHash !== "string" || customHash !== intentHash) {
+        return deny(403, "ACTION_HASH_UNCOVERED");
+      }
+    } else {
+      try {
+        intentHash = sha256HexFromJson(action);
+      } catch (err) {
+        return deny(403, `ACTION_CANONICALIZATION_FAILED:${err instanceof Error ? err.message : String(err)}`);
+      }
     }
 
     const verification = verifyAuthorization(authorization, {
@@ -561,21 +793,15 @@ function sendJson(res: ServerResponse, status: number, body: unknown): void {
   res.end(data);
 }
 
-async function readJson(req: IncomingMessage): Promise<unknown> {
-  const chunks: Buffer[] = [];
-  for await (const chunk of req) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
-  const raw = Buffer.concat(chunks).toString("utf8");
-  return raw.trim() ? JSON.parse(raw) : {};
-}
-
 export function createPepGatewayHttpServer(options: PepGatewayOptions): Server {
   const executeThroughPep = createPepGatewayExecutor(options);
+  const maxBodyBytes = resolveMaxBodyBytes(options.maxBodyBytes);
   return createServer(async (req, res) => {
     if (req.method === "GET" && req.url === "/healthz") {
       return sendJson(res, 200, { ok: true, route: "gateway", status: "healthy" });
     }
     if (req.method !== "POST" || req.url !== "/execute") {
-      return sendJson(res, 404, { ok: false, error: "not found" });
+      return rejectAndClose(req, res, 404, { ok: false, error: "not found" });
     }
 
     // H-1 (R3): the parsing phase and the execution phase are isolated into two
@@ -586,10 +812,21 @@ export function createPepGatewayHttpServer(options: PepGatewayOptions): Server {
     // block below and can never be classified as NOT_DISPATCHED.
     let body: unknown;
     try {
-      // PARSING PHASE - provably pre-dispatch. readJson consumes the request
-      // body and JSON.parses it; nothing here reaches the executor.
-      body = await readJson(req);
+      // PARSING PHASE - provably pre-dispatch. readBoundedJson consumes at most
+      // maxBodyBytes of the request body and JSON.parses it; nothing here
+      // reaches the executor.
+      body = await readBoundedJson(req, maxBodyBytes);
     } catch (err) {
+      if (err instanceof BodyTooLargeError) {
+        // Oversized body: rejected in the parsing phase, never parsed, never dispatched.
+        return rejectAndClose(req, res, 403, {
+          ok: false,
+          decision: "DENY",
+          outcome: "NOT_DISPATCHED",
+          executed: false,
+          reason: "BODY_TOO_LARGE",
+        });
+      }
       if (err instanceof SyntaxError) {
         return sendJson(res, 403, {
           ok: false,
@@ -679,21 +916,37 @@ export function createHttpUpstreamExecutor(options: {
 
 export function createProtectedUpstreamHttpServer<T = unknown>(options: ProtectedUpstreamOptions<T> & {
   path?: string;
+  /**
+   * Maximum request body size in bytes. Default 1 MiB (1_048_576); allowed
+   * range 1_024..67_108_864. A larger body (with a valid token) is answered
+   * 413 `BODY_TOO_LARGE` without being parsed; `execute` is not called.
+   */
+  maxBodyBytes?: number;
 }): Server {
   const path = options.path ?? "/execute";
+  // Fail at construction instead of answering 500 to every request.
+  requireText(options.expectedToken, "expectedToken");
+  const maxBodyBytes = resolveMaxBodyBytes(options.maxBodyBytes);
   return createServer(async (req, res) => {
     if (req.method === "GET" && req.url === "/healthz") {
       return sendJson(res, 200, { ok: true, route: "upstream", status: "healthy" });
     }
     if (req.method !== "POST" || req.url !== path) {
-      return sendJson(res, 404, { ok: false, error: "not found" });
+      return rejectAndClose(req, res, 404, { ok: false, error: "not found" });
     }
 
     try {
-      const body = await readJson(req);
+      // M-3: authenticate from the headers before reading any body byte.
+      if (!hasValidInternalExecutorToken(req.headers, options.expectedToken)) {
+        return rejectAndClose(req, res, 403, { ok: false, executed: false, error: "missing or invalid internal executor token" });
+      }
+      const body = await readBoundedJson(req, maxBodyBytes);
       const result = await protectUpstreamExecution(body, req.headers, options);
       return sendJson(res, result.status, result.body);
     } catch (err) {
+      if (err instanceof BodyTooLargeError) {
+        return rejectAndClose(req, res, 413, { ok: false, executed: false, error: "BODY_TOO_LARGE" });
+      }
       return sendJson(res, 500, {
         ok: false,
         executed: false,
