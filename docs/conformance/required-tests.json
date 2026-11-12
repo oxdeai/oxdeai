@@ -234,6 +234,10 @@
           "minTests": 29
         },
         {
+          "file": "packages/guard/dist/test/gateway.legacy-hardening.test.js",
+          "minTests": 34
+        },
+        {
           "file": "packages/guard/dist/test/gateway.vectors.test.js",
           "minTests": 6
         },
@@ -498,6 +502,70 @@
         {
           "file": "packages/guard/dist/test/gateway.authority.test.js",
           "name": "#301 gateway ANTI-CARTESIAN: trusted issuer A signing unauthorized policy P2 is rejected; upstream never called"
+        },
+        {
+          "file": "packages/guard/dist/test/gateway.legacy-hardening.test.js",
+          "name": "P0-01 E2E real PDP: projection hashAction with an extra unbound field is denied ACTION_HASH_UNCOVERED; nothing forwarded or consumed"
+        },
+        {
+          "file": "packages/guard/dist/test/gateway.legacy-hardening.test.js",
+          "name": "P0-03 a full-coverage custom digest that differs from the whole-action hash is denied"
+        },
+        {
+          "file": "packages/guard/dist/test/gateway.legacy-hardening.test.js",
+          "name": "P0-05 non-string hashAction results (number, String object, Promise) are denied; a rejecting Promise cannot crash the process"
+        },
+        {
+          "file": "packages/guard/dist/test/gateway.legacy-hardening.test.js",
+          "name": "P0-06 a projection hashAction over an action with a float in a non-binding field is denied by the whole-action hash"
+        },
+        {
+          "file": "packages/guard/dist/test/gateway.legacy-hardening.test.js",
+          "name": "P0-07 a non-function hashAction (other than null/undefined) is rejected at construction"
+        },
+        {
+          "file": "packages/guard/dist/test/gateway.legacy-hardening.test.js",
+          "name": "P0-10 the coverage guard runs before authorization verification and never touches replay state"
+        },
+        {
+          "file": "packages/guard/dist/test/gateway.legacy-hardening.test.js",
+          "name": "P0-11 gateway: Content-Length above the limit is rejected BODY_TOO_LARGE with Connection: close; nothing dispatched or consumed"
+        },
+        {
+          "file": "packages/guard/dist/test/gateway.legacy-hardening.test.js",
+          "name": "P0-12 gateway: a chunked body exceeding the limit is rejected BODY_TOO_LARGE; nothing dispatched or consumed"
+        },
+        {
+          "file": "packages/guard/dist/test/gateway.legacy-hardening.test.js",
+          "name": "P0-16 upstream: a 10 MiB upload without a token gets a complete 403 before the body is read; execute not called"
+        },
+        {
+          "file": "packages/guard/dist/test/gateway.legacy-hardening.test.js",
+          "name": "P0-18 upstream: a valid token with a body above the limit gets 413 BODY_TOO_LARGE; execute not called"
+        },
+        {
+          "file": "packages/guard/dist/test/gateway.legacy-hardening.test.js",
+          "name": "P0-27 gateway: an oversized chunked body whose first maxBodyBytes form a complete valid request is rejected, never truncated and parsed"
+        },
+        {
+          "file": "packages/guard/dist/test/gateway.legacy-hardening.test.js",
+          "name": "P0-28 gateway: BODY_TOO_LARGE is a parsing-phase denial for both Content-Length and chunked bodies, never UNKNOWN/INDETERMINATE"
+        },
+        {
+          "file": "packages/guard/dist/test/gateway.legacy-hardening.test.js",
+          "name": "P0-29 hashAction null/undefined keep the default whole-action hash: no warning, no coverage denial"
+        },
+        {
+          "file": "packages/guard/dist/test/gateway.legacy-hardening.test.js",
+          "name": "P0-31 hashAction is captured at construction: reassigning options.hashAction later has no effect"
+        },
+        {
+          "file": "packages/guard/dist/test/gateway.legacy-hardening.test.js",
+          "name": "P0-32 graceful rejection under active upload: 20 x 10 MiB uploads each get the complete 403, a bounded read and a closed socket (gateway and upstream)"
+        },
+        {
+          "file": "packages/guard/dist/test/gateway.legacy-hardening.test.js",
+          "name": "P0-35 gateway: a declared Content-Length above the limit is rejected before the body is buffered (default 1 MiB limit, 10 MiB upload)"
         },
         {
           "file": "packages/guard/dist/test/guard.authorization.test.js",

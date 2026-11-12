@@ -118,6 +118,7 @@ Transport: HTTP/1.1 or HTTP/2
 
 ### 6.4 Verification Requirements
 - Canonicalize `action` using `canonicalization-v1`; compute `intent_hash`; MUST match `authorization.intent_hash`.
+- If a gateway is configured with a custom action-hash function, it MUST deny any request for which that function's output differs from `SHA-256(canonicalization-v1(action))`, with reason `ACTION_HASH_UNCOVERED`, and MUST NOT mutate replay state for such a request. A gateway MUST NOT forward any field of the action that is not covered by `authorization.intent_hash`, where coverage is defined by `canonicalization-v1`.
 - Verify signature of AuthorizationV1 (`alg`, `kid`), audience, expiry, issuer trust config; fail closed.
 - Enforce replay protection on `auth_id` (single-use or bounded window).
 - Reject if any step fails; MUST NOT forward to upstream.
