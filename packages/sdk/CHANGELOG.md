@@ -7,6 +7,12 @@ This project follows Semantic Versioning.
 
 ---
 
+## [2.0.3] - UNRELEASED
+
+### Security
+
+- Dependency security release. Pins `@oxdeai/core@2.0.3` (S2 non-NFC identifiers, S3 Ed25519 small-order keys, S4 non-canonical signature encodings). No SDK source change. `export * from "@oxdeai/core"` re-exports the two new `VerificationViolationCode` members, `AUTH_ID_NONCANONICAL` and `DELEGATION_ID_NONCANONICAL`.
+
 ## [2.0.2] - 2026-10-19
 
 ### Security

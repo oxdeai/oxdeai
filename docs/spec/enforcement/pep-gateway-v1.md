@@ -96,28 +96,52 @@ Transport: HTTP/1.1 or HTTP/2
 ```
 
 ### 6.3 Response Bodies
-- 200 OK (ALLOW):
+Every response body carries `outcome`, the authoritative execution outcome (vector contract 1.1.0, finding H-1):
+
+| `outcome` | Meaning | `executed` | `decision` |
+| --- | --- | --- | --- |
+| `NOT_DISPATCHED` | The request was denied before dispatch; the upstream was never called. | `false` | `DENY` |
+| `EXECUTED` | The upstream confirmed success (an integer 2xx status by default). | `true` | `ALLOW` |
+| `INDETERMINATE` | The upstream was dispatched and its outcome is unknown (timeout, transport error, or any non-2xx status). A side effect cannot be ruled out. | `null` | `ALLOW` |
+
+- 200 OK (ALLOW, `EXECUTED`):
 ```json
 {
   "ok": true,
   "decision": "ALLOW",
+  "outcome": "EXECUTED",
   "executed": true,
   "auth_id": "...",
   "intent_hash": "...",
   "upstream_result": <object>
 }
 ```
-- 403 Forbidden (DENY):
+- 403 Forbidden (DENY, `NOT_DISPATCHED`):
 ```json
 {
   "ok": false,
   "decision": "DENY",
+  "outcome": "NOT_DISPATCHED",
+  "executed": false,
   "reason": "<string>"
 }
 ```
+- 502 Bad Gateway or 504 Gateway Timeout (ALLOW, `INDETERMINATE`):
+```json
+{
+  "ok": false,
+  "decision": "ALLOW",
+  "outcome": "INDETERMINATE",
+  "executed": null,
+  "reason": "UPSTREAM_ERROR | UPSTREAM_TIMEOUT"
+}
+```
+
+`executed: false` is a confirmed non-execution and is reported only with `NOT_DISPATCHED`. A consumer that receives `INDETERMINATE` is expected to reconcile with the upstream before requesting a new authorization for the same action. Because `null` is falsy in most languages, consumers are expected to branch on `outcome`, or to compare `executed` strictly against `false`, never to test its truthiness. The corresponding test vectors are `pep-upstream-error` and `pep-upstream-timeout` in `docs/spec/test-vectors/pep-vectors-v1.json`.
 
 ### 6.4 Verification Requirements
 - Canonicalize `action` using `canonicalization-v1`; compute `intent_hash`; MUST match `authorization.intent_hash`.
+- If a gateway is configured with a custom action-hash function, it MUST deny any request for which that function's output differs from `SHA-256(canonicalization-v1(action))`, with reason `ACTION_HASH_UNCOVERED`, and MUST NOT mutate replay state for such a request. A gateway MUST NOT forward any field of the action that is not covered by `authorization.intent_hash`, where coverage is defined by `canonicalization-v1`.
 - Verify signature of AuthorizationV1 (`alg`, `kid`), audience, expiry, issuer trust config; fail closed.
 - Enforce replay protection on `auth_id` (single-use or bounded window).
 - Reject if any step fails; MUST NOT forward to upstream.
@@ -129,9 +153,9 @@ Transport: HTTP/1.1 or HTTP/2
 
 ### 6.6 Error Semantics
 - Any parsing/canonicalization/verification error → 403 with `reason`.
-- Upstream execution failure/invalid response → 502 Bad Gateway (MUST NOT report executed=true).
-- Upstream timeout → 504 Gateway Timeout.
-- Gateway-local unexpected failure → 500 Internal Server Error (MUST be rare; still MUST NOT report executed=true).
+- Upstream execution failure/invalid response → 502 Bad Gateway (MUST NOT report executed=true). After dispatch the outcome is `INDETERMINATE` with `executed: null` (see 6.3); it is not reported as `executed: false`.
+- Upstream timeout → 504 Gateway Timeout, with the same `INDETERMINATE` outcome.
+- Gateway-local unexpected failure → 500 Internal Server Error (MUST be rare; still MUST NOT report executed=true). When the gateway cannot tell whether dispatch occurred, the body carries `decision: "UNKNOWN"`, `outcome: "INDETERMINATE"` and `executed: null`.
 
 Any system violating this invariant is **NON-CONFORMANT**.
 

@@ -113,8 +113,10 @@ This is the default integration path for providers using `@oxdeai/core`.
 | Signature valid | Ed25519 over domain-prefixed canonical preimage | `AUTH_SIGNATURE_INVALID` |
 | Decision is ALLOW | `authorization.decision == "ALLOW"` | Reject |
 | Replay consumed | `consumeAuthId(auth_id, { expiry })` returns `true` | `AUTH_REPLAY` |
-| Intent hash matches | `intentHash(action)` == `authorization.intent_hash` | `INTENT_HASH_MISMATCH` |
+| Intent hash matches | `sha256(canonicalJson(action))` == `authorization.intent_hash`, where `action` is exactly the object the gateway forwards | `INTENT_HASH_MISMATCH` |
 | State hash signed | `state_hash` covered by Ed25519 signature; tampering detected | `AUTH_SIGNATURE_INVALID` |
+
+For issuers using the OxDeAI `PolicyEngine`, the action presented to the gateway MUST be the `INTENT_BINDING_FIELDS` projection of the intent, with bigint values encoded as decimal strings; `intentHash(intent)` then equals `sha256(canonicalJson(action))`. A verifier MUST NOT use a projection hash over an action that contains additional fields.
 
 #### 2.1.3 State Binding at Profile A
 
@@ -440,7 +442,7 @@ A provider or adapter claiming OxDeAI interoperability MUST:
 ### 4.5 Intent Hash
 
 - Compute `intent_hash` = SHA-256 hex of `canonicalJson(intent)` per `canonicalization-v1`
-- The intent object canonicalized must be semantically identical to the action the guard will recompute at verification time
+- The object canonicalized for `intent_hash` MUST be the object the gateway will forward, field for field (coverage as defined by `canonicalization-v1`); fields outside it MUST NOT be sent
 - Do not include fields that the verifier will not have access to
 
 ### 4.6 State Hash

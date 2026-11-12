@@ -9,6 +9,7 @@ import {
   type SiftKeyStore,
   KeyStoreError,
 } from "./siftKeyStore.js";
+import { isSmallOrderEd25519Key } from "./smallOrderEd25519.js";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -294,6 +295,18 @@ export function verifyReceipt(
       return fail(
         "UNSUPPORTED_PUBLIC_KEY",
         "Either publicKeyRaw or publicKeyPem must be provided"
+      );
+    }
+
+    // S3-R2: reject Ed25519 small-order public keys before verification. Such a
+    // key authenticates nothing (a crafted signature verifies against any
+    // message), so a small-order key in the JWKS (or supplied directly) would
+    // let anyone forge an ALLOW receipt. Covers both the raw and PEM key paths,
+    // which both resolve to `publicKey` above. Fail closed.
+    if (isSmallOrderEd25519Key(publicKey)) {
+      return fail(
+        "UNSUPPORTED_PUBLIC_KEY",
+        "Ed25519 public key is a small-order point and cannot be trusted"
       );
     }
 

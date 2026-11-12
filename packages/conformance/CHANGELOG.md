@@ -7,6 +7,12 @@ This project follows Semantic Versioning.
 
 ---
 
+## [2.0.3] - UNRELEASED
+
+### Security
+
+- Dependency security release. Pins `@oxdeai/core@2.0.3` (S2, S3, S4). The package's own vector corpus is unchanged. `dist/evidence-metadata.json` now records the digests of the PEP gateway vectors at contract 1.1.0 (H-1), where two dispatched-failure vectors expect `ALLOW / INDETERMINATE / null`. It also records the updated digests of `docs/spec/enforcement/pep-gateway-v1.md` (§6.4, whole-action hash coverage) and `docs/spec/interoperability/external-provider-profile.md`. Negative vectors for S2, S3 and S4 are not part of the corpus yet.
+
 ## [2.0.2] - 2026-10-19
 
 ### Security

@@ -259,6 +259,10 @@ test("pep-gateway-v1 gateway subset (7 cases; 2 state-binding dispositions defer
     assert.equal(result.status, vector.expected.status, vector.id);
     assert.equal(result.body.decision, vector.expected.decision, vector.id);
     assert.equal(result.body.executed, vector.expected.executed, vector.id);
+    // H-1: the three-state outcome is now the authoritative field.
+    if (vector.expected.outcome !== undefined) {
+      assert.equal(result.body.outcome, vector.expected.outcome, vector.id);
+    }
     const expectedCalls = vector.request.upstream_behavior === "not_called" ? 0 : 1;
     assert.equal(upstreamCalls, expectedCalls, vector.id);
     assert.equal(result.upstreamCalled, expectedCalls === 1, vector.id);

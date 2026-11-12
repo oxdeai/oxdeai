@@ -1,0 +1,1036 @@
+{
+  "$comment": "test-evidence required-test manifest for the release/2.0.x security patch line. Read by scripts/ci/verify-test-evidence.mjs in CI jobs build-test and pep-redis-replay. Floors (minTests) are observed counts on this branch; requiredTests names the 16 upstream invariants plus every regression test of the backported fixes (H-1, S2, S3, S4, schema parity, adapter no-retry, INVREG-F01/F02/F05, RR-01 gateway, GW-COMP-01, gateway hashAction coverage and request-handling hardening). Lowering a floor, removing a required test or adding a permitted skip requires a reviewed change with a reason. Run the gate with --emit-observed to print current counts.",
+  "version": 1,
+  "jobs": {
+    "build-test": {
+      "minTests": 1360,
+      "requiredFiles": [
+        {
+          "file": "examples/lgf-frappe-pep/dist/test/adapter-boundary.test.js",
+          "minTests": 1
+        },
+        {
+          "file": "examples/lgf-frappe-pep/dist/test/boundary.test.js",
+          "minTests": 37
+        },
+        {
+          "file": "examples/lgf-frappe-pep/dist/test/shutdown.test.js",
+          "minTests": 5
+        },
+        {
+          "file": "packages/core/dist/test/audit.genesis.test.js",
+          "minTests": 2
+        },
+        {
+          "file": "packages/core/dist/test/authorization-v1-boundary.compile.test.js",
+          "minTests": 1
+        },
+        {
+          "file": "packages/core/dist/test/authorization.trusted-time-issuance.test.js",
+          "minTests": 13
+        },
+        {
+          "file": "packages/core/dist/test/budget.negative-amount.test.js",
+          "minTests": 7
+        },
+        {
+          "file": "packages/core/dist/test/canonicalization.property.test.js",
+          "minTests": 12
+        },
+        {
+          "file": "packages/core/dist/test/create-verifier.test.js",
+          "minTests": 12
+        },
+        {
+          "file": "packages/core/dist/test/cross_process.test.js",
+          "minTests": 2
+        },
+        {
+          "file": "packages/core/dist/test/decision.test.js",
+          "minTests": 17
+        },
+        {
+          "file": "packages/core/dist/test/delegation.matrix.test.js",
+          "minTests": 37
+        },
+        {
+          "file": "packages/core/dist/test/delegation.property.test.js",
+          "minTests": 6
+        },
+        {
+          "file": "packages/core/dist/test/delegation.test.js",
+          "minTests": 20
+        },
+        {
+          "file": "packages/core/dist/test/intent.hash.test.js",
+          "minTests": 2
+        },
+        {
+          "file": "packages/core/dist/test/key-lifecycle.property.test.js",
+          "minTests": 11
+        },
+        {
+          "file": "packages/core/dist/test/policy.adapters.test.js",
+          "minTests": 2
+        },
+        {
+          "file": "packages/core/dist/test/property.decision.test.js",
+          "minTests": 8
+        },
+        {
+          "file": "packages/core/dist/test/property.test.js",
+          "minTests": 4
+        },
+        {
+          "file": "packages/core/dist/test/public-artifact-boundary.test.js",
+          "minTests": 7
+        },
+        {
+          "file": "packages/core/dist/test/readme-envelope-example.test.js",
+          "minTests": 1
+        },
+        {
+          "file": "packages/core/dist/test/replay.capacity-retention.test.js",
+          "minTests": 12
+        },
+        {
+          "file": "packages/core/dist/test/replay.trusted-time.test.js",
+          "minTests": 11
+        },
+        {
+          "file": "packages/core/dist/test/replay.verify.test.js",
+          "minTests": 7
+        },
+        {
+          "file": "packages/core/dist/test/signing.payload.test.js",
+          "minTests": 2
+        },
+        {
+          "file": "packages/core/dist/test/state.leaf-validation.test.js",
+          "minTests": 12
+        },
+        {
+          "file": "packages/core/dist/test/toctou.test.js",
+          "minTests": 20
+        },
+        {
+          "file": "packages/core/dist/test/tool-amplification.trusted-classifier.test.js",
+          "minTests": 16
+        },
+        {
+          "file": "packages/core/dist/test/tool-window.trusted-time.test.js",
+          "minTests": 14
+        },
+        {
+          "file": "packages/core/dist/test/trusted-time-integration.test.js",
+          "minTests": 20
+        },
+        {
+          "file": "packages/core/dist/test/velocity.trusted-time.test.js",
+          "minTests": 16
+        },
+        {
+          "file": "packages/core/dist/test/verification-result.schema.contract.test.js",
+          "minTests": 12
+        },
+        {
+          "file": "packages/core/dist/test/verify.audit.test.js",
+          "minTests": 6
+        },
+        {
+          "file": "packages/core/dist/test/verify.authorization.property.test.js",
+          "minTests": 2
+        },
+        {
+          "file": "packages/core/dist/test/verify.authorization.surface.test.js",
+          "minTests": 11
+        },
+        {
+          "file": "packages/core/dist/test/verify.authorization.test.js",
+          "minTests": 23
+        },
+        {
+          "file": "packages/core/dist/test/verify.engine-authorization.expiry-binding.test.js",
+          "minTests": 6
+        },
+        {
+          "file": "packages/core/dist/test/verify.engine-authorization.surface.test.js",
+          "minTests": 6
+        },
+        {
+          "file": "packages/core/dist/test/verify.envelope.test.js",
+          "minTests": 10
+        },
+        {
+          "file": "packages/core/dist/test/verify.result.test.js",
+          "minTests": 4
+        },
+        {
+          "file": "packages/core/dist/test/verify.s2-noncanonical-id.test.js",
+          "minTests": 4
+        },
+        {
+          "file": "packages/core/dist/test/verify.s3-small-order-ed25519.test.js",
+          "minTests": 7
+        },
+        {
+          "file": "packages/core/dist/test/verify.s4-canonical-signature.test.js",
+          "minTests": 17
+        },
+        {
+          "file": "packages/core/dist/test/verify.snapshot.test.js",
+          "minTests": 5
+        },
+        {
+          "file": "packages/core/dist/test/verify.sufficiency.test.js",
+          "minTests": 5
+        },
+        {
+          "file": "packages/core/dist/test/verify.trusted-time.test.js",
+          "minTests": 30
+        },
+        {
+          "file": "packages/guard/dist/test/authorizationAuthority.test.js",
+          "minTests": 8
+        },
+        {
+          "file": "packages/guard/dist/test/gateway.authority.test.js",
+          "minTests": 10
+        },
+        {
+          "file": "packages/guard/dist/test/gateway.enforcement.test.js",
+          "minTests": 11
+        },
+        {
+          "file": "packages/guard/dist/test/gateway.h1-client-retry.security.test.js",
+          "minTests": 7
+        },
+        {
+          "file": "packages/guard/dist/test/gateway.h1-execution-outcome.security.test.js",
+          "minTests": 7
+        },
+        {
+          "file": "packages/guard/dist/test/gateway.h1-http-phase.security.test.js",
+          "minTests": 5
+        },
+        {
+          "file": "packages/guard/dist/test/gateway.input-integrity.security.test.js",
+          "minTests": 29
+        },
+        {
+          "file": "packages/guard/dist/test/gateway.legacy-hardening.test.js",
+          "minTests": 34
+        },
+        {
+          "file": "packages/guard/dist/test/gateway.strict-result.security.test.js",
+          "minTests": 20
+        },
+        {
+          "file": "packages/guard/dist/test/gateway.vectors.test.js",
+          "minTests": 6
+        },
+        {
+          "file": "packages/guard/dist/test/guard.authorization.test.js",
+          "minTests": 8
+        },
+        {
+          "file": "packages/guard/dist/test/guard.boundary-audit.test.js",
+          "minTests": 33
+        },
+        {
+          "file": "packages/guard/dist/test/guard.boundary.test.js",
+          "minTests": 11
+        },
+        {
+          "file": "packages/guard/dist/test/guard.cas.test.js",
+          "minTests": 6
+        },
+        {
+          "file": "packages/guard/dist/test/guard.delegation.authority.test.js",
+          "minTests": 11
+        },
+        {
+          "file": "packages/guard/dist/test/guard.delegation.matrix.test.js",
+          "minTests": 17
+        },
+        {
+          "file": "packages/guard/dist/test/guard.delegation.property.test.js",
+          "minTests": 3
+        },
+        {
+          "file": "packages/guard/dist/test/guard.delegation.test.js",
+          "minTests": 17
+        },
+        {
+          "file": "packages/guard/dist/test/guard.intent-binding.test.js",
+          "minTests": 7
+        },
+        {
+          "file": "packages/guard/dist/test/guard.pep-conformance.test.js",
+          "minTests": 11
+        },
+        {
+          "file": "packages/guard/dist/test/guard.property.test.js",
+          "minTests": 17
+        },
+        {
+          "file": "packages/guard/dist/test/guard.provenance.property.test.js",
+          "minTests": 2
+        },
+        {
+          "file": "packages/guard/dist/test/guard.provenance.test.js",
+          "minTests": 26
+        },
+        {
+          "file": "packages/guard/dist/test/guard.readme-examples.test.js",
+          "minTests": 10
+        },
+        {
+          "file": "packages/guard/dist/test/guard.replay-capacity-retention.test.js",
+          "minTests": 3
+        },
+        {
+          "file": "packages/guard/dist/test/guard.replay-consume-ordering.test.js",
+          "minTests": 11
+        },
+        {
+          "file": "packages/guard/dist/test/guard.replay-store.redis.test.js",
+          "minTests": 9
+        },
+        {
+          "file": "packages/guard/dist/test/guard.replay-store.test.js",
+          "minTests": 9
+        },
+        {
+          "file": "packages/guard/dist/test/guard.state-binding.test.js",
+          "minTests": 13
+        },
+        {
+          "file": "packages/guard/dist/test/guard.test.js",
+          "minTests": 29
+        },
+        {
+          "file": "packages/guard/dist/test/guard.toctou.test.js",
+          "minTests": 3
+        },
+        {
+          "file": "packages/guard/dist/test/website-examples.test.js",
+          "minTests": 14
+        },
+        {
+          "file": "packages/sift/dist/test/contract-vector.test.js",
+          "minTests": 10
+        },
+        {
+          "file": "packages/sift/dist/test/intent.property.test.js",
+          "minTests": 9
+        },
+        {
+          "file": "packages/sift/dist/test/parameter-binding.test.js",
+          "minTests": 4
+        },
+        {
+          "file": "packages/sift/dist/test/receiptToAuthorization.property.test.js",
+          "minTests": 24
+        },
+        {
+          "file": "packages/sift/dist/test/siftKeyStore.krl-modes.test.js",
+          "minTests": 31
+        },
+        {
+          "file": "packages/sift/dist/test/siftKeyStore.lkg.test.js",
+          "minTests": 18
+        },
+        {
+          "file": "packages/sift/dist/test/siftKeyStore.migration.test.js",
+          "minTests": 11
+        },
+        {
+          "file": "packages/sift/dist/test/siftKeyStore.test.js",
+          "minTests": 25
+        },
+        {
+          "file": "packages/sift/dist/test/siftKeyStore.watermark.test.js",
+          "minTests": 17
+        },
+        {
+          "file": "packages/sift/dist/test/smallOrderEd25519.core-equivalence.test.js",
+          "minTests": 2
+        },
+        {
+          "file": "packages/sift/dist/test/staging-vectors.test.js",
+          "minTests": 11
+        },
+        {
+          "file": "packages/sift/dist/test/state.property.test.js",
+          "minTests": 7
+        },
+        {
+          "file": "packages/sift/dist/test/verifyReceipt.property.test.js",
+          "minTests": 18
+        },
+        {
+          "file": "packages/sift/dist/test/verifyReceipt.s3-small-order.test.js",
+          "minTests": 6
+        },
+        {
+          "file": "packages/sift/dist/test/verifyReceiptWithKeyStore.test.js",
+          "minTests": 11
+        },
+        {
+          "file": "scripts/ci/verify-test-evidence.test.mjs",
+          "minTests": 34
+        },
+        {
+          "file": "tests/dist/fuzz/fuzz_budget_velocity.test.js",
+          "minTests": 2
+        },
+        {
+          "file": "tests/dist/fuzz/meta_property_allow_implies_predicates.test.js",
+          "minTests": 1
+        },
+        {
+          "file": "tests/dist/invariants/inv_budget.test.js",
+          "minTests": 4
+        },
+        {
+          "file": "tests/dist/invariants/inv_concurrency_leases.test.js",
+          "minTests": 3
+        },
+        {
+          "file": "tests/dist/invariants/inv_failclosed_state.test.js",
+          "minTests": 1
+        },
+        {
+          "file": "tests/dist/invariants/inv_killswitch.test.js",
+          "minTests": 1
+        },
+        {
+          "file": "tests/dist/invariants/inv_replay.test.js",
+          "minTests": 1
+        },
+        {
+          "file": "tests/dist/invariants/inv_velocity.test.js",
+          "minTests": 1
+        },
+        {
+          "file": "tests/dist/unit/auditLog.test.js",
+          "minTests": 1
+        },
+        {
+          "file": "tests/dist/unit/authorization.test.js",
+          "minTests": 1
+        },
+        {
+          "file": "tests/dist/unit/authorization/authorizationV1.test.js",
+          "minTests": 15
+        },
+        {
+          "file": "tests/dist/unit/gpuGuardDemo.test.js",
+          "minTests": 1
+        },
+        {
+          "file": "tests/dist/unit/intentHash.test.js",
+          "minTests": 1
+        }
+      ],
+      "requiredTests": [
+        {
+          "file": "packages/core/dist/test/authorization.trusted-time-issuance.test.js",
+          "name": "identical trusted inputs produce deterministic Ed25519 authorizations"
+        },
+        {
+          "file": "packages/core/dist/test/canonicalization.property.test.js",
+          "name": "C-P2: canonical output is invariant to object key insertion order at every nesting level"
+        },
+        {
+          "file": "packages/core/dist/test/canonicalization.property.test.js",
+          "name": "C-P6: floats, NaN, and \u00b1Infinity are always rejected with FLOAT_NOT_ALLOWED"
+        },
+        {
+          "file": "packages/core/dist/test/trusted-time-integration.test.js",
+          "name": "future-dated intent \u2192 exactly DENY/INTENT_FRESHNESS_FUTURE"
+        },
+        {
+          "file": "packages/core/dist/test/trusted-time-integration.test.js",
+          "name": "issuance tripwire: issued_at and expiry derive from evaluationTime, not intent.timestamp"
+        },
+        {
+          "file": "packages/guard/dist/test/gateway.authority.test.js",
+          "name": "#301 gateway ANTI-CARTESIAN: trusted issuer A signing unauthorized policy P2 is rejected; upstream never called"
+        },
+        {
+          "file": "packages/guard/dist/test/guard.authorization.test.js",
+          "name": "A-1 tampered signature: execute is blocked and OxDeAIAuthorizationError is thrown"
+        },
+        {
+          "file": "packages/guard/dist/test/guard.authorization.test.js",
+          "name": "A-2 unknown issuer: execute is blocked and OxDeAIAuthorizationError is thrown"
+        },
+        {
+          "file": "packages/guard/dist/test/guard.authorization.test.js",
+          "name": "A-3 wrong audience: execute is blocked and OxDeAIAuthorizationError is thrown"
+        },
+        {
+          "file": "packages/guard/dist/test/guard.authorization.test.js",
+          "name": "A-4 expired auth: execute is blocked and OxDeAIAuthorizationError is thrown"
+        },
+        {
+          "file": "packages/guard/dist/test/guard.authorization.test.js",
+          "name": "A-5 missing trustedKeySets: OxDeAIGuardConfigurationError thrown at construction"
+        },
+        {
+          "file": "packages/guard/dist/test/guard.delegation.authority.test.js",
+          "name": "#301 delegation ANTI-CARTESIAN: validly signed parent A/P2 is rejected; execute never called"
+        },
+        {
+          "file": "packages/guard/dist/test/guard.intent-binding.test.js",
+          "name": "IB-2 wrong intent_hash in auth: OxDeAIAuthorizationError thrown, execute blocked"
+        },
+        {
+          "file": "packages/guard/dist/test/guard.replay-store.test.js",
+          "name": "RS-1 default store: auth_id replay blocked on second call to same guard instance"
+        },
+        {
+          "file": "packages/guard/dist/test/guard.replay-store.test.js",
+          "name": "RS-3 shared store: auth_id replay blocked across two distinct guard instances"
+        },
+        {
+          "file": "packages/guard/dist/test/guard.state-binding.test.js",
+          "name": "SB-2 mismatched state_hash: execute is blocked and OxDeAIAuthorizationError is thrown"
+        },
+        {
+          "file": "packages/core/dist/test/verify.s2-noncanonical-id.test.js",
+          "name": "S2 auth_id: a non-NFC auth_id is rejected as AUTH_ID_NONCANONICAL"
+        },
+        {
+          "file": "packages/core/dist/test/verify.s2-noncanonical-id.test.js",
+          "name": "S2 auth_id: an NFC auth_id is not flagged non-canonical"
+        },
+        {
+          "file": "packages/core/dist/test/verify.s2-noncanonical-id.test.js",
+          "name": "S2 delegation_id: a non-NFC delegation_id is rejected as DELEGATION_ID_NONCANONICAL"
+        },
+        {
+          "file": "packages/core/dist/test/verify.s2-noncanonical-id.test.js",
+          "name": "S2 delegation_id: an NFC delegation_id is not flagged non-canonical"
+        },
+        {
+          "file": "packages/core/dist/test/verify.s3-small-order-ed25519.test.js",
+          "name": "isSmallOrderEd25519Pem flags all 14 small-order wire encodings"
+        },
+        {
+          "file": "packages/core/dist/test/verify.s3-small-order-ed25519.test.js",
+          "name": "verifyEd25519 (Encoding A: auth/delegation/envelope/KRL primitive) rejects every small-order key"
+        },
+        {
+          "file": "packages/core/dist/test/verify.s3-small-order-ed25519.test.js",
+          "name": "verifyAuthorization rejects a forged ALLOW under a trusted small-order key (flat + nested), message-independent"
+        },
+        {
+          "file": "packages/core/dist/test/verify.s3-small-order-ed25519.test.js",
+          "name": "legitimate key: isSmallOrderEd25519Pem is false and valid signatures still verify (no regression)"
+        },
+        {
+          "file": "packages/core/dist/test/verify.s3-small-order-ed25519.test.js",
+          "name": "legitimate trusted key: a real signed authorization verifies; a forged small-order sig does not"
+        },
+        {
+          "file": "packages/core/dist/test/verify.s3-small-order-ed25519.test.js",
+          "name": "untrusted, unknown-kid, and inactive keys remain fail-closed"
+        },
+        {
+          "file": "packages/core/dist/test/verify.s3-small-order-ed25519.test.js",
+          "name": "S4 canonical-signature validation is preserved (non-canonical sig rejected under a valid key)"
+        },
+        {
+          "file": "packages/core/dist/test/verify.s4-canonical-signature.test.js",
+          "name": "S4-A canonical standard signature verifies"
+        },
+        {
+          "file": "packages/core/dist/test/verify.s4-canonical-signature.test.js",
+          "name": "S4-A trailing whitespace is rejected"
+        },
+        {
+          "file": "packages/core/dist/test/verify.s4-canonical-signature.test.js",
+          "name": "S4-A mutated final character (same bytes) is rejected"
+        },
+        {
+          "file": "packages/core/dist/test/verify.s4-canonical-signature.test.js",
+          "name": "S4-A base64url form is rejected by the standard-only path"
+        },
+        {
+          "file": "packages/core/dist/test/verify.s4-canonical-signature.test.js",
+          "name": "S4-A empty string is rejected"
+        },
+        {
+          "file": "packages/core/dist/test/verify.s4-canonical-signature.test.js",
+          "name": "S4-A wrong length (63/65 bytes) is rejected"
+        },
+        {
+          "file": "packages/core/dist/test/verify.s4-canonical-signature.test.js",
+          "name": "S4-A a tampered payload still fails (no regression)"
+        },
+        {
+          "file": "packages/core/dist/test/verify.s4-canonical-signature.test.js",
+          "name": "S4-B canonical standard authorization verifies ok"
+        },
+        {
+          "file": "packages/core/dist/test/verify.s4-canonical-signature.test.js",
+          "name": "S4-B canonicalSignatureBytes accepts canonical standard AND canonical base64url of 64 bytes"
+        },
+        {
+          "file": "packages/core/dist/test/verify.s4-canonical-signature.test.js",
+          "name": "S4-B canonicalSignatureBytes rejects non-canonical and malformed encodings"
+        },
+        {
+          "file": "packages/core/dist/test/verify.s4-canonical-signature.test.js",
+          "name": "S4-B non-canonical standard (trailing newline) authorization is rejected"
+        },
+        {
+          "file": "packages/core/dist/test/verify.s4-canonical-signature.test.js",
+          "name": "S4-B empty signature authorization is rejected"
+        },
+        {
+          "file": "packages/core/dist/test/verify.s4-canonical-signature.test.js",
+          "name": "S4-B e2e: canonical base64url Encoding-B signature verifies via verifyAuthorization"
+        },
+        {
+          "file": "packages/core/dist/test/verify.s4-canonical-signature.test.js",
+          "name": "S4-B e2e: canonical standard Encoding-B signature also verifies"
+        },
+        {
+          "file": "packages/core/dist/test/verify.s4-canonical-signature.test.js",
+          "name": "S4-B e2e: non-canonical base64url (extra char) Encoding-B is rejected"
+        },
+        {
+          "file": "packages/core/dist/test/verify.s4-canonical-signature.test.js",
+          "name": "S4-B e2e: padded base64url Encoding-B (non-canonical) is rejected"
+        },
+        {
+          "file": "packages/core/dist/test/verify.s4-canonical-signature.test.js",
+          "name": "S4-B e2e: trailing-newline Encoding-B is rejected"
+        },
+        {
+          "file": "packages/core/dist/test/verification-result.schema.contract.test.js",
+          "name": "validator accepts a known-good minimal result and rejects a known-bad one"
+        },
+        {
+          "file": "packages/core/dist/test/verification-result.schema.contract.test.js",
+          "name": "schema uses only keywords the subset validator actually enforces"
+        },
+        {
+          "file": "packages/core/dist/test/verification-result.schema.contract.test.js",
+          "name": "every public violation code is accepted by the schema"
+        },
+        {
+          "file": "packages/core/dist/test/verification-result.schema.contract.test.js",
+          "name": "schema code enum is in exact parity with the public VerificationViolationCode union"
+        },
+        {
+          "file": "packages/core/dist/test/verification-result.schema.contract.test.js",
+          "name": "schema verificationMode / verificationCoverage / status enums match the public unions"
+        },
+        {
+          "file": "packages/core/dist/test/verification-result.schema.contract.test.js",
+          "name": "optional verification-metadata fields are accepted with valid values"
+        },
+        {
+          "file": "packages/core/dist/test/verification-result.schema.contract.test.js",
+          "name": "invalid enum values are rejected"
+        },
+        {
+          "file": "packages/core/dist/test/verification-result.schema.contract.test.js",
+          "name": "incorrect field types are rejected"
+        },
+        {
+          "file": "packages/core/dist/test/verification-result.schema.contract.test.js",
+          "name": "unknown properties are rejected at root and in violation items"
+        },
+        {
+          "file": "packages/core/dist/test/verification-result.schema.contract.test.js",
+          "name": "required fields remain mandatory"
+        },
+        {
+          "file": "packages/core/dist/test/verification-result.schema.contract.test.js",
+          "name": "a passing real AuthorizationVerificationResult validates against the schema"
+        },
+        {
+          "file": "packages/core/dist/test/verification-result.schema.contract.test.js",
+          "name": "a rejected real AuthorizationVerificationResult (tampered) validates against the schema"
+        },
+        {
+          "file": "packages/guard/dist/test/gateway.h1-execution-outcome.security.test.js",
+          "name": "H-1: upstream 5xx after dispatch -> INDETERMINATE, executed null, decision ALLOW"
+        },
+        {
+          "file": "packages/guard/dist/test/gateway.h1-execution-outcome.security.test.js",
+          "name": "H-1: upstream 4xx after dispatch -> INDETERMINATE (effect cannot be ruled out)"
+        },
+        {
+          "file": "packages/guard/dist/test/gateway.h1-execution-outcome.security.test.js",
+          "name": "H-1 (R2): upstream 3xx after dispatch -> INDETERMINATE, not EXECUTED"
+        },
+        {
+          "file": "packages/guard/dist/test/gateway.h1-execution-outcome.security.test.js",
+          "name": "H-1: upstream timeout -> INDETERMINATE, executed null"
+        },
+        {
+          "file": "packages/guard/dist/test/gateway.h1-execution-outcome.security.test.js",
+          "name": "H-1: executor throws after dispatch -> INDETERMINATE, executed null"
+        },
+        {
+          "file": "packages/guard/dist/test/gateway.h1-execution-outcome.security.test.js",
+          "name": "H-1: confirmed success -> EXECUTED, executed true"
+        },
+        {
+          "file": "packages/guard/dist/test/gateway.h1-execution-outcome.security.test.js",
+          "name": "H-1: pre-dispatch denial -> NOT_DISPATCHED, executed false, upstream never called"
+        },
+        {
+          "file": "packages/guard/dist/test/gateway.h1-http-phase.security.test.js",
+          "name": "H-1 R3: malformed JSON body -> NOT_DISPATCHED, executed:false, upstream never called"
+        },
+        {
+          "file": "packages/guard/dist/test/gateway.h1-http-phase.security.test.js",
+          "name": "H-1 R3: executor throws after dispatch -> INDETERMINATE, executed:null, not NOT_DISPATCHED"
+        },
+        {
+          "file": "packages/guard/dist/test/gateway.h1-http-phase.security.test.js",
+          "name": "H-1 R3: SyntaxError raised after dispatch is INDETERMINATE, not INVALID_JSON/NOT_DISPATCHED"
+        },
+        {
+          "file": "packages/guard/dist/test/gateway.h1-http-phase.security.test.js",
+          "name": "H-1 R3.1: internal fault after parsing -> decision UNKNOWN, INDETERMINATE, not DENY/NOT_DISPATCHED"
+        },
+        {
+          "file": "packages/guard/dist/test/gateway.h1-http-phase.security.test.js",
+          "name": "H-1 R3: authorized request over HTTP -> EXECUTED, executed:true"
+        },
+        {
+          "file": "packages/guard/dist/test/gateway.h1-client-retry.security.test.js",
+          "name": "H-1 client: after a lost upstream response the gateway never says executed:false"
+        },
+        {
+          "file": "packages/guard/dist/test/gateway.h1-client-retry.security.test.js",
+          "name": "H-1 client: retrying only on outcome NOT_DISPATCHED executes the effect once"
+        },
+        {
+          "file": "packages/guard/dist/test/gateway.h1-client-retry.security.test.js",
+          "name": "H-1 client: retrying only on executed === false (strict) executes the effect once"
+        },
+        {
+          "file": "packages/guard/dist/test/gateway.h1-client-retry.security.test.js",
+          "name": "H-1 client HAZARD (documented, not fixable in the gateway): a truthiness check `!executed` treats null as false and re-executes"
+        },
+        {
+          "file": "packages/guard/dist/test/gateway.h1-client-retry.security.test.js",
+          "name": "H-1 client HAZARD (documented): retrying on `!ok` or on HTTP 5xx is equally unsafe for an INDETERMINATE outcome"
+        },
+        {
+          "file": "packages/guard/dist/test/gateway.h1-client-retry.security.test.js",
+          "name": "H-1 client: a pre-dispatch denial is the only case reported as executed:false, and retrying it has no side effect"
+        },
+        {
+          "file": "packages/guard/dist/test/gateway.h1-client-retry.security.test.js",
+          "name": "H-1 client: the three outcomes map one-to-one onto executed true / false / null"
+        },
+        {
+          "file": "packages/guard/dist/test/gateway.vectors.test.js",
+          "name": "canonicalization-v1 locked vectors match core canonicalJson"
+        },
+        {
+          "file": "packages/guard/dist/test/gateway.vectors.test.js",
+          "name": "authorization-v1 corpus checks combine Core verification with fixture action/state context"
+        },
+        {
+          "file": "packages/guard/dist/test/gateway.vectors.test.js",
+          "name": "nested corpus signatures bind top-level alg/kid and public fields"
+        },
+        {
+          "file": "packages/guard/dist/test/gateway.vectors.test.js",
+          "name": "valid nested corpus signature cannot authorize a cross-pair gateway request"
+        },
+        {
+          "file": "packages/guard/dist/test/gateway.vectors.test.js",
+          "name": "A/B gateway protects signed state_hash without requiring live snapshot comparison"
+        },
+        {
+          "file": "packages/guard/dist/test/gateway.vectors.test.js",
+          "name": "pep-gateway-v1 gateway subset (7 cases; 2 state-binding dispositions deferred)"
+        },
+        {
+          "file": "packages/sift/dist/test/verifyReceipt.s3-small-order.test.js",
+          "name": "S3-R2: forged ALLOW receipt rejected under every small-order key (PEM and raw)"
+        },
+        {
+          "file": "packages/sift/dist/test/verifyReceipt.s3-small-order.test.js",
+          "name": "S3-R2: rejection is message-independent (changing a bound field still rejects)"
+        },
+        {
+          "file": "packages/sift/dist/test/verifyReceipt.s3-small-order.test.js",
+          "name": "S3-R2: legitimate signed receipt still verifies; tampered signature rejected (no regression)"
+        },
+        {
+          "file": "packages/sift/dist/test/verifyReceipt.s3-small-order.test.js",
+          "name": "S3-R2: malformed and missing public keys fail closed"
+        },
+        {
+          "file": "packages/sift/dist/test/verifyReceipt.s3-small-order.test.js",
+          "name": "S3-R2: receipt-hash binding and freshness checks still enforced (legitimate key)"
+        },
+        {
+          "file": "packages/sift/dist/test/verifyReceipt.s3-small-order.test.js",
+          "name": "S3-R2: Sift small-order set equals the derived 14 (Core/Sift equivalence)"
+        },
+        {
+          "file": "packages/sift/dist/test/smallOrderEd25519.core-equivalence.test.js",
+          "name": "S3-MNT-1: Sift small-order table equals @oxdeai/core's table"
+        },
+        {
+          "file": "packages/sift/dist/test/smallOrderEd25519.core-equivalence.test.js",
+          "name": "S3-MNT-1: every core table entry is rejected by Sift's guard"
+        },
+        {
+          "file": "packages/langgraph/dist/test/adapter.test.js",
+          "name": "adapter (H-1): a failure after dispatch propagates once, with no automatic retry or re-authorization"
+        },
+        {
+          "file": "packages/openai-agents/dist/test/adapter.test.js",
+          "name": "adapter (H-1): a failure after dispatch propagates once, with no automatic retry or re-authorization"
+        },
+        {
+          "file": "packages/crewai/dist/test/adapter.test.js",
+          "name": "adapter (H-1): a failure after dispatch propagates once, with no automatic retry or re-authorization"
+        },
+        {
+          "file": "packages/autogen/dist/test/adapter.test.js",
+          "name": "adapter (H-1): a failure after dispatch propagates once, with no automatic retry or re-authorization"
+        },
+        {
+          "file": "packages/openclaw/dist/test/adapter.test.js",
+          "name": "adapter (H-1): a failure after dispatch propagates once, with no automatic retry or re-authorization"
+        },
+        {
+          "file": "packages/guard/dist/test/gateway.legacy-hardening.test.js",
+          "name": "P0-01 E2E real PDP: projection hashAction with an extra unbound field is denied ACTION_HASH_UNCOVERED; nothing forwarded or consumed"
+        },
+        {
+          "file": "packages/guard/dist/test/gateway.legacy-hardening.test.js",
+          "name": "P0-03 a full-coverage custom digest that differs from the whole-action hash is denied"
+        },
+        {
+          "file": "packages/guard/dist/test/gateway.legacy-hardening.test.js",
+          "name": "P0-05 non-string hashAction results (number, String object, Promise) are denied; a rejecting Promise cannot crash the process"
+        },
+        {
+          "file": "packages/guard/dist/test/gateway.legacy-hardening.test.js",
+          "name": "P0-06 a projection hashAction over an action with a float in a non-binding field is denied by the whole-action hash"
+        },
+        {
+          "file": "packages/guard/dist/test/gateway.legacy-hardening.test.js",
+          "name": "P0-07 a non-function hashAction (other than null/undefined) is rejected at construction"
+        },
+        {
+          "file": "packages/guard/dist/test/gateway.legacy-hardening.test.js",
+          "name": "P0-10 the coverage guard runs before authorization verification and never touches replay state"
+        },
+        {
+          "file": "packages/guard/dist/test/gateway.legacy-hardening.test.js",
+          "name": "P0-11 gateway: Content-Length above the limit is rejected BODY_TOO_LARGE with Connection: close; nothing dispatched or consumed"
+        },
+        {
+          "file": "packages/guard/dist/test/gateway.legacy-hardening.test.js",
+          "name": "P0-12 gateway: a chunked body exceeding the limit is rejected BODY_TOO_LARGE; nothing dispatched or consumed"
+        },
+        {
+          "file": "packages/guard/dist/test/gateway.legacy-hardening.test.js",
+          "name": "P0-16 upstream: a 10 MiB upload without a token gets a complete 403 before the body is read; execute not called"
+        },
+        {
+          "file": "packages/guard/dist/test/gateway.legacy-hardening.test.js",
+          "name": "P0-18 upstream: a valid token with a body above the limit gets 413 BODY_TOO_LARGE; execute not called"
+        },
+        {
+          "file": "packages/guard/dist/test/gateway.legacy-hardening.test.js",
+          "name": "P0-27 gateway: an oversized chunked body whose first maxBodyBytes form a complete valid request is rejected, never truncated and parsed"
+        },
+        {
+          "file": "packages/guard/dist/test/gateway.legacy-hardening.test.js",
+          "name": "P0-28 gateway: BODY_TOO_LARGE is a parsing-phase denial for both Content-Length and chunked bodies, never UNKNOWN/INDETERMINATE"
+        },
+        {
+          "file": "packages/guard/dist/test/gateway.legacy-hardening.test.js",
+          "name": "P0-29 hashAction null/undefined keep the default whole-action hash: no warning, no coverage denial"
+        },
+        {
+          "file": "packages/guard/dist/test/gateway.legacy-hardening.test.js",
+          "name": "P0-31 hashAction is captured at construction: reassigning options.hashAction later has no effect"
+        },
+        {
+          "file": "packages/guard/dist/test/gateway.legacy-hardening.test.js",
+          "name": "P0-32 graceful rejection under active upload: 20 x 10 MiB uploads each get the complete 403, a bounded read and a closed socket (gateway and upstream)"
+        },
+        {
+          "file": "packages/guard/dist/test/gateway.legacy-hardening.test.js",
+          "name": "P0-35 gateway: a declared Content-Length above the limit is rejected before the body is buffered (default 1 MiB limit, 10 MiB upload)"
+        },
+        {
+          "file": "packages/guard/dist/test/gateway.input-integrity.security.test.js",
+          "name": "INVREG-F01 repro: mutating action params during the awaited replay consume does not change the upstream request"
+        },
+        {
+          "file": "packages/guard/dist/test/gateway.input-integrity.security.test.js",
+          "name": "INVREG-F01 accessor-backed request.action (different value per read) is rejected; upstream never called"
+        },
+        {
+          "file": "packages/guard/dist/test/gateway.input-integrity.security.test.js",
+          "name": "INVREG-F01 Proxy action is rejected without running a trap; upstream never called"
+        },
+        {
+          "file": "packages/guard/dist/test/gateway.input-integrity.security.test.js",
+          "name": "INVREG-F02 repro (1): a changing auth_id getter cannot turn one signed authorization into multiple executions"
+        },
+        {
+          "file": "packages/guard/dist/test/gateway.input-integrity.security.test.js",
+          "name": "INVREG-F02 repro (2): a Proxy returning different auth_ids cannot authorize multiple executions"
+        },
+        {
+          "file": "packages/guard/dist/test/gateway.input-integrity.security.test.js",
+          "name": "INVREG-F02 (4): two concurrent executions with the same authorization dispatch exactly once"
+        },
+        {
+          "file": "packages/guard/dist/test/gateway.input-integrity.security.test.js",
+          "name": "INVREG-F05 repro: adding an authority to the caller's array after construction does not widen trust"
+        },
+        {
+          "file": "packages/guard/dist/test/gateway.input-integrity.security.test.js",
+          "name": "INVREG-F05: replacing options.trustedAuthorizationAuthorities after construction does not widen trust"
+        },
+        {
+          "file": "packages/guard/dist/test/gateway.strict-result.security.test.js",
+          "name": "RR-01 Gateway: only boolean true dispatches; false = AUTH_REPLAY; anything else = REPLAY_STORE_UNAVAILABLE:INVALID_RESULT"
+        },
+        {
+          "file": "packages/guard/dist/test/gateway.strict-result.security.test.js",
+          "name": "RR-01 HTTP gateway: a malformed store answer is denied before dispatch"
+        },
+        {
+          "file": "packages/guard/dist/test/gateway.strict-result.security.test.js",
+          "name": "GW-COMP-01 the executor's copy equals the authorized action at dispatch, even if the caller mutates during the await"
+        }
+      ],
+      "permittedSkips": [],
+      "sourceCoverage": [
+        {
+          "sourceDir": "packages/guard/src/test",
+          "sourceSuffix": ".test.ts",
+          "compiledDir": "packages/guard/dist/test",
+          "compiledSuffix": ".test.js"
+        },
+        {
+          "sourceDir": "packages/core/src/test",
+          "sourceSuffix": ".test.ts",
+          "compiledDir": "packages/core/dist/test",
+          "compiledSuffix": ".test.js"
+        },
+        {
+          "sourceDir": "packages/sift/test",
+          "sourceSuffix": ".test.ts",
+          "compiledDir": "packages/sift/dist/test",
+          "compiledSuffix": ".test.js"
+        },
+        {
+          "sourceDir": "tests/src",
+          "sourceSuffix": ".test.ts",
+          "compiledDir": "tests/dist",
+          "compiledSuffix": ".test.js"
+        },
+        {
+          "sourceDir": "examples/lgf-frappe-pep/test",
+          "sourceSuffix": ".test.ts",
+          "compiledDir": "examples/lgf-frappe-pep/dist/test",
+          "compiledSuffix": ".test.js"
+        },
+        {
+          "sourceDir": "scripts/ci",
+          "sourceSuffix": ".test.mjs",
+          "compiledDir": "scripts/ci",
+          "compiledSuffix": ".test.mjs"
+        }
+      ],
+      "notExecuted": [
+        {
+          "file": "examples/lgf-frappe-pep/test/live-redis.test.ts",
+          "reason": "Requires a live Redis service; executed and verified by name in job pep-redis-replay",
+          "ref": ".github/workflows/ci.yml job pep-redis-replay"
+        }
+      ],
+      "conformance": [
+        {
+          "surface": "ts",
+          "corpora": {
+            "docs-canonicalization-v1": 11
+          }
+        },
+        {
+          "surface": "auth",
+          "corpora": {
+            "docs-authorization-v1": 12
+          }
+        },
+        {
+          "surface": "pep",
+          "corpora": {
+            "docs-pep-vectors-v1": 9
+          }
+        },
+        {
+          "surface": "delegation",
+          "corpora": {
+            "docs-delegation-vectors-v1": 12
+          }
+        },
+        {
+          "surface": "go",
+          "corpora": {
+            "docs-canonicalization-v1": 11,
+            "docs-signed-krl-v1": 9,
+            "profile-c": 8
+          }
+        },
+        {
+          "surface": "py",
+          "corpora": {
+            "docs-canonicalization-v1": 11,
+            "docs-signed-krl-v1": 9,
+            "profile-c": 8
+          }
+        }
+      ]
+    },
+    "pep-redis-replay": {
+      "minTests": 3,
+      "requiredFiles": [
+        {
+          "file": "examples/lgf-frappe-pep/dist/test/live-redis.test.js",
+          "minTests": 3
+        }
+      ],
+      "requiredTests": [
+        {
+          "file": "examples/lgf-frappe-pep/dist/test/live-redis.test.js",
+          "name": "LGF Frappe PEP live Redis replay integration > first execution succeeds, replay key is created with expected prefix and positive TTL"
+        },
+        {
+          "file": "examples/lgf-frappe-pep/dist/test/live-redis.test.js",
+          "name": "LGF Frappe PEP live Redis replay integration > replay is denied and no second side effect occurs"
+        },
+        {
+          "file": "examples/lgf-frappe-pep/dist/test/live-redis.test.js",
+          "name": "LGF Frappe PEP live Redis replay integration > Redis outage fails closed with REPLAY_STORE_UNAVAILABLE"
+        }
+      ]
+    }
+  }
+}

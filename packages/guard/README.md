@@ -3,8 +3,10 @@ Policy Enforcement Point for the OxDeAI execution-time authorization protocol.
 Verifies AuthorizationV1 locally, fail-closed.
 No valid authorization, no execution through the configured enforcement boundary.
 
-Current `@oxdeai/guard` package line: **2.0.3**. See [`CHANGELOG.md`](./CHANGELOG.md)
-for release details. 2.0.3 pins `@oxdeai/core@2.0.2`; 2.0.1 binds
+Current `@oxdeai/guard` package line: **2.0.4**. See [`CHANGELOG.md`](./CHANGELOG.md)
+for release details. 2.0.4 pins `@oxdeai/core@2.0.3` and changes the PEP gateway
+response contract (three-state `outcome`, `executed: boolean | null`; see
+[PEP gateway execution outcome](#pep-gateway-execution-outcome)); 2.0.1 binds
 `DelegationV1.delegatee` to the acting agent;
 the 2.0 line requires `expectedAudience` and `trustedKeySets`, uses
 versioned/CAS `getState`/`setState`, and introduced `createSecureGuard`.
@@ -304,6 +306,102 @@ authority, external-resource TOCTOU, post-execution-start failures).
 
 ---
 
+## HTTP PEP gateway and protected upstream: request handling
+
+`createPepGatewayHttpServer` and `createProtectedUpstreamHttpServer` apply the
+following rules to every request.
+
+**Bounded bodies (`maxBodyBytes`).** Both servers accept a `maxBodyBytes`
+option: default `1_048_576` (1 MiB), allowed range `1_024`-`67_108_864`. Other
+values are rejected at construction.
+
+- A declared `Content-Length` above the limit is rejected before the body is
+  read; a chunked body is rejected as soon as it exceeds the limit.
+- An oversized body is never truncated and parsed: the partial buffer is
+  discarded, even if its prefix happens to be valid JSON.
+- Gateway: 403 `{ decision: "DENY", outcome: "NOT_DISPATCHED", executed: false,
+  reason: "BODY_TOO_LARGE" }`. The executor is not invoked and replay state is
+  not touched. Protected upstream: 413 `{ error: "BODY_TOO_LARGE" }`;
+  `execute` is not called.
+- `createPepGatewayExecutor` (in-process) receives already-parsed input and
+  ignores `maxBodyBytes`.
+- The legacy gateway forwards `JSON.stringify(action.params ?? action)` to the
+  upstream. For valid UTF-8 input this is no larger than the inbound request;
+  invalid UTF-8 is decoded with replacement characters and can grow up to 3x.
+  If clients may send arbitrary bytes, set the upstream's `maxBodyBytes` to at
+  least 3x the gateway's. A 413 from the upstream is reported by the gateway as
+  `INDETERMINATE` (the authorization is spent).
+
+**Token before body.** The protected upstream checks
+`x-internal-executor-token` from the headers before reading the body. The
+comparison is constant-time (`hasValidInternalExecutorToken` uses the same
+check). A missing, duplicated or wrong token gets 403 and the body is not read.
+An empty `expectedToken` is rejected at construction.
+
+**Graceful early rejection.** When a response is sent before the request body
+has been read (oversized body, invalid token, unknown path with a body), the
+server sends the complete response with `Connection: close`, then reads and
+discards at most 64 KiB or 2 s of the remaining upload before closing the
+connection, so the client reliably receives the status instead of a reset.
+Nothing read during that drain is parsed or dispatched. Bodiless requests
+(for example `GET /healthz`) keep normal keep-alive behaviour.
+
+**Custom `hashAction` (deprecated).** By default the gateway binds the whole
+action: `intent_hash` must equal `sha256HexFromJson(action)`. If you supply
+`hashAction`, a request is accepted only when it returns exactly that same
+whole-action hash; anything else (a projection that omits fields, a prefixed
+or otherwise different digest, a non-string such as a Promise) is denied with
+403 `ACTION_HASH_UNCOVERED` before authorization verification and without
+touching replay state, so no field of the action can reach the upstream
+without being covered by `authorization.intent_hash`. There is no option to
+disable this check. `hashAction: null` or `undefined` means "use the default";
+any other non-function is rejected at construction. The function is captured
+once at construction. Supplying it emits a one-time `DeprecationWarning`
+(code `OXDEAI_DEP_HASH_ACTION`); under `node --throw-deprecation` that warning
+is thrown at construction. `hashAction` will be removed in the next major
+release: present exactly the object that was hashed into `intent_hash` and
+omit the option.
+
+**Coverage and Unicode normalization.** Coverage is defined by
+`canonicalization-v1`, which normalizes strings to NFC and orders keys. Two
+actions that differ only in Unicode normalization form therefore have the same
+`intent_hash`, while the gateway forwards the request's raw strings. Upstreams
+that compare strings should normalize to NFC. (Rejecting non-NFC input in
+legacy mode is planned for a major release.)
+
+---
+
+**In-process executor input (INVREG-F01/F02).** `createPepGatewayExecutor`
+takes one deep-frozen plain-data snapshot of the request before any security
+decision. Action hashing, authorization verification, intent binding, replay
+consumption, upstream dispatch and the response body all read only that
+snapshot, so mutating the caller's object during the awaited replay consume no
+longer changes what is sent upstream, and an accessor or `Proxy` on `auth_id`
+can no longer consume one signed authorization under several identifiers.
+Input that is not plain data (Proxy, accessor properties, class instances,
+`Date`, `Map`, `Buffer` and typed arrays, functions, symbol keys, sparse arrays,
+cycles, objects from another realm) is denied with
+`INVALID_REQUEST_INPUT:<path>: <reason>` before replay consumption. JSON-decoded
+input (the HTTP gateway) is unaffected. The upstream executor receives its own
+mutable deep copy of the verified action (GW-COMP-01) and is called with the
+options object as `this`.
+
+**Configuration read once (INVREG-F05).** `trustedAuthorizationAuthorities` is
+validated and copied at construction; later mutation of the caller's array no
+longer widens issuer-policy authority, and a malformed entry fails
+construction. `expectedAudience`, `internalExecutorToken` and `executeUpstream`
+are also read once. In-place `trustedKeySets` rotation and replay-store state
+remain live.
+
+**Strict replay result (RR-01, gateway).** The gateway dispatches only when
+`consumeAuthId` resolves to the boolean `true`. `false` is `AUTH_REPLAY`; any
+other answer (`"OK"`, `1`, `"true"`, objects) is denied as
+`REPLAY_STORE_UNAVAILABLE:INVALID_RESULT`. A store that returns a raw Redis
+`SET NX` reply must be changed to return a boolean; the built-in stores already
+do. On the 2.0.x line this strict check applies to the gateway only.
+
+---
+
 ## Replay store: contract and deployment requirements
 
 The guard verifies/authenticates before authoritative replay mutation and consumes
@@ -414,6 +512,44 @@ const myStore: ReplayStore = {
 ```
 
 ---
+
+## PEP gateway execution outcome
+
+`createPepGatewayExecutor` and `createPepGatewayHttpServer` report what happened
+to a request with a three-state `outcome` in the response body. It is the field
+to branch on.
+
+| `outcome` | Meaning | `executed` | `decision` | HTTP |
+| --- | --- | --- | --- | --- |
+| `NOT_DISPATCHED` | Denied before dispatch. The upstream was never called, so no side effect is possible. | `false` | `DENY` | 403 |
+| `EXECUTED` | The upstream confirmed success. | `true` | `ALLOW` | 200 |
+| `INDETERMINATE` | The request was dispatched and its outcome is unknown: timeout, transport error, thrown executor, or any non-success status. A side effect cannot be ruled out. | `null` | `ALLOW` | 502 or 504 |
+
+`executed: false` means a confirmed non-execution and nothing else. Before
+2.0.4 the gateway also reported it for dispatched requests that failed or timed
+out, although the upstream may already have acted (H-1).
+
+Three rules for callers:
+
+- **Branch on `outcome`, never on the truthiness of `executed`.** `null` is
+  falsy, so `if (!body.executed) retry()` retries an `INDETERMINATE` request and
+  can execute the action twice. If you must use `executed`, compare it strictly:
+  `body.executed === false`.
+- **Do not retry an `INDETERMINATE` request automatically**, and do not request
+  a new authorization for the same action until you have reconciled with the
+  upstream. An idempotency key derived from `auth_id` makes that reconciliation
+  possible. Retrying on `ok: false` or on an HTTP 5xx status is unsafe for the
+  same reason.
+- **`decision: "UNKNOWN"`** appears only when the HTTP handler hits an internal
+  fault after parsing and cannot tell whether dispatch occurred. It always comes
+  with `outcome: "INDETERMINATE"` and `executed: null`. Treat it as "no decision
+  was reached", never as `ALLOW` or `DENY`.
+
+`EXECUTED` means the upstream confirmed success under the configured success
+contract; by default that is an integer 2xx status, so a 3xx is
+`INDETERMINATE`. Supply `isUpstreamSuccess` (an `UpstreamSuccessContract`) when
+your upstream signals success differently. `EXECUTED` is the upstream's answer
+at this boundary. It is not proof that a business effect was durably committed.
 
 ## Error classes
 

@@ -65,9 +65,9 @@ export const PRECHECK_RECEIPT_VERSION = 1;
 
 // Explicit opt-in remediation profile. The evaluated/packed universe stays POLICY.
 export const F2_CLI1_SELECTION = Object.freeze([
-  ["@oxdeai/core", "2.0.2"], ["@oxdeai/guard", "2.0.3"],
-  ["@oxdeai/sdk", "2.0.2"], ["@oxdeai/conformance", "2.0.2"],
-  ["@oxdeai/cli", "0.3.2"],
+  ["@oxdeai/core", "2.0.3"], ["@oxdeai/guard", "2.0.4"],
+  ["@oxdeai/sdk", "2.0.3"], ["@oxdeai/conformance", "2.0.3"],
+  ["@oxdeai/cli", "0.3.3"],
 ].map(([packageName, version]) => Object.freeze({ package: packageName, version })));
 
 function validateSelection(selection) {

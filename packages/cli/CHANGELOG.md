@@ -7,6 +7,12 @@ This project follows Semantic Versioning.
 
 ---
 
+## [0.3.3] - UNRELEASED
+
+### Security
+
+- Dependency security release. Pins `@oxdeai/core@2.0.3` (S2 non-NFC identifiers, S3 Ed25519 small-order keys, S4 non-canonical signature encodings). `verify` now rejects artifacts that relied on those defects. No CLI source change.
+
 ## [0.3.2] - 2026-10-19
 
 ### Security

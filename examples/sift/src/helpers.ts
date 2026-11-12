@@ -7,7 +7,9 @@
  *   - base64url-no-padding signatures
  *   - raw 32-byte Ed25519 public keys (JWKS `x` field format)
  *
- * No internals from @oxdeai/sift are imported — only its public types.
+ * Only public types are imported from @oxdeai/sift, plus one internal module:
+ * the S3 small-order public-key guard (smallOrderEd25519.js), reused so the
+ * 14-entry blocklist is not duplicated here.
  *
  * Preimage conventions matching packages/sift/src/verifyReceipt.ts:
  *
@@ -36,6 +38,7 @@ import type {
   AuthorizationV1Payload,
   SigningPayload,
 } from "@oxdeai/sift";
+import { isSmallOrderEd25519Key } from "@oxdeai/sift/dist/src/smallOrderEd25519.js";
 
 // ─── Canonical JSON with ensure_ascii ────────────────────────────────────────
 //
@@ -218,7 +221,8 @@ export function signCanonical(value: unknown, privateKeyPem: string): string {
  * both are decoded to the same bytes.
  * `publicKeyRaw` is a raw 32-byte Buffer (JWKS `x` decoded).
  *
- * Returns false on any error rather than throwing.
+ * Returns false on any error rather than throwing, and for an Ed25519
+ * small-order public key (S3: such a key authenticates nothing).
  */
 export function verifyCanonical(
   value: unknown,
@@ -227,6 +231,9 @@ export function verifyCanonical(
 ): boolean {
   try {
     const pubKey = publicKeyObjectFromRaw(publicKeyRaw);
+    // S3-R3: reject small-order keys on the exact KeyObject passed to verify.
+    // Covers the Sift staging artifact check (liveStaging.ts) and pepVerify.
+    if (isSmallOrderEd25519Key(pubKey)) return false;
     const sigBytes = b64uDecode(sigB64U);
     return nodeCryptoVerify(null, canonicalBytes(value), pubKey, sigBytes);
   } catch {
