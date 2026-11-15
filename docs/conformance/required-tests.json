@@ -1,9 +1,9 @@
 {
-  "$comment": "test-evidence required-test manifest for the release/2.0.x security patch line. Read by scripts/ci/verify-test-evidence.mjs in CI jobs build-test and pep-redis-replay. Floors (minTests) are observed counts on this branch; requiredTests names the 16 upstream invariants plus every regression test of the backported fixes (H-1, S2, S3, S4, schema parity, adapter no-retry, INVREG-F01/F02/F05, RR-01 gateway, GW-COMP-01, gateway hashAction coverage and request-handling hardening). Lowering a floor, removing a required test or adding a permitted skip requires a reviewed change with a reason. Run the gate with --emit-observed to print current counts.",
+  "$comment": "test-evidence required-test manifest for the release/2.0.x security patch line. Read by scripts/ci/verify-test-evidence.mjs in CI jobs build-test and pep-redis-replay. Floors (minTests) are observed counts on this branch; requiredTests names the 16 upstream invariants plus every regression test of the backported fixes (H-1, S2, S3, S4, schema parity, adapter no-retry, INVREG-F01/F02/F05, RR-01 gateway, GW-COMP-01, OBS-E guard delegation input snapshot, gateway hashAction coverage and request-handling hardening). Lowering a floor, removing a required test or adding a permitted skip requires a reviewed change with a reason. Run the gate with --emit-observed to print current counts.",
   "version": 1,
   "jobs": {
     "build-test": {
-      "minTests": 1360,
+      "minTests": 1377,
       "requiredFiles": [
         {
           "file": "examples/lgf-frappe-pep/dist/test/adapter-boundary.test.js",
@@ -250,6 +250,10 @@
           "minTests": 11
         },
         {
+          "file": "packages/guard/dist/test/guard.delegation.snapshot.security.test.js",
+          "minTests": 17
+        },
+        {
           "file": "packages/guard/dist/test/guard.delegation.matrix.test.js",
           "minTests": 17
         },
@@ -482,6 +486,30 @@
         {
           "file": "packages/guard/dist/test/guard.delegation.authority.test.js",
           "name": "#301 delegation ANTI-CARTESIAN: validly signed parent A/P2 is rejected; execute never called"
+        },
+        {
+          "file": "packages/guard/dist/test/guard.delegation.snapshot.security.test.js",
+          "name": "OBS-E T2: parent accessor substitution (verify A, bind B with an invalid signature) fails closed"
+        },
+        {
+          "file": "packages/guard/dist/test/guard.delegation.snapshot.security.test.js",
+          "name": "OBS-E T4: Proxy-based substitution fails closed and no trap runs"
+        },
+        {
+          "file": "packages/guard/dist/test/guard.delegation.snapshot.security.test.js",
+          "name": "OBS-E T6: replay-id accessor substitution fails closed and consumes nothing"
+        },
+        {
+          "file": "packages/guard/dist/test/guard.delegation.snapshot.security.test.js",
+          "name": "OBS-E: mutating the caller's plain object during the replay consume changes nothing"
+        },
+        {
+          "file": "packages/guard/dist/test/guard.delegation.snapshot.security.test.js",
+          "name": "OBS-E: plain delegation input executes once and consumes both ids"
+        },
+        {
+          "file": "packages/guard/dist/test/guard.delegation.snapshot.security.test.js",
+          "name": "OBS-E: createSecureGuard accepts plain delegation input and rejects accessor and Proxy input before any consume"
         },
         {
           "file": "packages/guard/dist/test/guard.intent-binding.test.js",

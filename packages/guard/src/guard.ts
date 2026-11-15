@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 import type { Authorization, AuthorizationV1, DelegationScope, Intent, KeySet } from "@oxdeai/core";
 import { verifyDelegationChain, verifyAuthorization as strictVerifyAuthorization, intentHash, resolveEffectiveChildScope } from "@oxdeai/core";
-import type { OxDeAIGuardConfig, ProposedAction, GuardDecisionRecord, GuardCallOptions } from "./types.js";
+import type { OxDeAIGuardConfig, ProposedAction, GuardDecisionRecord, GuardCallOptions, GuardDelegationInput } from "./types.js";
 import { defaultNormalizeAction } from "./normalizeAction.js";
+import { snapshotPlainData, DelegationSnapshotError } from "./delegationSnapshot.js";
 import { createInMemoryReplayStore } from "./replayStore.js";
 import type { ReplayStore } from "./replayStore.js";
 import { createLifecycle, emitBoundaryEvent, reject } from "./boundaryEvent.js";
@@ -104,6 +105,10 @@ async function fireDecision(
  *
  * Delegation path (when opts.delegation is provided):
  *   1. Normalize the action to an Intent (scope amount check).
+ *   1a. Take one immutable plain-data snapshot of opts.delegation (OBS-E);
+ *       every later step reads only the snapshot. Non-plain input (Proxy,
+ *       accessor, class instance, ...) fails closed with
+ *       DELEGATION_INPUT_INVALID before verification and replay consumption.
  *   2. Verify the DelegationV1 chain locally (no engine call).
  *   3. Check proposed action is within delegation scope (tools, max_amount).
  *   4. Call optional beforeExecute hook.
@@ -169,6 +174,11 @@ export function OxDeAIGuard(config: OxDeAIGuardConfig) {
     opts: GuardCallOptions | undefined,
     lifecycle: GuardLifecycle
   ): Promise<unknown> {
+    // OBS-E: read the caller's delegation container exactly once. It decides
+    // both the normalization-time agent_id requirement and which path runs, so
+    // two reads could disagree.
+    const delegationInput: GuardDelegationInput | undefined = opts?.delegation;
+
     // ── 1. Load state + version ────────────────────────────────────────────
     const versioned = await config.getState();
     const state = versioned.state;
@@ -191,7 +201,7 @@ export function OxDeAIGuard(config: OxDeAIGuardConfig) {
     try {
       intent = normalize(action);
       // Custom normalizers must not disable the optional core recipient check.
-      if (opts?.delegation && (typeof intent?.agent_id !== "string" || intent.agent_id.length === 0)) {
+      if (delegationInput && (typeof intent?.agent_id !== "string" || intent.agent_id.length === 0)) {
         throw new OxDeAINormalizationError("Delegation requires a non-empty normalized intent.agent_id.");
       }
     } catch (err) {
@@ -223,9 +233,30 @@ export function OxDeAIGuard(config: OxDeAIGuardConfig) {
     lifecycle.intentId = intent.intent_id;
 
     // ── 3. Delegation path ─────────────────────────────────────────────────
-    if (opts?.delegation) {
+    if (delegationInput) {
       lifecycle.stage = "DELEGATION";
-      const { delegation, parentAuth } = opts.delegation;
+
+      // ── OBS-E: one immutable authorization-input snapshot ────────────────
+      // `opts.delegation` is a caller-supplied, live, in-process object. Every
+      // later step (parent verification, chain and signature verification,
+      // scope enforcement, replay consumption and the hooks) reads ONLY this
+      // snapshot, never the caller's object again. An input outside the
+      // supported plain-data model (Proxy, accessor, class instance, cycle,
+      // ...) fails closed here, before any verification and before any replay
+      // state is touched. See delegationSnapshot.ts.
+      let snapshot: GuardDelegationInput;
+      try {
+        snapshot = snapshotPlainData(delegationInput, "delegation input");
+      } catch (err) {
+        throw reject(
+          "DELEGATION",
+          "DELEGATION_INPUT_INVALID",
+          new OxDeAIAuthorizationError(
+            `Delegation input is not supported plain data (${err instanceof DelegationSnapshotError ? err.message : "snapshot failed"}). Execution blocked.`
+          )
+        );
+      }
+      const { delegation, parentAuth } = snapshot;
 
       if (!delegation || !parentAuth) {
         throw reject(
@@ -264,7 +295,7 @@ export function OxDeAIGuard(config: OxDeAIGuardConfig) {
 
       // Validate parentScope before anything trusts it. Fail closed on missing
       // or malformed scope.
-      const { parentScope } = opts.delegation;
+      const { parentScope } = snapshot;
       if (!isValidDelegationScope(parentScope)) {
         throw reject(
           "DELEGATION",

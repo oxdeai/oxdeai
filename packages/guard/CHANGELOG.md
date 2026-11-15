@@ -81,6 +81,22 @@ upgrading. Advisory identifiers are assigned at publication.
   comparison (also used by `hasValidInternalExecutorToken`). An empty
   `expectedToken` is rejected at construction. Early rejections carry
   `Connection: close`.
+- **OBS-E: the guard delegation path re-read the caller's live delegation
+  input.** `OxDeAIGuard` (and `createSecureGuard`) read `opts.delegation`
+  (`delegation`, `parentAuth`, `parentScope`) several times: once to verify the
+  parent and the chain, again to enforce scope, again to consume the replay
+  identifiers. An accessor or a `Proxy` could present one value to verification
+  and another to chain binding, scope enforcement or replay consumption, and a
+  plain mutation during the awaited delegation consume changed the parent
+  `auth_id` that was consumed. The guard now reads `opts.delegation` once and
+  takes one deep-frozen plain-data snapshot of it before any verification;
+  every later step, including the `beforeExecute` and `onDecision` hooks, reads
+  only that snapshot. Non-plain input (Proxy, accessors, class instances,
+  `Date`, `Map`, `Set`, typed arrays, functions, symbol keys, sparse arrays,
+  cycles, nesting deeper than 8) is rejected with `DELEGATION_INPUT_INVALID`
+  before verification and before any replay state is touched. JSON-decoded
+  input cannot carry accessors or Proxies. Affected: `>=2.0.0, <=2.0.3`
+  (in-process callers that pass `opts.delegation`).
 
 ### Compatibility
 
@@ -113,8 +129,14 @@ upgrading. Advisory identifiers are assigned at publication.
 - New gateway reasons: `ACTION_HASH_UNCOVERED`, `BODY_TOO_LARGE`,
   `INVALID_REQUEST_INPUT:<path>: <reason>`,
   `REPLAY_STORE_UNAVAILABLE:INVALID_RESULT`. New option: `maxBodyBytes`.
-- `OxDeAIGuard`, `createSecureGuard` and the framework adapters are unchanged:
-  they do not use the gateway response contract.
+- `OxDeAIGuard` and `createSecureGuard` delegation calls must pass plain data in
+  `opts.delegation` (plain or null-prototype objects and dense arrays of
+  strings, numbers, bigints, booleans, `null`, `undefined`). Other input, which
+  was previously accepted, is now rejected with `DELEGATION_INPUT_INVALID`.
+  Output of `createDelegation` and `signAuthorizationEd25519`, frozen objects
+  and JSON-decoded artifacts are unaffected. The `beforeExecute` and
+  `onDecision` hooks receive the frozen snapshot, not the caller's object.
+- The framework adapters do not use the gateway response contract.
 
 ### After upgrading
 
