@@ -92,16 +92,27 @@ async function fireDecision(
  * Returns a reusable async guard function. Call it with a ProposedAction and
  * an execute callback. The guard will:
  *   1. Load current state + version.
- *   2. Normalize the action to an Intent.
+ *   2. Take one immutable plain-data snapshot of the action (ACT-1); every
+ *      later step reads only the snapshot. Non-plain input (Proxy, accessor,
+ *      class instance, Date, function, ...) fails closed with
+ *      NORMALIZATION_FAILURE before evaluation. Normalize the snapshot to an
+ *      Intent.
  *   3. Evaluate policy via engine.evaluatePure().
  *   4. On DENY → throw OxDeAIDenyError (execute is never called).
  *   5. On ALLOW → verify the authorization artifact.
  *   6. Verify state_hash binding.
  *   7. CAS setState(nextState, version) — throws OxDeAIConflictError on mismatch.
  *   8. Call optional beforeExecute hook.
- *   9. Invoke execute().
+ *   9. Invoke execute(action) with the frozen, verified action snapshot.
  *  10. Fire onDecision audit hook.
  *  11. Return the execute() result.
+ *
+ * Action ownership (ACT-1): the guard owns the action snapshot it verified.
+ * `beforeExecute`, `execute` and `onDecision` all receive that same frozen
+ * object. An executor that reads the action from the argument executes exactly
+ * what was verified. An executor closure that instead reads the caller's own
+ * object, or any other caller-owned mutable state, is outside this guarantee:
+ * the guard cannot make in-process caller state immutable, and does not try to.
  *
  * Delegation path (when opts.delegation is provided):
  *   1. Normalize the action to an Intent (scope amount check).
@@ -112,7 +123,7 @@ async function fireDecision(
  *   2. Verify the DelegationV1 chain locally (no engine call).
  *   3. Check proposed action is within delegation scope (tools, max_amount).
  *   4. Call optional beforeExecute hook.
- *   5. Invoke execute().
+ *   5. Invoke execute(action) with the frozen, verified action snapshot.
  *   6. Fire onDecision audit hook. setState is NOT called.
  *   7. Return the execute() result.
  *
@@ -169,8 +180,8 @@ export function OxDeAIGuard(config: OxDeAIGuardConfig) {
    * report itself.
    */
   async function runRequest(
-    action: ProposedAction,
-    execute: () => Promise<unknown>,
+    actionInput: ProposedAction,
+    execute: (action: ProposedAction) => Promise<unknown>,
     opts: GuardCallOptions | undefined,
     lifecycle: GuardLifecycle
   ): Promise<unknown> {
@@ -197,6 +208,34 @@ export function OxDeAIGuard(config: OxDeAIGuardConfig) {
 
     // ── 2. Normalize action → intent ───────────────────────────────────────
     lifecycle.stage = "NORMALIZATION";
+
+    // ── ACT-1: one immutable action snapshot ──────────────────────────────
+    // The caller's action is a live, in-process object. Before this snapshot
+    // the guard read it at normalization, again at the delegation tool check,
+    // and handed the caller's object to `beforeExecute` and `onDecision`, while
+    // `execute()` received nothing and could only read caller-owned state
+    // after the awaited replay consume and CAS commit. A getter, a Proxy, or a
+    // plain mutation in those awaits made the executed action differ from the
+    // verified one. From here on the guard reads ONLY this deep-frozen copy:
+    // normalization (and so policy evaluation and intent_hash binding), scope
+    // enforcement, both hooks, and the argument passed to `execute`. Proxies,
+    // accessors and non-plain values are rejected without invoking caller code,
+    // before evaluation and before any replay state is touched. Values are
+    // copied verbatim, so the intent and its hash are unchanged for plain input.
+    // No nesting limit is added (as for the gateway request snapshot).
+    let action: ProposedAction;
+    try {
+      action = snapshotPlainData(actionInput, "action", Infinity);
+    } catch (err) {
+      throw reject(
+        "NORMALIZATION",
+        "NORMALIZATION_FAILURE",
+        new OxDeAINormalizationError(
+          `ProposedAction is not supported plain data (${err instanceof DelegationSnapshotError ? err.message : "snapshot failed"}). Execution blocked.`
+        )
+      );
+    }
+
     let intent: Intent;
     try {
       intent = normalize(action);
@@ -524,8 +563,10 @@ export function OxDeAIGuard(config: OxDeAIGuardConfig) {
       // and the guard has already permitted the action by this line. Moving
       // this assignment below the await would silently re-classify every
       // callback failure as a guard refusal.
+      //
+      // ACT-1: the callback receives the verified, frozen action snapshot.
       lifecycle.executionStarted = true;
-      const result = await execute();
+      const result = await execute(action);
 
       // ── Delegation: audit hook (no setState — parent state is authoritative) ──
       await fireDecision(config.onDecision, {
@@ -801,8 +842,10 @@ export function OxDeAIGuard(config: OxDeAIGuardConfig) {
     // and the guard has already permitted the action by this line. Moving this
     // assignment below the await would silently re-classify every callback
     // failure as a guard refusal.
+    //
+    // ACT-1: the callback receives the verified, frozen action snapshot.
     lifecycle.executionStarted = true;
-    const result = await execute();
+    const result = await execute(action);
 
     // ── 10. Fire audit hook ────────────────────────────────────────────────
     await fireDecision(config.onDecision, {
@@ -817,7 +860,7 @@ export function OxDeAIGuard(config: OxDeAIGuardConfig) {
 
   return async function guard(
     action: ProposedAction,
-    execute: () => Promise<unknown>,
+    execute: (action: ProposedAction) => Promise<unknown>,
     opts?: GuardCallOptions
   ): Promise<unknown> {
     const lifecycle = createLifecycle("STATE_LOAD");

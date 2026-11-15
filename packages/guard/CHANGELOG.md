@@ -97,6 +97,25 @@ upgrading. Advisory identifiers are assigned at publication.
   before verification and before any replay state is touched. JSON-decoded
   input cannot carry accessors or Proxies. Affected: `>=2.0.0, <=2.0.3`
   (in-process callers that pass `opts.delegation`).
+- **ACT-1: the action that executed could differ from the action the guard
+  verified.** `OxDeAIGuard` and `createSecureGuard` read the caller's live
+  `ProposedAction` at normalization and again at the delegation tool check,
+  passed the caller's object to `beforeExecute` and `onDecision`, and called
+  `execute()` with no argument, so the protected callback could only read
+  caller-owned state after the awaited replay consume and state commit. A
+  getter or `Proxy` could present one action to normalization and policy and
+  another to the executor; a plain mutation of the action (including its nested
+  `args`) during those awaits, or by a `beforeExecute` hook, changed the tool,
+  cost or arguments after authorization. The guard now takes one deep-frozen
+  plain-data snapshot of the action before normalization; normalization, policy
+  evaluation, `intent_hash` binding, delegation scope enforcement, both hooks
+  and the new `execute(action)` argument all use that snapshot. Non-plain
+  actions (Proxy, accessors, class instances, `Date`, `Map`, `Set`, typed
+  arrays, functions, symbol keys, sparse arrays, cycles) are rejected with
+  `NORMALIZATION_FAILURE` (`OxDeAINormalizationError`) before policy evaluation
+  and before any replay state is touched. Executors must read the action from
+  the `execute` argument to get this guarantee: a callback that keeps reading
+  the caller's own object is not protected. Affected: `>=2.0.0, <=2.0.3`.
 
 ### Compatibility
 
@@ -136,6 +155,17 @@ upgrading. Advisory identifiers are assigned at publication.
   Output of `createDelegation` and `signAuthorizationEd25519`, frozen objects
   and JSON-decoded artifacts are unaffected. The `beforeExecute` and
   `onDecision` hooks receive the frozen snapshot, not the caller's object.
+- `OxDeAIGuard` and `createSecureGuard` actions must be plain data (the same
+  model as `opts.delegation`, without its nesting limit). An action carrying a
+  `Date`, `Buffer`, class instance, function or other non-plain value, which was
+  previously accepted, is now rejected with `NORMALIZATION_FAILURE`. Encode such
+  values first (for example `date.toISOString()`). The guard does not freeze or
+  otherwise modify the caller's object.
+- `execute` is now called with one argument, the verified frozen action. Its
+  type widens to `(action: ProposedAction) => Promise<unknown>`; existing
+  zero-argument callbacks are unaffected. `mapActionToIntent`, `beforeExecute`
+  and `onDecision` receive the same frozen snapshot, so a hook or normalizer
+  that writes to the action now throws `TypeError`, which blocks execution.
 - The framework adapters do not use the gateway response contract.
 
 ### After upgrading

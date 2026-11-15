@@ -647,7 +647,7 @@ await guard(childContext, { name: "provision_gpu", args: request }, async () => 
    `scope.max_amount`.
 7. Consumes `delegation_id` (when the replay store supports it), then the parent
    `auth_id`.
-8. Runs `beforeExecute`, then `execute()`, then reports `onDecision` (ALLOW).
+8. Runs `beforeExecute`, then `execute(action)`, then reports `onDecision` (ALLOW).
 
 Any failure in steps 1 to 6 throws before replay consumption, state mutation, or
 execution. After a rejected presentation (for example by the wrong agent), the
@@ -729,6 +729,16 @@ target:
   an authorization can be issued against one resource version and the resource
   can change before `execute()` runs, with OxDeAI's own state CAS succeeding
   regardless.
+- **Action ownership (ACT-1).** The guard takes one deep-frozen plain-data
+  snapshot of the `ProposedAction` before normalization, and every later step
+  (policy evaluation, `intent_hash` binding, delegation scope checks,
+  `beforeExecute`, `onDecision`) uses it. The protected callback receives the
+  same snapshot as `execute(action)`. Read the action from that argument: a
+  callback that reads the caller's own object, or other caller-owned mutable
+  state, executes whatever that state holds when it runs, and the guard cannot
+  prevent in-process code from changing it. Non-plain actions (Proxy,
+  accessors, class instances, `Date`, functions, ...) are rejected with
+  `NORMALIZATION_FAILURE`.
 - **Post-execution-start audit semantics.** `onDecision` and `onBoundaryEvent`
   together account for everything up through a successful `ALLOW` or a valid
   `DENY`. Once `execute()` has started, a failure inside the callback is not
