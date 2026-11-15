@@ -31,19 +31,6 @@ Execution-time authorization for AI agents. Every protected action needs a signe
 
 > **No valid authorization, no execution through the enforced boundary.**
 
-## Is it for you?
-
-OxDeAI is for when **the party that executes is not the party that decides**: a
-separate executor, a counterparty, an auditor, or policy that lives across a
-trust boundary. The decision travels as a signed, single-use authorization the
-executor can verify on its own.
-
-If your executor can evaluate the policy itself, a policy engine such as OPA,
-Cedar or Cerbos called right before the action is enough. Details in
-[When to use it](#when-to-use-it).
-
-OxDeAI is not an agent framework, a prompt guardrail or a monitoring platform.
-
 ## See it in 60 seconds
 
 **Prerequisites:** Node.js ≥ 20 (CI uses the version specified in [`.node-version`](./.node-version)) and pnpm ≥ 10.34.5.
@@ -140,6 +127,9 @@ A parent authorization can hand a narrower scope to another agent through a
 single-hop [`DelegationV1`](./docs/spec/artifacts/delegation-v1.md).
 
 ## When to use it
+
+OxDeAI is for when **the party that executes is not the party that decides**.
+It is not an agent framework, a prompt guardrail or a monitoring platform.
 
 Inline or sidecar policy evaluation (OPA, Cedar, Cerbos) is simpler, and is the
 better choice when the executor can evaluate policy itself. A detachable,
