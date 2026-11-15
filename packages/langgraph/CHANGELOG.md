@@ -11,6 +11,50 @@ This project follows Semantic Versioning.
 
 ---
 
+## [Unreleased]
+
+The version number for this entry is not yet assigned. Requires an `@oxdeai/guard`
+release that includes the ACT-1 action snapshot (guard 2.0.4).
+
+### Security
+
+- **ACT-1 (adapter execution binding): the documented executor read the
+  caller-owned input, not the action that was authorized.** `createLangGraphGuard`
+  typed `execute` as `() => Promise<T>` and documented
+  `() => executeTool(toolCall)`. A closure like that reads `toolCall` after
+  the guard has verified the action and awaited the replay consume and the CAS
+  state write. A mutation during those awaits (tool name, amount, nested
+  arguments, or a swapped `args` object) executed a value that was never
+  authorized. `execute` is now typed `(verified: ProposedAction) => Promise<T>`:
+  it receives the deep-frozen action snapshot that the guard verified, with
+  `args` taken from `toolCall.args`, the same object passed to `beforeExecute` and
+  `onDecision`. The README, the JSDoc example and the repository example now read
+  the tool name and arguments from that argument. Affected: `>=2.0.0` when used
+  with the documented closure pattern.
+
+### Compatibility
+
+- Source compatible. A zero-argument executor still type-checks and runs, but it
+  is **not** covered by the binding: migrate `() => tool(toolCall)` to
+  `(verified) => tool(verified.name, verified.args)`.
+- `LangGraphGuardFn` changes its `execute` parameter type. Code that names
+  that type, or wraps the guard function with a stricter `execute` type,
+  may need its annotation updated.
+- With guard 2.0.4, actions must be plain data: Proxies, accessors, class
+  instances, `Date`, `Map`, `Buffer`, typed arrays, functions and objects from
+  another realm anywhere under `args` are rejected with
+  `OxDeAINormalizationError` before evaluation, replay consumption and state
+  writes. Hooks and executors receive a frozen object.
+
+### Limits
+
+- The binding covers executors that read their argument. The adapter cannot
+  make the framework input immutable, and it does not try to.
+- It does not protect against malicious code running in the same process as
+  the guard.
+
+---
+
 ## [2.0.0] - 2026-09-25
 
 **Baseline for this entry:** the published `@oxdeai/langgraph@1.0.1` npm artifact

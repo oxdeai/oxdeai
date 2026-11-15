@@ -41,7 +41,9 @@ function toProposedAction(toolCall: OpenAIAgentsToolCall, agentId: string): Prop
  *
  * const guard = createOpenAIAgentsGuard({ engine, getState, setState, agentId: "my-agent" });
  *
- * const result = await guard(toolCall, () => executeTool(toolCall));
+ * // The tool receives the verified, frozen action. Read the tool name and
+ * // arguments from it, not from `toolCall` (ACT-1).
+ * const result = await guard(toolCall, (verified) => executeTool(verified.name, verified.args));
  * ```
  */
 export function createOpenAIAgentsGuard(config: OpenAIAgentsGuardConfig): OpenAIAgentsGuardFn {
@@ -61,9 +63,13 @@ export function createOpenAIAgentsGuard(config: OpenAIAgentsGuardConfig): OpenAI
 
   return async function openAIAgentsGuard<T>(
     toolCall: OpenAIAgentsToolCall,
-    execute: () => Promise<T>
+    execute: (verified: ProposedAction) => Promise<T>
   ): Promise<T> {
     const action = toProposedAction(toolCall, config.agentId);
+    // ACT-1: the fields of `toolCall` are read once, above. The guard takes a
+    // deep-frozen snapshot of this action, verifies that snapshot and passes the
+    // same object to `execute`. Executors that read `toolCall` instead are not
+    // covered: it is caller-owned and can change while authorization is awaited.
     return guard(action, execute) as Promise<T>;
   };
 }

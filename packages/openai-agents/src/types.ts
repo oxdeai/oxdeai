@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 import type { PolicyEngine } from "@oxdeai/core";
-import type { OxDeAIGuardConfig } from "@oxdeai/guard";
+import type { OxDeAIGuardConfig, ProposedAction } from "@oxdeai/guard";
 
 /**
  * An OpenAI Agents SDK tool call.
@@ -105,8 +105,19 @@ export type OpenAIAgentsGuardConfig = {
 /**
  * The guard function returned by `createOpenAIAgentsGuard`.
  * Call it with an OpenAI Agents SDK tool call and the execute callback.
+ *
+ * `execute` receives the verified action (ACT-1): the deep-frozen
+ * `ProposedAction` snapshot that the guard evaluated and bound to the
+ * authorization, with `args` taken from `toolCall.input`. The same object is passed
+ * to `beforeExecute` and `onDecision`. The protected tool must read its name and
+ * arguments from this argument.
+ *
+ * A callback that ignores the argument and reads the original input instead
+ * (for example `() => executeTool(toolCall)`) still type-checks and runs, for
+ * backward compatibility, but it is NOT covered by this binding: the input is
+ * caller-owned and can change while authorization is awaited.
  */
 export type OpenAIAgentsGuardFn = <T>(
   toolCall: OpenAIAgentsToolCall,
-  execute: () => Promise<T>
+  execute: (verified: ProposedAction) => Promise<T>
 ) => Promise<T>;

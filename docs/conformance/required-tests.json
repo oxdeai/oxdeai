@@ -1,9 +1,9 @@
 {
-  "$comment": "test-evidence required-test manifest for the release/2.0.x security patch line. Read by scripts/ci/verify-test-evidence.mjs in CI jobs build-test and pep-redis-replay. Floors (minTests) are observed counts on this branch; requiredTests names the 16 upstream invariants plus every regression test of the backported fixes (H-1, S2, S3, S4, schema parity, adapter no-retry, INVREG-F01/F02/F05, RR-01 gateway, GW-COMP-01, OBS-E guard delegation input snapshot, ACT-1 guard action snapshot, gateway hashAction coverage and request-handling hardening). Lowering a floor, removing a required test or adding a permitted skip requires a reviewed change with a reason. Run the gate with --emit-observed to print current counts.",
+  "$comment": "test-evidence required-test manifest for the release/2.0.x security patch line. Read by scripts/ci/verify-test-evidence.mjs in CI jobs build-test and pep-redis-replay. Floors (minTests) are observed counts on this branch; requiredTests names the 16 upstream invariants plus every regression test of the backported fixes (H-1, S2, S3, S4, schema parity, adapter no-retry, INVREG-F01/F02/F05, RR-01 gateway, GW-COMP-01, OBS-E guard delegation input snapshot, ACT-1 guard action snapshot, ACT-1 adapter execution binding, gateway hashAction coverage and request-handling hardening). Lowering a floor, removing a required test or adding a permitted skip requires a reviewed change with a reason. Run the gate with --emit-observed to print current counts.",
   "version": 1,
   "jobs": {
     "build-test": {
-      "minTests": 1406,
+      "minTests": 1466,
       "requiredFiles": [
         {
           "file": "examples/lgf-frappe-pep/dist/test/adapter-boundary.test.js",
@@ -256,6 +256,26 @@
         {
           "file": "packages/guard/dist/test/guard.action.snapshot.security.test.js",
           "minTests": 29
+        },
+        {
+          "file": "packages/langgraph/dist/test/adapter.execution-binding.security.test.js",
+          "minTests": 12
+        },
+        {
+          "file": "packages/openai-agents/dist/test/adapter.execution-binding.security.test.js",
+          "minTests": 12
+        },
+        {
+          "file": "packages/crewai/dist/test/adapter.execution-binding.security.test.js",
+          "minTests": 12
+        },
+        {
+          "file": "packages/autogen/dist/test/adapter.execution-binding.security.test.js",
+          "minTests": 12
+        },
+        {
+          "file": "packages/openclaw/dist/test/adapter.execution-binding.security.test.js",
+          "minTests": 12
         },
         {
           "file": "packages/guard/dist/test/guard.delegation.matrix.test.js",
@@ -550,6 +570,126 @@
         {
           "file": "packages/guard/dist/test/guard.action.snapshot.security.test.js",
           "name": "ACT-1: intent_hash bound by the authorization is unchanged for plain input"
+        },
+        {
+          "file": "packages/langgraph/dist/test/adapter.execution-binding.security.test.js",
+          "name": "execute receives the verified action: deep-frozen, mapped from the input, same object as beforeExecute and onDecision"
+        },
+        {
+          "file": "packages/langgraph/dist/test/adapter.execution-binding.security.test.js",
+          "name": "tool name mutated during replay consume: the tool receives the authorized name"
+        },
+        {
+          "file": "packages/langgraph/dist/test/adapter.execution-binding.security.test.js",
+          "name": "amount mutated during the CAS state write: the tool receives the authorized amount"
+        },
+        {
+          "file": "packages/langgraph/dist/test/adapter.execution-binding.security.test.js",
+          "name": "nested args mutated during replay consume: the tool receives the authorized args"
+        },
+        {
+          "file": "packages/langgraph/dist/test/adapter.execution-binding.security.test.js",
+          "name": "accessor in args is rejected before execution, replay consumption and state writes"
+        },
+        {
+          "file": "packages/langgraph/dist/test/adapter.execution-binding.security.test.js",
+          "name": "Proxy in args is rejected before execution, replay consumption and state writes"
+        },
+        {
+          "file": "packages/openai-agents/dist/test/adapter.execution-binding.security.test.js",
+          "name": "execute receives the verified action: deep-frozen, mapped from the input, same object as beforeExecute and onDecision"
+        },
+        {
+          "file": "packages/openai-agents/dist/test/adapter.execution-binding.security.test.js",
+          "name": "tool name mutated during replay consume: the tool receives the authorized name"
+        },
+        {
+          "file": "packages/openai-agents/dist/test/adapter.execution-binding.security.test.js",
+          "name": "amount mutated during the CAS state write: the tool receives the authorized amount"
+        },
+        {
+          "file": "packages/openai-agents/dist/test/adapter.execution-binding.security.test.js",
+          "name": "nested args mutated during replay consume: the tool receives the authorized args"
+        },
+        {
+          "file": "packages/openai-agents/dist/test/adapter.execution-binding.security.test.js",
+          "name": "accessor in args is rejected before execution, replay consumption and state writes"
+        },
+        {
+          "file": "packages/openai-agents/dist/test/adapter.execution-binding.security.test.js",
+          "name": "Proxy in args is rejected before execution, replay consumption and state writes"
+        },
+        {
+          "file": "packages/crewai/dist/test/adapter.execution-binding.security.test.js",
+          "name": "execute receives the verified action: deep-frozen, mapped from the input, same object as beforeExecute and onDecision"
+        },
+        {
+          "file": "packages/crewai/dist/test/adapter.execution-binding.security.test.js",
+          "name": "tool name mutated during replay consume: the tool receives the authorized name"
+        },
+        {
+          "file": "packages/crewai/dist/test/adapter.execution-binding.security.test.js",
+          "name": "amount mutated during the CAS state write: the tool receives the authorized amount"
+        },
+        {
+          "file": "packages/crewai/dist/test/adapter.execution-binding.security.test.js",
+          "name": "nested args mutated during replay consume: the tool receives the authorized args"
+        },
+        {
+          "file": "packages/crewai/dist/test/adapter.execution-binding.security.test.js",
+          "name": "accessor in args is rejected before execution, replay consumption and state writes"
+        },
+        {
+          "file": "packages/crewai/dist/test/adapter.execution-binding.security.test.js",
+          "name": "Proxy in args is rejected before execution, replay consumption and state writes"
+        },
+        {
+          "file": "packages/autogen/dist/test/adapter.execution-binding.security.test.js",
+          "name": "execute receives the verified action: deep-frozen, mapped from the input, same object as beforeExecute and onDecision"
+        },
+        {
+          "file": "packages/autogen/dist/test/adapter.execution-binding.security.test.js",
+          "name": "tool name mutated during replay consume: the tool receives the authorized name"
+        },
+        {
+          "file": "packages/autogen/dist/test/adapter.execution-binding.security.test.js",
+          "name": "amount mutated during the CAS state write: the tool receives the authorized amount"
+        },
+        {
+          "file": "packages/autogen/dist/test/adapter.execution-binding.security.test.js",
+          "name": "nested args mutated during replay consume: the tool receives the authorized args"
+        },
+        {
+          "file": "packages/autogen/dist/test/adapter.execution-binding.security.test.js",
+          "name": "accessor in args is rejected before execution, replay consumption and state writes"
+        },
+        {
+          "file": "packages/autogen/dist/test/adapter.execution-binding.security.test.js",
+          "name": "Proxy in args is rejected before execution, replay consumption and state writes"
+        },
+        {
+          "file": "packages/openclaw/dist/test/adapter.execution-binding.security.test.js",
+          "name": "execute receives the verified action: deep-frozen, mapped from the input, same object as beforeExecute and onDecision"
+        },
+        {
+          "file": "packages/openclaw/dist/test/adapter.execution-binding.security.test.js",
+          "name": "tool name mutated during replay consume: the tool receives the authorized name"
+        },
+        {
+          "file": "packages/openclaw/dist/test/adapter.execution-binding.security.test.js",
+          "name": "amount mutated during the CAS state write: the tool receives the authorized amount"
+        },
+        {
+          "file": "packages/openclaw/dist/test/adapter.execution-binding.security.test.js",
+          "name": "nested args mutated during replay consume: the tool receives the authorized args"
+        },
+        {
+          "file": "packages/openclaw/dist/test/adapter.execution-binding.security.test.js",
+          "name": "accessor in args is rejected before execution, replay consumption and state writes"
+        },
+        {
+          "file": "packages/openclaw/dist/test/adapter.execution-binding.security.test.js",
+          "name": "Proxy in args is rejected before execution, replay consumption and state writes"
         },
         {
           "file": "packages/guard/dist/test/guard.intent-binding.test.js",

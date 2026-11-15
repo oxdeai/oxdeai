@@ -43,13 +43,32 @@ const guard = createOpenAIAgentsGuard({
 // In your tool execution handler:
 const result = await guard(
   { name: "provision_gpu", input: { asset: "a100", region: "us-east-1" }, call_id: "call-xyz" },
-  () => provisionGpu("a100", "us-east-1")
+  (verified) => provisionGpu(verified.args.asset as string, verified.args.region as string)
 );
 ```
 
 The `execute` callback is only invoked when the policy engine returns ALLOW
 **and** the authorization artifact passes verification. On DENY, `OxDeAIDenyError`
 is thrown and the callback is never called.
+
+### Execution binding
+
+The `execute` callback receives the **verified action**: the deep-frozen
+`ProposedAction` snapshot that the guard evaluated and bound to the
+authorization (`args` comes from `toolCall.input`). Read the tool name and arguments
+from this argument, not from `toolCall`. The original input is caller-owned and
+can change while authorization is awaited; the snapshot cannot.
+
+- A zero-argument callback such as `() => executeTool(toolCall)` still compiles
+  and runs, for backward compatibility, but it is **not** covered by this
+  binding. Migrate it to `(verified) => ...`.
+- The adapter reads each field of `toolCall` once, when the guard is called.
+  Proxies, accessors and other non-plain values anywhere in the action it
+  builds (including everything under `args`) are rejected with
+  `OxDeAINormalizationError` before policy evaluation, replay consumption and
+  state writes.
+- The binding does not protect against malicious code running in the same
+  process as the guard.
 
 ---
 
@@ -67,7 +86,7 @@ await guard(
     estimatedCost: 500,
     resourceType: "gpu",
   },
-  () => provisionGpu("a100", "us-east-1")
+  (verified) => provisionGpu(verified.args.asset as string, verified.args.region as string)
 );
 ```
 

@@ -43,7 +43,9 @@ function toProposedAction(action: OpenClawAction, agentId: string): ProposedActi
  *
  * const guard = createOpenClawGuard({ engine, getState, setState, agentId: "my-agent" });
  *
- * const result = await guard(action, () => executeAction(action));
+ * // The tool receives the verified, frozen action. Read the tool name and
+ * // arguments from it, not from `action` (ACT-1).
+ * const result = await guard(action, (verified) => executeAction(verified.name, verified.args));
  * ```
  */
 export function createOpenClawGuard(config: OpenClawGuardConfig): OpenClawGuardFn {
@@ -63,9 +65,13 @@ export function createOpenClawGuard(config: OpenClawGuardConfig): OpenClawGuardF
 
   return async function openClawGuard<T>(
     action: OpenClawAction,
-    execute: () => Promise<T>
+    execute: (verified: ProposedAction) => Promise<T>
   ): Promise<T> {
     const proposed = toProposedAction(action, config.agentId);
+    // ACT-1: the fields of `action` are read once, above. The guard takes a
+    // deep-frozen snapshot of this action, verifies that snapshot and passes the
+    // same object to `execute`. Executors that read `action` instead are not
+    // covered: it is caller-owned and can change while authorization is awaited.
     return guard(proposed, execute) as Promise<T>;
   };
 }
