@@ -1,8 +1,5 @@
 <p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="./website/assets/logo-mark-transparent-dark.svg">
-    <img src="./website/assets/logo-mark-transparent-light.svg" alt="OxDeAI logo" width="150">
-  </picture>
+  <img src="./website/assets/logo-mark-transparent.svg" alt="OxDeAI logo" width="150">
 </p>
 
 <h1 align="center">OxDeAI</h1>
@@ -13,7 +10,6 @@
   <a href="https://www.npmjs.com/package/@oxdeai/core"><img src="https://img.shields.io/npm/v/@oxdeai/core?label=%40oxdeai%2Fcore" alt="@oxdeai/core on npm"></a>
   <a href="https://www.npmjs.com/package/@oxdeai/guard"><img src="https://img.shields.io/npm/v/@oxdeai/guard?label=%40oxdeai%2Fguard" alt="@oxdeai/guard on npm"></a>
   <a href="https://www.npmjs.com/package/@oxdeai/sdk"><img src="https://img.shields.io/npm/v/@oxdeai/sdk?label=%40oxdeai%2Fsdk" alt="@oxdeai/sdk on npm"></a>
-  <a href="https://www.npmjs.com/package/@oxdeai/conformance"><img src="https://img.shields.io/npm/v/@oxdeai/conformance?label=%40oxdeai%2Fconformance" alt="@oxdeai/conformance on npm"></a>
   <a href="https://github.com/oxdeai/oxdeai/actions/workflows/ci.yml"><img src="https://github.com/oxdeai/oxdeai/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
 </p>
 
