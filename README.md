@@ -1,30 +1,37 @@
-# OxDeAI
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="./website/assets/logo-mark-transparent-dark.svg">
+    <img src="./website/assets/logo-mark-transparent-light.svg" alt="OxDeAI logo" width="150">
+  </picture>
+</p>
 
-[![CI](https://github.com/oxdeai/oxdeai/actions/workflows/ci.yml/badge.svg)](https://github.com/oxdeai/oxdeai/actions/workflows/ci.yml)
+<h1 align="center">OxDeAI</h1>
 
-Execution-time authorization for AI agents: verify permission before a tool executes, not after the damage is done.
+<p align="center">
+  <a href="./LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-blue" alt="License: Apache 2.0"></a>
+  <a href="./.node-version"><img src="https://img.shields.io/badge/node-22.23.4%20(CI)-339933" alt="Node.js 22.23.4, the version tested in CI"></a>
+  <a href="https://www.npmjs.com/package/@oxdeai/core"><img src="https://img.shields.io/npm/v/@oxdeai/core?label=%40oxdeai%2Fcore" alt="@oxdeai/core on npm"></a>
+  <a href="https://www.npmjs.com/package/@oxdeai/guard"><img src="https://img.shields.io/npm/v/@oxdeai/guard?label=%40oxdeai%2Fguard" alt="@oxdeai/guard on npm"></a>
+  <a href="https://www.npmjs.com/package/@oxdeai/sdk"><img src="https://img.shields.io/npm/v/@oxdeai/sdk?label=%40oxdeai%2Fsdk" alt="@oxdeai/sdk on npm"></a>
+  <a href="https://www.npmjs.com/package/@oxdeai/conformance"><img src="https://img.shields.io/npm/v/@oxdeai/conformance?label=%40oxdeai%2Fconformance" alt="@oxdeai/conformance on npm"></a>
+  <a href="https://github.com/oxdeai/oxdeai/actions/workflows/ci.yml"><img src="https://github.com/oxdeai/oxdeai/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+</p>
 
-**Your AI agent was approved to charge $500. What stops it from charging $50,000 instead, or charging twice?**
+<p align="center">
+  <a href="https://www.oxdeai.dev">Website</a> |
+  <a href="./docs/spec">Spec</a> |
+  <a href="#see-it-in-60-seconds">Quickstart</a> |
+  <a href="./examples">Examples</a> |
+  <a href="./SECURITY.md">Security</a>
+</p>
 
-Not the prompt. Not the logs: they explain what happened, after it happened.
+Execution-time authorization for AI agents. Every protected action needs a signed, single-use authorization for that exact action, verified at the execution boundary before anything runs.
 
-OxDeAI puts a checkpoint in front of your tools. Every protected action requires
-a signed, single-use authorization for that exact action, verified at the
-execution boundary before anything runs.
+**Approved to charge $500? Through the boundary, your agent can't charge $50,000 instead, or charge twice.** Prompts shape behavior and logs explain it afterwards; OxDeAI decides before the tool runs.
 
-```text
-AI agent
-   │
-   ▼
-Request: charge $500
-   │
-   ▼
-OxDeAI: verify signed permission
-   │
-   ├── valid, exact action, first use ──▶ execute
-   │
-   └── invalid, changed or reused ─────▶ block, nothing runs
-```
+<p align="center">
+  <img src="./docs/media/oxdeai-overview.svg" alt="Five agent actions cross the OxDeAI execution boundary: charge $500 with a matching authorization is allowed; charge $50,000 with the $500 authorization is not covered; reusing the same authorization is refused as a replay; a policy DENY issues no authorization; an update with a matching authorization is allowed. The boundary relies on deterministic policy, a signed AuthorizationV1 and single-use auth_id replay protection." width="900">
+</p>
 
 > **No valid authorization, no execution through the enforced boundary.**
 
@@ -95,6 +102,13 @@ specific action was authorized.
 
 ## How it works
 
+<p align="center">
+  <img src="./docs/media/oxdeai-boundary.svg" alt="The agent sends an intent to the OxDeAI PDP and receives an AuthorizationV1. It sends the action plus the authorization to the PEP gateway, which checks signature, trusted keys, audience, expiry, intent hash and single use, and only then calls the protected tool. A direct call to the tool, skipping the gateway, gets a 403 because only the PEP holds the upstream executor token." width="900">
+</p>
+
+<details>
+<summary>Text version</summary>
+
 ```text
 agent ──proposes──▶ PDP: (canonical intent, trusted state, policy)
                      │
@@ -111,6 +125,8 @@ agent ──action + AuthorizationV1──▶ PEP (enforcement boundary) ──�
 
 Demo deployment: only the PEP holds the upstream executor token.
 ```
+
+</details>
 
 1. **Decide.** The policy engine evaluates `(intent, state, policy)`.
    For identical canonical intent, trusted state and policy inputs,
