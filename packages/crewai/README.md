@@ -1,6 +1,6 @@
 # @oxdeai/crewai
-CrewAI adapter to the OxDeAI execution-time authorization protocol.
-Routes CrewAI tool calls through @oxdeai/guard; no valid authorization → no execution.
+Shape adapter that maps CrewAI-style tool calls to @oxdeai/guard. CrewAI is a Python framework; this is a
+TypeScript package, not a CrewAI plugin. Calls routed through it execute only with valid authorization.
 
 ---
 
@@ -15,6 +15,23 @@ different shape from OxDeAI's `ProposedAction`. This adapter:
 
 Everything else (policy evaluation, authorization verification, state
 persistence, fail-closed behavior) happens inside `@oxdeai/guard`.
+
+---
+
+## Integration level
+
+This package is a **shape adapter**, not a native CrewAI integration:
+
+- It does not depend on or import CrewAI. Its input is a plain object with the CrewAI tool-call fields
+  (`{ name, args, id }`).
+- It registers no CrewAI hook, callback or middleware. Nothing is intercepted automatically.
+- Enforcement covers only the calls your code passes to the returned guard function, with the tool run
+  inside `execute`. Any other path that runs the tool is not authorized by OxDeAI.
+- Compatibility with a specific CrewAI release's objects is not tested in this repository.
+- CrewAI is a Python framework. No Python adapter is published, and the repository example
+  ([`examples/crewai`](https://github.com/oxdeai/oxdeai/tree/main/examples/crewai)) uses CrewAI-shaped
+  objects without CrewAI.
+- No native CrewAI enforcement integration is published.
 
 ---
 
@@ -206,3 +223,5 @@ and [`docs/testing/delegation-pbt.md`](../../docs/testing/delegation-pbt.md).
 - [Adapter stack architecture](https://github.com/oxdeai/oxdeai/blob/main/docs/integrations/adapter-stack.md)
 - [Adapter reference architecture](https://github.com/oxdeai/oxdeai/blob/main/docs/adapters/adapter-reference-architecture.md)
 - [Root README](https://github.com/oxdeai/oxdeai/blob/main/README.md)
+
+The execution-binding contract requires `@oxdeai/guard ^2.0.5`. Framework identifiers are captured once during translation. Top-level framework getters and Proxies may run during translation; only the constructed action is subject to Guard plain-data validation.

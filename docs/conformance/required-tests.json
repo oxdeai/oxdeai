@@ -3,7 +3,7 @@
   "version": 1,
   "jobs": {
     "build-test": {
-      "minTests": 1466,
+      "minTests": 1471,
       "requiredFiles": [
         {
           "file": "examples/lgf-frappe-pep/dist/test/adapter-boundary.test.js",
@@ -259,23 +259,23 @@
         },
         {
           "file": "packages/langgraph/dist/test/adapter.execution-binding.security.test.js",
-          "minTests": 12
+          "minTests": 13
         },
         {
           "file": "packages/openai-agents/dist/test/adapter.execution-binding.security.test.js",
-          "minTests": 12
+          "minTests": 13
         },
         {
           "file": "packages/crewai/dist/test/adapter.execution-binding.security.test.js",
-          "minTests": 12
+          "minTests": 13
         },
         {
           "file": "packages/autogen/dist/test/adapter.execution-binding.security.test.js",
-          "minTests": 12
+          "minTests": 13
         },
         {
           "file": "packages/openclaw/dist/test/adapter.execution-binding.security.test.js",
-          "minTests": 12
+          "minTests": 13
         },
         {
           "file": "packages/guard/dist/test/guard.delegation.matrix.test.js",
@@ -1126,6 +1126,26 @@
         {
           "file": "packages/guard/dist/test/gateway.strict-result.security.test.js",
           "name": "GW-COMP-01 the executor's copy equals the authorized action at dispatch, even if the caller mutates during the await"
+        },
+        {
+          "file": "packages/langgraph/dist/test/adapter.execution-binding.security.test.js",
+          "name": "framework identifier is captured once for getters and Proxies, including absent and rejected inputs"
+        },
+        {
+          "file": "packages/openai-agents/dist/test/adapter.execution-binding.security.test.js",
+          "name": "framework identifier is captured once for getters and Proxies, including absent and rejected inputs"
+        },
+        {
+          "file": "packages/crewai/dist/test/adapter.execution-binding.security.test.js",
+          "name": "framework identifier is captured once for getters and Proxies, including absent and rejected inputs"
+        },
+        {
+          "file": "packages/autogen/dist/test/adapter.execution-binding.security.test.js",
+          "name": "framework identifier is captured once for getters and Proxies, including absent and rejected inputs"
+        },
+        {
+          "file": "packages/openclaw/dist/test/adapter.execution-binding.security.test.js",
+          "name": "framework identifier is captured once for getters and Proxies, including absent and rejected inputs"
         }
       ],
       "permittedSkips": [],

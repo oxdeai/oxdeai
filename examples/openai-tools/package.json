@@ -16,7 +16,7 @@
   },
   "dependencies": {
     "@oxdeai/core": "workspace:*",
-    "openai": "^4.0.0"
+    "openai": "6.36.0"
   },
   "devDependencies": {
     "typescript": "^5.0.0"

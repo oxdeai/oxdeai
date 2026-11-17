@@ -264,3 +264,42 @@ test("legacy zero-argument executor still runs, but it reads caller-owned input 
   // Not security-equivalent: the closure observes a value that was never authorized.
   assert.equal(legacySaw, 900);
 });
+
+
+test("framework identifier is captured once for getters and Proxies, including absent and rejected inputs", async () => {
+  for (const mode of ["getter", "proxy", "absent", "rejected"] as const) {
+    const input = makeInput();
+    let reads = 0;
+    const value = () => { reads++; return mode === "absent" ? undefined : reads === 1 ? "first-id" : "substituted-id"; };
+    let call = input;
+    if (mode === "proxy") {
+      call = new Proxy(input, { get(t, key, receiver) { return key === "step_id" ? value() : Reflect.get(t, key, receiver); } });
+    } else {
+      Object.defineProperty(input, "step_id", { enumerable: true, get: value });
+    }
+    let workflowReads = 0;
+    Object.defineProperty(input, "workflow_id", { enumerable: true, get() { workflowReads++; return workflowReads === 1 ? "first-workflow" : "substituted-workflow"; } });
+    let nestedReads = 0;
+    if (mode === "rejected") Object.defineProperty(input.args, "hostile", { enumerable: true, get() { nestedReads++; return 1; } });
+    let hookAction: ProposedAction | undefined;
+    let executed: ProposedAction | undefined;
+    const { config, counters } = makeConfig({}, { beforeExecute: (a) => { hookAction = a; } });
+    const pending = createOpenClawGuard(config)(call, async (verified) => { executed = verified; });
+    if (mode === "rejected") {
+      await assert.rejects(pending, OxDeAINormalizationError);
+      assert.equal(executed, undefined);
+      assert.equal(counters.consumes, 0);
+      assert.equal(counters.setState, 0);
+      assert.equal(nestedReads, 0);
+    } else {
+      await pending;
+      assert.ok(executed);
+      assert.equal(executed, hookAction);
+      assert.ok(Object.isFrozen(executed));
+      assert.equal(executed.context?.intent_id, mode === "absent" ? undefined : "first-id");
+    }
+    assert.equal(reads, 1);
+    assert.equal(workflowReads, 1);
+    if (executed) assert.equal(executed.context?.workflow_id, "first-workflow");
+  }
+});

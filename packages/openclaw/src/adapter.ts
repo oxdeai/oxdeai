@@ -16,16 +16,23 @@ import type { OpenClawAction, OpenClawGuardConfig, OpenClawGuardFn } from "./typ
  * - `timestampSeconds`        ← action.timestampSeconds ?? now
  */
 function toProposedAction(action: OpenClawAction, agentId: string): ProposedAction {
+  const name = action.name;
+  const args = action.args;
+  const estimatedCost = action.estimatedCost;
+  const resourceType = action.resourceType;
+  const timestampSeconds = action.timestampSeconds ?? Math.floor(Date.now() / 1000);
+  const identifier = action.step_id;
+  const workflowId = action.workflow_id;
   return {
-    name: action.name,
-    args: action.args,
-    estimatedCost: action.estimatedCost,
-    resourceType: action.resourceType,
-    timestampSeconds: action.timestampSeconds ?? Math.floor(Date.now() / 1000),
+    name,
+    args,
+    estimatedCost,
+    resourceType,
+    timestampSeconds,
     context: {
       agent_id: agentId,
-      ...(action.step_id !== undefined ? { intent_id: action.step_id } : {}),
-      ...(action.workflow_id !== undefined ? { workflow_id: action.workflow_id } : {}),
+      ...(identifier !== undefined ? { intent_id: identifier } : {}),
+      ...(workflowId !== undefined ? { workflow_id: workflowId } : {}),
     },
   };
 }

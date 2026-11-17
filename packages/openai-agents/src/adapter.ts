@@ -15,15 +15,21 @@ import type { OpenAIAgentsToolCall, OpenAIAgentsGuardConfig, OpenAIAgentsGuardFn
  * - `timestampSeconds`    ← toolCall.timestampSeconds ?? now
  */
 function toProposedAction(toolCall: OpenAIAgentsToolCall, agentId: string): ProposedAction {
+  const name = toolCall.name;
+  const args = toolCall.input;
+  const estimatedCost = toolCall.estimatedCost;
+  const resourceType = toolCall.resourceType;
+  const timestampSeconds = toolCall.timestampSeconds ?? Math.floor(Date.now() / 1000);
+  const identifier = toolCall.call_id;
   return {
-    name: toolCall.name,
-    args: toolCall.input,
-    estimatedCost: toolCall.estimatedCost,
-    resourceType: toolCall.resourceType,
-    timestampSeconds: toolCall.timestampSeconds ?? Math.floor(Date.now() / 1000),
+    name,
+    args,
+    estimatedCost,
+    resourceType,
+    timestampSeconds,
     context: {
       agent_id: agentId,
-      ...(toolCall.call_id !== undefined ? { intent_id: toolCall.call_id } : {}),
+      ...(identifier !== undefined ? { intent_id: identifier } : {}),
     },
   };
 }

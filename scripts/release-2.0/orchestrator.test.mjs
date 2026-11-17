@@ -587,10 +587,10 @@ test("24. generated promotion plan uses exact manifest versions", () => {
   }
   // The active patch batch has independent exact versions within a family.
   assert.deepEqual(plan.map(e => e.args[2]), [
-    "@oxdeai/core@2.0.3", "@oxdeai/guard@2.0.4", "@oxdeai/sdk@2.0.3",
-    "@oxdeai/conformance@2.0.3", "@oxdeai/autogen@2.0.0", "@oxdeai/crewai@2.0.0",
-    "@oxdeai/langgraph@2.0.0", "@oxdeai/openai-agents@2.0.0",
-    "@oxdeai/openclaw@2.0.0", "@oxdeai/cli@0.3.3",
+    "@oxdeai/core@2.0.3", "@oxdeai/guard@2.0.5", "@oxdeai/sdk@2.0.3",
+    "@oxdeai/conformance@2.0.4", "@oxdeai/autogen@2.0.1", "@oxdeai/crewai@2.0.1",
+    "@oxdeai/langgraph@2.0.1", "@oxdeai/openai-agents@2.0.1",
+    "@oxdeai/openclaw@2.0.1", "@oxdeai/cli@0.3.3",
   ]);
 });
 

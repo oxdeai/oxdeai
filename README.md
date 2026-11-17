@@ -292,7 +292,8 @@ export OXDEAI_ENGINE_SECRET='test-secret-must-be-at-least-32-chars!!'
 pnpm -C examples/openclaw start
 ```
 
-Runs an OpenClaw agent with enforced execution authorization.
+Runs the OpenClaw-shaped demo: scripted OpenClaw-style actions pass through `@oxdeai/openclaw`
+and the guard (ALLOW, ALLOW, DENY). No OpenClaw runtime is involved.
 
 ---
 
@@ -339,20 +340,32 @@ limitations.
 
 ---
 
- ## Adapter Ecosystem
- 
-Maintained TypeScript adapters:
+## Adapter Ecosystem
 
-* LangGraph (LangGraph.js)
-* OpenAI Agents SDK (JS/TS)
-* OpenClaw
+Three integration levels are distinguished. Only the first two exist today.
 
-Adapter-shape bindings (TypeScript; Python-native adapters for these frameworks are not yet published): 
+**1. Shape adapters (published TypeScript packages).** `@oxdeai/langgraph`, `@oxdeai/openai-agents`,
+`@oxdeai/openclaw`, `@oxdeai/crewai` and `@oxdeai/autogen` map a framework-shaped tool call to
+`@oxdeai/guard`. They depend on no framework package and register no framework hook. Only calls your
+code routes through the returned guard function are authorized. CrewAI and AutoGen are Python
+frameworks; their packages are TypeScript bindings for the tool-call shape, and no Python adapter is
+published.
 
- * CrewAI
- * AutoGen
+**2. Real framework examples.**
 
- All adapters produce identical outcomes:
+* [`examples/langgraph`](./examples/langgraph): a real `@langchain/langgraph` `StateGraph` proposes
+  tool calls; `@oxdeai/langgraph` enforces them in application code after the graph returns.
+* [`examples/openai-tools`](./examples/openai-tools): `demo:openai` sends real Chat Completions tool
+  calls through the `openai` SDK (requires `OPENAI_API_KEY`) and enforces them with `@oxdeai/core`
+  directly. The default `start`/`demo` run uses scripted calls and makes no API request.
+
+The CrewAI, AutoGen, OpenAI Agents SDK and OpenClaw examples are framework-shaped and do not run
+those frameworks.
+
+**3. Native enforcement integrations.** These would be framework hooks or middleware that intercept every
+tool call automatically. **None is implemented.**
+
+On the shared scenario, all shape adapters produce identical outcomes:
 
 ```text
 ALLOW / ALLOW / DENY / verifyEnvelope() => ok

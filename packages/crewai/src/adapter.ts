@@ -15,15 +15,21 @@ import type { CrewAIToolCall, CrewAIGuardConfig, CrewAIGuardFn } from "./types.j
  * - `timestampSeconds`   ← toolCall.timestampSeconds ?? now
  */
 function toProposedAction(toolCall: CrewAIToolCall, agentId: string): ProposedAction {
+  const name = toolCall.name;
+  const args = toolCall.args;
+  const estimatedCost = toolCall.estimatedCost;
+  const resourceType = toolCall.resourceType;
+  const timestampSeconds = toolCall.timestampSeconds ?? Math.floor(Date.now() / 1000);
+  const identifier = toolCall.id;
   return {
-    name: toolCall.name,
-    args: toolCall.args,
-    estimatedCost: toolCall.estimatedCost,
-    resourceType: toolCall.resourceType,
-    timestampSeconds: toolCall.timestampSeconds ?? Math.floor(Date.now() / 1000),
+    name,
+    args,
+    estimatedCost,
+    resourceType,
+    timestampSeconds,
     context: {
       agent_id: agentId,
-      ...(toolCall.id !== undefined ? { intent_id: toolCall.id } : {}),
+      ...(identifier !== undefined ? { intent_id: identifier } : {}),
     },
   };
 }

@@ -53,6 +53,10 @@ fresh observation of every selected `latest`. Legacy all-package manifests
 finalize all ten packages under the same rules. F2/CLI-1 manifests finalize
 exactly the five selected packages; excluded packages are never observed or
 changed, and state carrying finalization evidence for them is rejected.
+R3 note (R4, F-R4-1): for a release whose Guard carries the adapter security
+floor, a partial selection is refused by PRECHECK, receipt validation and
+publication planning, so no F2/CLI-1 manifest can be finalized on the R3
+checkout; see `docs/release/R3-STABILIZATION.md`.
 
 Not included: no real dist-tag transport, no CLI subcommand, no npm process.
 `distTagTransport` must be injected by a separately authorized caller.

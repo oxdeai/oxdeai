@@ -11,13 +11,17 @@ This project follows Semantic Versioning.
 
 ---
 
-## [Unreleased]
+## [2.0.1] - UNRELEASED
 
-The version number for this entry is not yet assigned. Requires an `@oxdeai/guard`
-release that includes the ACT-1 action snapshot (guard 2.0.4).
+Requires `@oxdeai/guard ^2.0.5`, the Guard release that carries the ACT-1
+action snapshot and the OBS-E delegation-input snapshot. Guard 2.0.4 was an
+unpublished candidate and is excluded by this range.
 
 ### Security
 
+- Require ACT-1-corrected `@oxdeai/guard ^2.0.5`; Guard 2.0.4 is excluded.
+- Capture the optional framework identifier once, including accessor/Proxy inputs.
+  Top-level getter/Proxy code still runs during translation; it is not sandboxed.
 - **ACT-1 (adapter execution binding): the documented executor read the
   caller-owned input, not the action that was authorized.** `createAutoGenGuard`
   typed `execute` as `() => Promise<T>` and documented
@@ -40,7 +44,7 @@ release that includes the ACT-1 action snapshot (guard 2.0.4).
 - `AutoGenGuardFn` changes its `execute` parameter type. Code that names
   that type, or wraps the guard function with a stricter `execute` type,
   may need its annotation updated.
-- With guard 2.0.4, actions must be plain data: Proxies, accessors, class
+- With guard ^2.0.5, actions must be plain data: Proxies, accessors, class
   instances, `Date`, `Map`, `Buffer`, typed arrays, functions and objects from
   another realm anywhere under `args` are rejected with
   `OxDeAINormalizationError` before evaluation, replay consumption and state

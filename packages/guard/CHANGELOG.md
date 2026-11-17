@@ -7,6 +7,12 @@ This project follows Semantic Versioning.
 
 ---
 
+## [2.0.5] - UNRELEASED
+
+### Release stabilization
+
+Identifies the OBS-E delegation and ACT-1 immutable-action corrections with a new release version. Adapter consumers must require ^2.0.5; prior 2.0.4 candidate bytes are not interchangeable. No authorization protocol or canonicalization change.
+
 ## [2.0.4] - UNRELEASED
 
 Security patch release of `@oxdeai/guard`. Pins `@oxdeai/core@2.0.3`. It changes

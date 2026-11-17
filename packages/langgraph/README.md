@@ -1,6 +1,6 @@
 # @oxdeai/langgraph
-LangGraph adapter for the OxDeAI execution-time authorization protocol.
-Maps LangGraph tool calls to @oxdeai/guard; verification stays local and fail-closed.
+Shape adapter that maps LangGraph-style tool calls to @oxdeai/guard. It registers no LangGraph hook: you call it
+from your own tool-execution code. Verification stays local and fail-closed.
 
 ---
 
@@ -15,6 +15,23 @@ a different shape from OxDeAI's `ProposedAction`. This adapter:
 
 Everything else - policy evaluation, authorization verification, state
 persistence, fail-closed behavior - happens inside `@oxdeai/guard`.
+
+---
+
+## Integration level
+
+This package is a **shape adapter**, not a native LangGraph integration:
+
+- It does not depend on or import LangGraph. Its input is a plain object with the LangGraph tool-call fields
+  (`{ name, args, id }`).
+- It registers no LangGraph hook, callback or middleware. Nothing is intercepted automatically.
+- Enforcement covers only the calls your code passes to the returned guard function, with the tool run
+  inside `execute`. Any other path that runs the tool is not authorized by OxDeAI.
+- Compatibility with a specific LangGraph release's objects is not tested in this repository.
+- [`examples/langgraph`](https://github.com/oxdeai/oxdeai/tree/main/examples/langgraph) runs a real
+  `@langchain/langgraph` `StateGraph` to propose tool calls, then enforces them with this adapter in
+  application code after the graph returns. It does not use a LangGraph `ToolNode` or any LangGraph hook.
+- No native LangGraph enforcement integration is published.
 
 ---
 
@@ -228,3 +245,5 @@ and [`docs/testing/delegation-pbt.md`](../../docs/testing/delegation-pbt.md).
 - [Adapter stack architecture](https://github.com/oxdeai/oxdeai/blob/main/docs/integrations/adapter-stack.md)
 - [Adapter reference architecture](https://github.com/oxdeai/oxdeai/blob/main/docs/adapters/adapter-reference-architecture.md)
 - [Root README](https://github.com/oxdeai/oxdeai/blob/main/README.md)
+
+The execution-binding contract requires `@oxdeai/guard ^2.0.5`. Framework identifiers are captured once during translation. Top-level framework getters and Proxies may run during translation; only the constructed action is subject to Guard plain-data validation.

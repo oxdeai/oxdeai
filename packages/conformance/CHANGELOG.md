@@ -7,6 +7,12 @@ This project follows Semantic Versioning.
 
 ---
 
+## [2.0.4] - UNRELEASED
+
+### Release stabilization
+
+Assigns a new release identity to the updated R3 source-provenance artifact. Core remains pinned to 2.0.3 and vector semantics are unchanged; evidence metadata records the new candidate revision.
+
 ## [2.0.3] - UNRELEASED
 
 ### Security
