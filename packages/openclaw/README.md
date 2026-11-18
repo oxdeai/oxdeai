@@ -48,13 +48,32 @@ await guard(
     step_id: "step-1",
     workflow_id: "openclaw-gpu-demo",
   },
-  () => provisionGpu("a100", "us-east-1")
+  (verified) => provisionGpu(verified.args.asset as string, verified.args.region as string)
 );
 ```
 
 The `execute` callback is only invoked when the policy engine returns ALLOW
 **and** the authorization artifact passes verification. On DENY, `OxDeAIDenyError`
 is thrown and the callback is never called.
+
+### Execution binding
+
+The `execute` callback receives the **verified action**: the deep-frozen
+`ProposedAction` snapshot that the guard evaluated and bound to the
+authorization (`args` comes from `action.args`). Read the tool name and arguments
+from this argument, not from `action`. The original input is caller-owned and
+can change while authorization is awaited; the snapshot cannot.
+
+- A zero-argument callback such as `() => executeAction(action)` still compiles
+  and runs, for backward compatibility, but it is **not** covered by this
+  binding. Migrate it to `(verified) => ...`.
+- The adapter reads each field of `action` once, when the guard is called.
+  Proxies, accessors and other non-plain values anywhere in the action it
+  builds (including everything under `args`) are rejected with
+  `OxDeAINormalizationError` before policy evaluation, replay consumption and
+  state writes.
+- The binding does not protect against malicious code running in the same
+  process as the guard.
 
 ---
 
@@ -197,3 +216,5 @@ Demo:
 ![OpenClaw guard demo](../../docs/media/openclaw-guard-demo.gif)
 
 > Tip: if `OXDEAI_ENGINE_SECRET` is unset, the demo falls back to a bundled demo secret. Set your own secret for non-demo use.
+
+The execution-binding contract requires an `@oxdeai/guard` release that includes ACT-1 (`^2.0.5` on the 2.0.x line). Framework identifiers are captured once during translation. Top-level framework getters and Proxies may run during translation; only the constructed action is subject to Guard plain-data validation.

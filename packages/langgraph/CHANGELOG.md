@@ -11,6 +11,22 @@ This project follows Semantic Versioning.
 
 ---
 
+## [Unreleased]
+
+### Security
+
+- **ACT-1 (adapter execution binding): the documented executor read the
+  caller-owned input, not the action that was authorized.** `createLangGraphGuard` typed
+  `execute` as `() => Promise<T>` and documented a zero-argument closure that
+  reads `toolCall` after the guard has verified the action and awaited the replay
+  consume and the state write. A mutation during those awaits executed a value
+  that was never authorized. `execute` is now typed
+  `(verified: ProposedAction) => Promise<T>`: it receives the deep-frozen action
+  snapshot that the guard verified, with `args` taken from `toolCall.args`. The
+  optional framework identifier is read once during translation. Requires an
+  `@oxdeai/guard` release that includes ACT-1. A zero-argument callback still
+  compiles and runs but is not covered by the binding.
+
 ## [2.0.0] - 2026-09-25
 
 **Baseline for this entry:** the published `@oxdeai/langgraph@1.0.1` npm artifact

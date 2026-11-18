@@ -15,15 +15,21 @@ import type { AutoGenToolCall, AutoGenGuardConfig, AutoGenGuardFn } from "./type
  * - `timestampSeconds`   ← toolCall.timestampSeconds ?? now
  */
 function toProposedAction(toolCall: AutoGenToolCall, agentId: string): ProposedAction {
+  const name = toolCall.name;
+  const args = toolCall.args;
+  const estimatedCost = toolCall.estimatedCost;
+  const resourceType = toolCall.resourceType;
+  const timestampSeconds = toolCall.timestampSeconds ?? Math.floor(Date.now() / 1000);
+  const identifier = toolCall.id;
   return {
-    name: toolCall.name,
-    args: toolCall.args,
-    estimatedCost: toolCall.estimatedCost,
-    resourceType: toolCall.resourceType,
-    timestampSeconds: toolCall.timestampSeconds ?? Math.floor(Date.now() / 1000),
+    name,
+    args,
+    estimatedCost,
+    resourceType,
+    timestampSeconds,
     context: {
       agent_id: agentId,
-      ...(toolCall.id !== undefined ? { intent_id: toolCall.id } : {}),
+      ...(identifier !== undefined ? { intent_id: identifier } : {}),
     },
   };
 }
@@ -41,7 +47,9 @@ function toProposedAction(toolCall: AutoGenToolCall, agentId: string): ProposedA
  *
  * const guard = createAutoGenGuard({ engine, getState, setState, agentId: "my-agent" });
  *
- * const result = await guard(toolCall, () => executeTool(toolCall));
+ * // The tool receives the verified, frozen action. Read the tool name and
+ * // arguments from it, not from `toolCall` (ACT-1).
+ * const result = await guard(toolCall, (verified) => executeTool(verified.name, verified.args));
  * ```
  */
 export function createAutoGenGuard(config: AutoGenGuardConfig): AutoGenGuardFn {
@@ -61,9 +69,13 @@ export function createAutoGenGuard(config: AutoGenGuardConfig): AutoGenGuardFn {
 
   return async function autoGenGuard<T>(
     toolCall: AutoGenToolCall,
-    execute: () => Promise<T>
+    execute: (verified: ProposedAction) => Promise<T>
   ): Promise<T> {
     const action = toProposedAction(toolCall, config.agentId);
+    // ACT-1: the fields of `toolCall` are read once, above. The guard takes a
+    // deep-frozen snapshot of this action, verifies that snapshot and passes the
+    // same object to `execute`. Executors that read `toolCall` instead are not
+    // covered: it is caller-owned and can change while authorization is awaited.
     return guard(action, execute) as Promise<T>;
   };
 }

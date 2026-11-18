@@ -16,16 +16,23 @@ import type { OpenClawAction, OpenClawGuardConfig, OpenClawGuardFn } from "./typ
  * - `timestampSeconds`        ← action.timestampSeconds ?? now
  */
 function toProposedAction(action: OpenClawAction, agentId: string): ProposedAction {
+  const name = action.name;
+  const args = action.args;
+  const estimatedCost = action.estimatedCost;
+  const resourceType = action.resourceType;
+  const timestampSeconds = action.timestampSeconds ?? Math.floor(Date.now() / 1000);
+  const identifier = action.step_id;
+  const workflowId = action.workflow_id;
   return {
-    name: action.name,
-    args: action.args,
-    estimatedCost: action.estimatedCost,
-    resourceType: action.resourceType,
-    timestampSeconds: action.timestampSeconds ?? Math.floor(Date.now() / 1000),
+    name,
+    args,
+    estimatedCost,
+    resourceType,
+    timestampSeconds,
     context: {
       agent_id: agentId,
-      ...(action.step_id !== undefined ? { intent_id: action.step_id } : {}),
-      ...(action.workflow_id !== undefined ? { workflow_id: action.workflow_id } : {}),
+      ...(identifier !== undefined ? { intent_id: identifier } : {}),
+      ...(workflowId !== undefined ? { workflow_id: workflowId } : {}),
     },
   };
 }
@@ -43,7 +50,9 @@ function toProposedAction(action: OpenClawAction, agentId: string): ProposedActi
  *
  * const guard = createOpenClawGuard({ engine, getState, setState, agentId: "my-agent" });
  *
- * const result = await guard(action, () => executeAction(action));
+ * // The tool receives the verified, frozen action. Read the tool name and
+ * // arguments from it, not from `action` (ACT-1).
+ * const result = await guard(action, (verified) => executeAction(verified.name, verified.args));
  * ```
  */
 export function createOpenClawGuard(config: OpenClawGuardConfig): OpenClawGuardFn {
@@ -63,9 +72,13 @@ export function createOpenClawGuard(config: OpenClawGuardConfig): OpenClawGuardF
 
   return async function openClawGuard<T>(
     action: OpenClawAction,
-    execute: () => Promise<T>
+    execute: (verified: ProposedAction) => Promise<T>
   ): Promise<T> {
     const proposed = toProposedAction(action, config.agentId);
+    // ACT-1: the fields of `action` are read once, above. The guard takes a
+    // deep-frozen snapshot of this action, verifies that snapshot and passes the
+    // same object to `execute`. Executors that read `action` instead are not
+    // covered: it is caller-owned and can change while authorization is awaited.
     return guard(proposed, execute) as Promise<T>;
   };
 }
