@@ -11,6 +11,28 @@ This project follows Semantic Versioning.
 
 ### Security
 
+- **ACT-1: the action that executed could differ from the action the guard
+  verified.** `OxDeAIGuard` and `createSecureGuard` read the caller's live
+  `ProposedAction` at normalization and again at the delegation tool check,
+  passed the caller's object to `beforeExecute` and `onDecision`, and called
+  `execute()` with no argument, so the protected callback could only read
+  caller-owned state after the awaited replay consume, the state commit and, on
+  the delegation path, the SignedKRLV1 and `delegationRevocationProvider`
+  lookups. A getter or `Proxy` could present one action to normalization and
+  policy and another to the executor; a plain mutation of the action (including
+  its nested `args`) during those awaits, or by a `beforeExecute` hook, changed
+  the tool, cost or arguments after authorization. The guard now takes one
+  deep-frozen plain-data snapshot of the action before normalization;
+  normalization, policy evaluation, `intent_hash` binding, delegation scope
+  enforcement, both hooks and the new `execute(action)` argument all use that
+  snapshot. Non-plain actions (Proxy, accessors, class instances, `Date`, `Map`,
+  `Set`, typed arrays, functions, symbol keys, sparse arrays, cycles) are
+  rejected with `NORMALIZATION_FAILURE` (`OxDeAINormalizationError`) before
+  policy evaluation and before any replay or revocation state is touched.
+  Executors must read the action from the `execute` argument to get this
+  guarantee: a callback that keeps reading the caller's own object is not
+  protected. Forward-port of the 2.0.x fix. Affected published versions:
+  `>=1.0.0, <=2.0.3`.
 - HTTP gateway and protected upstream hardening (security release; see the
   SemVer note below):
   - **Custom `hashAction` coverage.** When `PepGatewayOptions.hashAction` is a

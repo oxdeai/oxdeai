@@ -130,6 +130,20 @@ What matters is that the adapter preserves a clear distinction between:
 - action attempted
 - action completed or failed
 
+### Execution binding (ACT-1)
+
+The action that executes must be the action that was authorized.
+The framework input (tool call, action object) is caller-owned and can change while authorization is awaited.
+The runtime adapters therefore pass the protected tool the verified action: the deep-frozen `ProposedAction` snapshot that `@oxdeai/guard` evaluated, bound to the authorization and handed unchanged to `beforeExecute` and `onDecision`:
+
+```ts
+await guard(toolCall, (verified) => executeTool(verified.name, verified.args));
+```
+
+An executor that ignores this argument and reads the original input (`() => executeTool(toolCall)`) still runs, for backward compatibility, but is not covered by the binding.
+Unsupported action input (Proxies, accessors, class instances and other non-plain data) is rejected before evaluation, replay consumption and state writes.
+This binding does not protect against malicious code running inside the enforcement process itself.
+
 ## Audit Emission
 
 Minimum integration expectations:

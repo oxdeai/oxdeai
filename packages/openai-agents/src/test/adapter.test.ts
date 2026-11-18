@@ -376,3 +376,35 @@ test("adapter: guard is reusable - multiple sequential calls work", async () => 
   assert.equal(r1, "first");
   assert.equal(r2, "second");
 });
+
+// ── H-1 compatibility: an indeterminate execution is surfaced once ────────────
+// The adapter does not consume the PEP gateway response contract. When the
+// execute callback fails after dispatch (the side effect may have happened),
+// the adapter must surface that failure exactly once: no automatic retry and
+// no automatic re-authorization. Reconciliation belongs to the caller.
+
+test("adapter (H-1): a failure after dispatch propagates once, with no automatic retry or re-authorization", async () => {
+  let executions = 0;
+  let evaluations = 0;
+  const failure = Object.assign(new Error("ECONNRESET"), { code: "ECONNRESET" });
+
+  const engine = makeEngine();
+  const evaluate = engine.evaluatePure.bind(engine);
+  engine.evaluatePure = ((...args: Parameters<typeof evaluate>) => {
+    evaluations += 1;
+    return evaluate(...args);
+  }) as typeof engine.evaluatePure;
+
+  const guard = createOpenAIAgentsGuard(makeGuardConfig({ engine }));
+
+  await assert.rejects(
+    () => guard(baseToolCall, async () => { executions += 1; throw failure; }),
+    (err: unknown) => {
+      assert.equal(err, failure, "the original post-dispatch failure must reach the caller unchanged");
+      return true;
+    }
+  );
+
+  assert.equal(executions, 1, "execute must run exactly once");
+  assert.equal(evaluations, 1, "the policy engine must be evaluated exactly once");
+});

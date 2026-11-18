@@ -84,8 +84,10 @@ export async function guardedProvision(
   });
 
   try {
-    const instanceId = await guard(action, async () => {
-      const id = provision_gpu(asset, region);
+    const instanceId = await guard(action, async (verified) => {
+      // Read the tool arguments from the verified action the guard authorized,
+      // not from `action`, which is caller-owned (ACT-1).
+      const id = provision_gpu(String(verified.args.asset), String(verified.args.region));
       log(`${c(C.bGreen, "└─ EXECUTED")}  ${c(C.dim, "instance_id=")}${c(C.cyan, id)}`);
       return id;
     });

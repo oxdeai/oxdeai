@@ -15,15 +15,21 @@ import type { OpenAIAgentsToolCall, OpenAIAgentsGuardConfig, OpenAIAgentsGuardFn
  * - `timestampSeconds`    ← toolCall.timestampSeconds ?? now
  */
 function toProposedAction(toolCall: OpenAIAgentsToolCall, agentId: string): ProposedAction {
+  const name = toolCall.name;
+  const args = toolCall.input;
+  const estimatedCost = toolCall.estimatedCost;
+  const resourceType = toolCall.resourceType;
+  const timestampSeconds = toolCall.timestampSeconds ?? Math.floor(Date.now() / 1000);
+  const identifier = toolCall.call_id;
   return {
-    name: toolCall.name,
-    args: toolCall.input,
-    estimatedCost: toolCall.estimatedCost,
-    resourceType: toolCall.resourceType,
-    timestampSeconds: toolCall.timestampSeconds ?? Math.floor(Date.now() / 1000),
+    name,
+    args,
+    estimatedCost,
+    resourceType,
+    timestampSeconds,
     context: {
       agent_id: agentId,
-      ...(toolCall.call_id !== undefined ? { intent_id: toolCall.call_id } : {}),
+      ...(identifier !== undefined ? { intent_id: identifier } : {}),
     },
   };
 }
@@ -41,7 +47,9 @@ function toProposedAction(toolCall: OpenAIAgentsToolCall, agentId: string): Prop
  *
  * const guard = createOpenAIAgentsGuard({ engine, getState, setState, agentId: "my-agent" });
  *
- * const result = await guard(toolCall, () => executeTool(toolCall));
+ * // The tool receives the verified, frozen action. Read the tool name and
+ * // arguments from it, not from `toolCall` (ACT-1).
+ * const result = await guard(toolCall, (verified) => executeTool(verified.name, verified.args));
  * ```
  */
 export function createOpenAIAgentsGuard(config: OpenAIAgentsGuardConfig): OpenAIAgentsGuardFn {
@@ -61,9 +69,13 @@ export function createOpenAIAgentsGuard(config: OpenAIAgentsGuardConfig): OpenAI
 
   return async function openAIAgentsGuard<T>(
     toolCall: OpenAIAgentsToolCall,
-    execute: () => Promise<T>
+    execute: (verified: ProposedAction) => Promise<T>
   ): Promise<T> {
     const action = toProposedAction(toolCall, config.agentId);
+    // ACT-1: the fields of `toolCall` are read once, above. The guard takes a
+    // deep-frozen snapshot of this action, verifies that snapshot and passes the
+    // same object to `execute`. Executors that read `toolCall` instead are not
+    // covered: it is caller-owned and can change while authorization is awaited.
     return guard(action, execute) as Promise<T>;
   };
 }

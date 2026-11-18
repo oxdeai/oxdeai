@@ -206,7 +206,7 @@ export function createSecureGuard(config: OxDeAIGuardConfig, options: SecureGuar
   async function runSecure(
     trustedContext: TrustedExecutionContext,
     action: ProposedAction,
-    execute: () => Promise<unknown>,
+    execute: (action: ProposedAction) => Promise<unknown>,
     opts: GuardCallOptions | undefined,
     lifecycle: GuardLifecycle
   ): Promise<unknown> {
@@ -286,7 +286,7 @@ export function createSecureGuard(config: OxDeAIGuardConfig, options: SecureGuar
   return async function secureGuard(
     trustedContext: TrustedExecutionContext,
     action: ProposedAction,
-    execute: () => Promise<unknown>,
+    execute: (action: ProposedAction) => Promise<unknown>,
     opts?: GuardCallOptions
   ): Promise<unknown> {
     const outerLifecycle = createLifecycle("TRUSTED_CONTEXT");
