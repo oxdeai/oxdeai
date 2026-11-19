@@ -308,7 +308,7 @@ importers:
         specifier: workspace:^
         version: link:../core
       '@oxdeai/guard':
-        specifier: workspace:^
+        specifier: workspace:^2.0.5
         version: link:../guard
     devDependencies:
       '@oxdeai/sdk':
@@ -373,7 +373,7 @@ importers:
         specifier: workspace:^
         version: link:../core
       '@oxdeai/guard':
-        specifier: workspace:^
+        specifier: workspace:^2.0.5
         version: link:../guard
     devDependencies:
       '@oxdeai/sdk':
@@ -396,7 +396,7 @@ importers:
         specifier: workspace:^
         version: link:../core
       '@oxdeai/guard':
-        specifier: workspace:^
+        specifier: workspace:^2.0.5
         version: link:../guard
     devDependencies:
       '@oxdeai/sdk':
@@ -409,7 +409,7 @@ importers:
         specifier: workspace:^
         version: link:../core
       '@oxdeai/guard':
-        specifier: workspace:^
+        specifier: workspace:^2.0.5
         version: link:../guard
     devDependencies:
       '@oxdeai/sdk':
@@ -422,7 +422,7 @@ importers:
         specifier: workspace:^
         version: link:../core
       '@oxdeai/guard':
-        specifier: workspace:^
+        specifier: workspace:^2.0.5
         version: link:../guard
     devDependencies:
       '@oxdeai/sdk':

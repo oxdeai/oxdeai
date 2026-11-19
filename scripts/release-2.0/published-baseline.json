@@ -1,0 +1,58 @@
+{
+  "$comment": "Latest version of each release package published on the npm registry, recorded from registry.npmjs.org on 2026-11-18 (R3 release, tarballs byte-identical to the official 448804a pack). PRECHECK refuses any POLICY version that is not strictly greater than the version recorded here (no reuse, no downgrade). Update this file only after a publication has been verified on the registry, in a reviewed change.",
+  "baselineVersion": 1,
+  "registry": "https://registry.npmjs.org/",
+  "recordedAt": "2026-11-18",
+  "packages": {
+    "@oxdeai/core": {
+      "version": "2.0.3",
+      "integrity": "sha512-1Ol9ECBaCrZs8czu6p5lCjTgewAQCgUcq0CeHi84wxG5vibsXreufskQkdLDp1HptYhoWTbJ6t4blgxvLEgP2g==",
+      "publishedAt": "2026-11-18T00:02:41.686Z"
+    },
+    "@oxdeai/guard": {
+      "version": "2.0.5",
+      "integrity": "sha512-I0vHxTgbr4F6rfnEg+vqOoy7AL2bS7xN6PvtBoTLpOWaVAqbP2a/ywhto2UH4oXyDosn0kR0tV4TeHaAZylLHQ==",
+      "publishedAt": "2026-11-18T00:09:57.353Z"
+    },
+    "@oxdeai/sdk": {
+      "version": "2.0.3",
+      "integrity": "sha512-2zjCYFJ4jmxDV4/vxEpi6F5vpuKISzIizL7i85jbXC2vwRWYvNjpG+arVSxT26wT38ZsW+8CniQ6ujoNwKGgcQ==",
+      "publishedAt": "2026-11-18T00:15:55.510Z"
+    },
+    "@oxdeai/conformance": {
+      "version": "2.0.4",
+      "integrity": "sha512-DM0+bIGQyveCMdQXsjCIn97FLIfjzEqEfFQSdtZh4abZJ8LQWsgGlLytu0jX+Ky92g6He03/Xd6CiKfxjuh2hA==",
+      "publishedAt": "2026-11-18T00:28:10.474Z"
+    },
+    "@oxdeai/autogen": {
+      "version": "2.0.1",
+      "integrity": "sha512-xagWGRNl89YAFERF4bGMdHnjsu5veKENAopziZwbwafGfWi919vsazcucIvMTFoGkc8wUizOI4Wr0l0SGSnfgQ==",
+      "publishedAt": "2026-11-18T00:31:38.135Z"
+    },
+    "@oxdeai/crewai": {
+      "version": "2.0.1",
+      "integrity": "sha512-5PdS7Xt1xUVb6sAeJRhipXKSQ77vU+WyRWw6REGOAUq56jlbDHJtXus/uT3lfm1fRQc/PgOOLhQ+4lPJL5lAOQ==",
+      "publishedAt": "2026-11-18T00:34:54.726Z"
+    },
+    "@oxdeai/langgraph": {
+      "version": "2.0.1",
+      "integrity": "sha512-B/L/Mux6kEDds47sZn4TP9eQfS3pwj7UaHWbCGnPlKjERHrzEOP4vPjJLPROGtuYPmBdx7IHfYHLgyYdhf/6aQ==",
+      "publishedAt": "2026-11-18T00:47:48.940Z"
+    },
+    "@oxdeai/openai-agents": {
+      "version": "2.0.1",
+      "integrity": "sha512-YTpiKEBjD/7kLRXBpmf830dkO3qcFKV1+FLH6ybUzkBcfSrWDRMcYD5pgCKytkm8Aa6WIUqB/o4trjNAYMH/VQ==",
+      "publishedAt": "2026-11-18T00:52:46.529Z"
+    },
+    "@oxdeai/openclaw": {
+      "version": "2.0.1",
+      "integrity": "sha512-7fq/PMpYuHVW5zy5oBcl6Aw0DbQFJiyoACGXcsMdEZ0/L3EnxI7b7wGW5n3dkEo1bAihYQNEvZR+nnY2whXbPw==",
+      "publishedAt": "2026-11-18T00:56:20.301Z"
+    },
+    "@oxdeai/cli": {
+      "version": "0.3.3",
+      "integrity": "sha512-ESOXzld1xIXoWT4Edll4AkSyc1nsvw/B6hGI3mEtcC/+lm/PUSoHAGhQ2apqpqiZrDGn/w7QUP249g04iNK9lw==",
+      "publishedAt": "2026-11-18T00:19:38.474Z"
+    }
+  }
+}

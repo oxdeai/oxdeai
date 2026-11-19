@@ -38,6 +38,7 @@ import { validatePublicationAuthorization } from "./publication-authorization.mj
 import { createHash, randomBytes } from "node:crypto";
 import { observeRegistryPrecheck, RELEASE_REGISTRY_REQUIREMENTS } from "./auth-precheck.mjs";
 import { assertReleaseToolchain, observeReleaseToolchain, readReleaseToolchain } from "./toolchain.mjs";
+import { loadPublishedBaseline, publishedVersionBlockers } from "./published-baseline.mjs";
 import { spawnSync } from "node:child_process";
 import fs, {
   existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync,
@@ -53,6 +54,8 @@ import {
   assertPolicyCoverage,
   assertReleaseMetadataConsistency,
   verifyPackedTarballs,
+  GUARD_PACKAGE,
+  GUARD_SECURITY_FLOOR,
 } from "../verify-packed-artifacts.mjs";
 
 export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
@@ -65,9 +68,9 @@ export const PRECHECK_RECEIPT_VERSION = 1;
 
 // Explicit opt-in remediation profile. The evaluated/packed universe stays POLICY.
 export const F2_CLI1_SELECTION = Object.freeze([
-  ["@oxdeai/core", "2.0.2"], ["@oxdeai/guard", "2.0.3"],
-  ["@oxdeai/sdk", "2.0.2"], ["@oxdeai/conformance", "2.0.2"],
-  ["@oxdeai/cli", "0.3.2"],
+  ["@oxdeai/core", "2.0.3"], ["@oxdeai/guard", "2.0.5"],
+  ["@oxdeai/sdk", "2.0.3"], ["@oxdeai/conformance", "2.0.4"],
+  ["@oxdeai/cli", "0.3.3"],
 ].map(([packageName, version]) => Object.freeze({ package: packageName, version })));
 
 function validateSelection(selection) {
@@ -82,6 +85,7 @@ export function publicationPackages(manifest) {
     return manifest.packages;
   }
   validateSelection(manifest.selection);
+  assertCompleteReleaseSelection(manifest.selection);
   const evaluated = manifest.packages?.map(p => p.package);
   if (!evaluated || evaluated.length !== Object.keys(POLICY).length || new Set(evaluated).size !== evaluated.length ||
       Object.keys(POLICY).some(name => !evaluated.includes(name))) {
@@ -99,6 +103,58 @@ export function publicationPackages(manifest) {
     }
     return p;
   });
+}
+
+// R3 release completeness (Round 3). A release whose Guard carries the adapters'
+// security floor (Guard >= GUARD_SECURITY_FLOOR.version) is the R3 release: the
+// five adapter releases that declare that floor ship with it. A partial
+// selection would publish that Guard without them (or omit any other of the
+// POLICY packages). The rule is applied at three points (R4):
+//   - precheck(): no receipt is written;
+//   - validatePrecheckReceipt(): a persisted receipt carrying a partial
+//     selection is invalid, so PACK refuses it before writing any artifact and
+//     VERIFY_LOCAL refuses it when re-reading the receipt;
+//   - publicationPackages(): no plan, publication, verification or finalization
+//     step can be derived from a manifest carrying a partial selection.
+// The receipt digest is not authentication, so a receipt edited to add a
+// selection must fail here rather than rely on PRECHECK having run. Full mode
+// (no selection) is unaffected. A release whose Guard is below the floor
+// (pre-R3 policy) is not subject to the rule.
+function guardVersionParts(version) {
+  const m = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(-.*)?$/.exec(typeof version === "string" ? version : "");
+  return m ? { core: m.slice(1, 4).map(Number), prerelease: m[4] !== undefined } : null;
+}
+
+export function releasesGuardSecurityFloor(policy = POLICY) {
+  if (!Object.hasOwn(policy, GUARD_PACKAGE)) return false;
+  const released = guardVersionParts(policy[GUARD_PACKAGE]?.version);
+  const floor = guardVersionParts(GUARD_SECURITY_FLOOR.version);
+  // Fail closed: an unreadable Guard version is treated as an R3 release.
+  if (!released || !floor) return true;
+  const [a, b] = [released.core, floor.core];
+  if (a[0] !== b[0]) return a[0] > b[0];
+  if (a[1] !== b[1]) return a[1] > b[1];
+  if (a[2] !== b[2]) return a[2] > b[2];
+  return !released.prerelease;
+}
+
+export function assertCompleteReleaseSelection(selection, policy = POLICY) {
+  if (selection === undefined) return;
+  if (!releasesGuardSecurityFloor(policy)) return;
+  if (!Array.isArray(selection)) {
+    throw new ReleaseOrchestratorError("R3 release completeness: selection must be an array");
+  }
+  const selected = new Map(selection.map((entry) => [entry?.package, entry?.version]));
+  const missing = Object.entries(policy)
+    .filter(([name, meta]) => selected.get(name) !== meta.version)
+    .map(([name, meta]) => `${name}@${meta.version}`);
+  if (missing.length > 0) {
+    throw new ReleaseOrchestratorError(
+      `R3 release completeness: ${GUARD_PACKAGE}@${policy[GUARD_PACKAGE].version} carries the adapter security floor ` +
+      `${GUARD_SECURITY_FLOOR.range}, so all ${Object.keys(policy).length} POLICY packages must be released together. ` +
+      `The selection omits ${missing.join(", ")}. Run PRECHECK without --selection.`,
+    );
+  }
 }
 
 // This fixed profile has no external runtime dependencies. Any new dependency
@@ -153,7 +209,10 @@ export function validatePrecheckReceipt(receipt) {
   if (typeof receipt.releaseDir !== "string" || !path.isAbsolute(receipt.releaseDir)) fail("releaseDir");
   if (!SHA256.test(receipt.policyDigest ?? "")) fail("policyDigest");
   if (typeof receipt.observedAt !== "string" || Number.isNaN(Date.parse(receipt.observedAt))) fail("observedAt");
-  if (receipt.selection !== undefined) validateSelection(receipt.selection);
+  if (receipt.selection !== undefined) {
+    validateSelection(receipt.selection);
+    assertCompleteReleaseSelection(receipt.selection);
+  }
   const packages = receipt.discovered;
   if (!Array.isArray(packages) || packages.length === 0 ||
       new Set(packages.map((d) => d?.name)).size !== packages.length ||
@@ -413,9 +472,10 @@ export function validatePublishOrder(discovered, policy = POLICY) {
 
 export function precheck({ discovered, policy = POLICY, gitTransport, authTransport,
   releaseDir, sourceRevision, sourceTransport, packageTransport = packageJsonTransport(),
-  now = () => new Date().toISOString(), selection,
+  now = () => new Date().toISOString(), selection, publishedBaseline,
 }) {
   assertSelectionDependencies(selection === undefined ? discovered : discovered.map(d => ({ ...d, manifest: JSON.parse(String(packageTransport.read(d))) })), selection, policy);
+  assertCompleteReleaseSelection(selection, policy);
   assertReleaseMetadataConsistency(policy);
   const blockers = [];
 
@@ -453,6 +513,15 @@ export function precheck({ discovered, policy = POLICY, gitTransport, authTransp
     blockers.push("PRECHECK package set must exactly match the release policy");
   }
   blockers.push(...validatePublishOrder(discovered, policy));
+  // Published-version floor: every POLICY version must be strictly greater than
+  // the version recorded as published on the registry (no reuse, no downgrade).
+  // The committed baseline is used unless the caller supplies another one; it
+  // cannot be disabled.
+  try {
+    blockers.push(...publishedVersionBlockers(policy, publishedBaseline ?? loadPublishedBaseline()));
+  } catch (error) {
+    blockers.push(`RELEASE_VERSION_BASELINE_INVALID: ${error.message}`);
+  }
 
   let registryObservations;
   if (authTransport !== undefined) {

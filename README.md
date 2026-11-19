@@ -211,7 +211,7 @@ Normative text lives in [`docs/spec/`](./docs/spec). If anything elsewhere in `d
 - **Specification:** [`docs/spec/`](./docs/spec) ([canonicalization](./docs/spec/core/canonicalization-v1.md), [decision core](./docs/spec/core/eta-core-v1.md), [conformance](./docs/spec/conformance/conformance-v1.md))
 - **Conformance:** [`packages/conformance`](./packages/conformance) and [test vectors](./docs/spec/test-vectors). Run `pnpm test:vectors:ts` (TypeScript only), or `pnpm test:vectors:all`, which also needs Go and Python.
 - **Packages:** [`@oxdeai/core`](./packages/core) (decision, artifacts, verification) and [`@oxdeai/guard`](./packages/guard) (enforcement boundary, PEP gateway)
-- **Adapters (TypeScript):** LangGraph, OpenAI Agents SDK, OpenClaw. CrewAI and AutoGen have adapter-shape bindings. See [`examples/`](./examples).
+- **Adapters (TypeScript shape adapters):** `@oxdeai/langgraph`, `@oxdeai/openai-agents`, `@oxdeai/openclaw`, `@oxdeai/crewai` and `@oxdeai/autogen` map a framework-shaped tool call to `@oxdeai/guard` (`^2.0.5`). They depend on no framework package and register no framework hook: only calls your code routes through the returned guard function are authorized. No native framework integration is implemented. Only [`examples/langgraph`](./examples/langgraph) runs the real framework; see [`examples/`](./examples) for each example's integration level.
 - **More examples:** [`examples/openclaw`](./examples/openclaw) (a budget-based policy `DENY`) · [`examples/delegation`](./examples/delegation)
 - **Performance:** [benchmark summary](./bench/BENCHMARK_SUMMARY.md). Results depend on the host, so no fixed per-action overhead is claimed.
 - **Release security checks:** [`docs/security/SECURITY-GATE.md`](./docs/security/SECURITY-GATE.md)

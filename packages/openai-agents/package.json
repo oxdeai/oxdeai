@@ -1,6 +1,6 @@
 {
   "name": "@oxdeai/openai-agents",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "description": "Thin OpenAI Agents SDK adapter for the OxDeAI universal execution guard",
   "license": "Apache-2.0",
   "keywords": [
@@ -39,7 +39,7 @@
   ],
   "dependencies": {
     "@oxdeai/core": "workspace:^",
-    "@oxdeai/guard": "workspace:^"
+    "@oxdeai/guard": "workspace:^2.0.5"
   },
   "devDependencies": {
     "@oxdeai/sdk": "workspace:*"

@@ -9,6 +9,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { discoverPublishablePackages } from "../verify-packed-artifacts.mjs";
 import { RELEASE_REGISTRY_REQUIREMENTS } from "./auth-precheck.mjs";
+import { PRE_R3_PUBLISHED_BASELINE } from "./precheck-fixture.mjs";
 import { ROOT, STATE_FILENAME, gitSourceTransport, precheck, pack, verifyLocal, loadState, loadAndValidateManifest, evaluateReleaseReadiness, requireOriginalTarballs, defaultPackTransport } from "./orchestrator.mjs";
 
 test("real PRECHECK -> PACK -> VERIFY_LOCAL -> readiness; failed artifact scan cannot persist verification", (t) => {
@@ -33,7 +34,8 @@ test("real PRECHECK -> PACK -> VERIFY_LOCAL -> readiness; failed artifact scan c
     assert.ifError(build.error);
     assert.equal(build.status, 0, build.stdout + build.stderr);
     const releaseDir = path.relative(ROOT, path.join(base, "release"));
-    precheck({ discovered, releaseDir, sourceRevision: revision, sourceTransport, gitTransport: { isClean: () => sourceTransport.snapshot().clean } });
+    precheck({ discovered, releaseDir, sourceRevision: revision, sourceTransport, gitTransport: { isClean: () => sourceTransport.snapshot().clean },
+      publishedBaseline: PRE_R3_PUBLISHED_BASELINE });
     const { manifest, state } = pack({ discovered, releaseDir, sourceRevision: revision, sourceTransport });
     const result = verifyLocal({ discovered, manifest, state, releaseDir, baseDir: path.relative(ROOT, path.join(base, "consumer-checks")) });
     assert.equal(result.phase, "VERIFIED_LOCAL");
@@ -81,7 +83,8 @@ test("real PRECHECK -> PACK -> VERIFY_LOCAL -> readiness; failed artifact scan c
     // Matching SRI alone is insufficient: invalid archive bytes must fail the
     // real artifact verifier without recording a successful local verification.
     const badDir = path.join(base, "invalid-release");
-    precheck({ discovered, releaseDir: badDir, sourceRevision: revision, sourceTransport, gitTransport: { isClean: () => sourceTransport.snapshot().clean } });
+    precheck({ discovered, releaseDir: badDir, sourceRevision: revision, sourceTransport, gitTransport: { isClean: () => sourceTransport.snapshot().clean },
+      publishedBaseline: PRE_R3_PUBLISHED_BASELINE });
     const bad = pack({
       discovered, releaseDir: badDir, sourceRevision: revision, sourceTransport,
       packTransport: {

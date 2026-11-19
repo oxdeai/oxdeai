@@ -2,15 +2,24 @@
 
 Reference integrations and usage examples for OxDeAI.
 
+Integration levels used below:
+
+- **real framework**: the example imports and runs the framework or SDK named.
+- **framework-shaped**: the example builds objects with the framework's tool-call shape and runs no
+  framework code.
+
+No example uses a native framework hook or middleware. None is implemented; adapters are called
+explicitly from application code.
+
 ## Included
 
 - `gpu-guard` - deterministic GPU provisioning guard with audit chain
-- `langgraph` - LangGraph integration demo with OxDeAI PDP/PEP guard boundary
-- `openai-tools` - OpenAI tools/runtime integration demo with matching policy scenario
-- `crewai` - CrewAI-shaped integration demo with shared ALLOW/ALLOW/DENY scenario
-- `openai-agents-sdk` - OpenAI Agents SDK-shaped integration demo with shared boundary contract
-- `autogen` - AutoGen-shaped integration demo with shared boundary contract
-- `openclaw` - OpenClaw-shaped integration demo with the canonical authorization boundary flow
+- `langgraph` - **real framework**: a `@langchain/langgraph` `StateGraph` proposes tool calls; `@oxdeai/langgraph` enforces them in application code after the graph returns (no `ToolNode` or LangGraph hook)
+- `openai-tools` - **real SDK** (`demo:openai`, requires `OPENAI_API_KEY`): OpenAI Chat Completions tool calls enforced with `@oxdeai/core` directly (no adapter); the default `start`/`demo` run uses scripted calls
+- `crewai` - **framework-shaped** (no CrewAI): `@oxdeai/crewai` on the shared ALLOW/ALLOW/DENY scenario
+- `openai-agents-sdk` - **framework-shaped** (no Agents SDK): `@oxdeai/openai-agents` with the shared boundary contract
+- `autogen` - **framework-shaped** (no AutoGen): `@oxdeai/autogen` with the shared boundary contract
+- `openclaw` - **framework-shaped** (no OpenClaw runtime): `@oxdeai/openclaw` with the canonical authorization boundary flow
 - `rust-verifier` - reference-only Rust verifier skeleton (`AuthorizationV1` fail-closed path)
 - `agentgram-demo` - deterministic execution boundary for Agentgram actions using the OxDeAI SDK
 - `delegation` - `DelegationV1` demo: a parent agent delegates strictly narrowed authority to a child agent

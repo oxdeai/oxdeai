@@ -16,6 +16,11 @@
 // trusted calling code; this module never spawns npm or any other process, and
 // command fields are data only. Excluded packages are never observed or changed.
 //
+// promoteLatest() also enforces the promotion floor (promotion-floor.mjs): the
+// candidate version is read from the frozen tarball, must equal the manifest and
+// POLICY, must not be a prerelease, and must be strictly greater (SemVer) than
+// the `latest` observed at promotion time.
+//
 // distTagTransport (synchronous):
 //   observeDistTag({ registry, package, tag })
 //     -> { registry, package, tag, present: false }
@@ -29,9 +34,10 @@ import { RELEASE_REGISTRY_REQUIREMENTS } from "./auth-precheck.mjs";
 import { validateNextRemovalAuthorization, validatePromotionAuthorization } from "./finalization-authorization.mjs";
 import {
   FINALIZATION_RECORD_VERSION, ReleaseOrchestratorError, allPackagesReady, computeFinalizationDigest,
-  computeManifestIntegrity, expectedFinalizationPackages, publicationPackages, saveState,
+  computeManifestIntegrity, computeSriIntegrity, expectedFinalizationPackages, publicationPackages, saveState,
   transitionReleaseState, validateState,
 } from "./orchestrator.mjs";
+import { PromotionFloorError, assertLatestPromotionAllowed, readFrozenTarball } from "./promotion-floor.mjs";
 
 const object = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
 const fail = (code, message) => { throw new ReleaseOrchestratorError(message, { code }); };
@@ -131,7 +137,18 @@ export function promoteLatest(inputs = {}) {
     methods: ["observeDistTag", "addDistTag"] });
   const { manifest, state, releaseDir, registry, distTagTransport } = inputs;
   const consent = validatePromotionAuthorization({ authorization: inputs.authorization, manifest, package: p.package, registry });
+  // `latest` is re-read here, at promotion time; an earlier observation (for
+  // example at PRECHECK) is never reused.
   const before = observeTag(distTagTransport, registry, p.package, "latest");
+  // Promotion floor: the candidate is read from the frozen tarball and must be a
+  // stable version strictly above the current `latest` (SemVer). A consent
+  // cannot override it. Pre-effect: nothing is changed or persisted.
+  try {
+    assertLatestPromotionAllowed({ p, current: before, releaseDir, readTarball: readFrozenTarball, integrityOf: computeSriIntegrity });
+  } catch (error) {
+    if (error instanceof PromotionFloorError) fail(error.code, error.message);
+    throw error;
+  }
   if (before !== p.version && before !== consent.replaces) {
     // Pre-effect conflict: nothing is changed or persisted.
     fail("DIST_TAG_CONFLICT", `${p.package} latest is ${before ?? "absent"}; consent covers replacing ${consent.replaces ?? "absent"} only`);

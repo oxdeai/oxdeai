@@ -9,30 +9,16 @@ This project follows Semantic Versioning.
 
 ## [Unreleased]
 
+Changes on `main` that are not in a published release. Several entries below
+(HTTP gateway hardening, INVREG-F01/F02/F05, GW-COMP-01 and the gateway part of
+RR-01) were also published in 2.0.5 from the 2.0.x maintenance line; see
+[2.0.5] and [2.0.4]. The entries here describe the `main` implementation.
+
 ### Security
 
-- **ACT-1: the action that executed could differ from the action the guard
-  verified.** `OxDeAIGuard` and `createSecureGuard` read the caller's live
-  `ProposedAction` at normalization and again at the delegation tool check,
-  passed the caller's object to `beforeExecute` and `onDecision`, and called
-  `execute()` with no argument, so the protected callback could only read
-  caller-owned state after the awaited replay consume, the state commit and, on
-  the delegation path, the SignedKRLV1 and `delegationRevocationProvider`
-  lookups. A getter or `Proxy` could present one action to normalization and
-  policy and another to the executor; a plain mutation of the action (including
-  its nested `args`) during those awaits, or by a `beforeExecute` hook, changed
-  the tool, cost or arguments after authorization. The guard now takes one
-  deep-frozen plain-data snapshot of the action before normalization;
-  normalization, policy evaluation, `intent_hash` binding, delegation scope
-  enforcement, both hooks and the new `execute(action)` argument all use that
-  snapshot. Non-plain actions (Proxy, accessors, class instances, `Date`, `Map`,
-  `Set`, typed arrays, functions, symbol keys, sparse arrays, cycles) are
-  rejected with `NORMALIZATION_FAILURE` (`OxDeAINormalizationError`) before
-  policy evaluation and before any replay or revocation state is touched.
-  Executors must read the action from the `execute` argument to get this
-  guarantee: a callback that keeps reading the caller's own object is not
-  protected. Forward-port of the 2.0.x fix. Affected published versions:
-  `>=1.0.0, <=2.0.3`.
+- **ACT-1 (published in 2.0.5).** See the ACT-1 entry under [2.0.4]. On `main`
+  the action snapshot also covers the delegation-path SignedKRLV1 and
+  `delegationRevocationProvider` lookups, which do not exist in 2.0.5.
 - HTTP gateway and protected upstream hardening (security release; see the
   SemVer note below):
   - **Custom `hashAction` coverage.** When `PepGatewayOptions.hashAction` is a
@@ -283,6 +269,184 @@ This project follows Semantic Versioning.
   that pollution after construction cannot affect the guard: it does not
   change the captured configuration, but callback results are a separate
   surface (IR-03).
+
+## [2.0.5] - 2026-11-18
+
+### Release stabilization
+
+First published release with the changes listed under [2.0.4], which was never
+published to npm.
+
+Identifies the OBS-E delegation and ACT-1 immutable-action corrections with a new release version. Adapter consumers must require ^2.0.5; prior 2.0.4 candidate bytes are not interchangeable. No authorization protocol or canonicalization change.
+
+## [2.0.4] - Not published
+
+> 2.0.4 was never published to npm. The changes below were first published in 2.0.5.
+
+Security patch release of `@oxdeai/guard`. Pins `@oxdeai/core@2.0.3`. It changes
+the PEP gateway response contract; read the Compatibility section before
+upgrading. Advisory identifiers are assigned at publication.
+
+### Security
+
+- **H-1: the PEP gateway reported `executed: false` when the upstream outcome
+  was unknown.** After `createPepGatewayExecutor` (and the HTTP gateway built on
+  it) had dispatched an authorized request, a timeout, a transport error, a
+  thrown executor or an upstream status of 400 or more was reported as
+  `decision: "DENY"`, `executed: false`, although the side effect may have
+  happened. A 3xx status was reported as `executed: true`. A caller acting on
+  `executed: false` could request a fresh authorization and execute the action a
+  second time, or record a false non-execution. The gateway now reports a
+  three-state `outcome`:
+  - `NOT_DISPATCHED`: denied before the upstream was called (`decision: "DENY"`,
+    `executed: false`);
+  - `EXECUTED`: the upstream confirmed success (`decision: "ALLOW"`,
+    `executed: true`);
+  - `INDETERMINATE`: dispatched, outcome unknown (`decision: "ALLOW"`,
+    `executed: null`).
+
+  `EXECUTED` requires a 2xx status by default. The rule is injectable through
+  the new `isUpstreamSuccess` option (an `UpstreamSuccessContract`). It confirms the upstream's answer,
+  not that the effect was durably committed. Affected: `>=2.0.0, <=2.0.3`.
+- Pins `@oxdeai/core@2.0.3` (S2, S3, S4). Through the gateway, S2 let one
+  authorization with a non-ASCII `auth_id` execute twice; the gateway now denies
+  the non-NFC form with `AUTH_ID_NONCANONICAL`.
+- **INVREG-F01/F02: the in-process gateway re-read the caller's live request.**
+  `createPepGatewayExecutor` hashed and verified the request, then awaited the
+  replay consume and dispatched `requestBody.action` read again from the
+  caller's object. A plain mutation during that await changed the action sent
+  upstream after its hash was verified, and an accessor or `Proxy` on `auth_id`
+  let one signed single-use authorization be consumed under different
+  identifiers and executed more than once. The executor now takes one
+  deep-frozen plain-data snapshot of the request before any security decision,
+  and every later step reads only that snapshot. Non-plain input (Proxy,
+  accessors, class instances, `Date`, `Map`, `Buffer` and typed arrays,
+  functions, symbol keys, sparse arrays, cycles, cross-realm objects) is denied
+  with `INVALID_REQUEST_INPUT:<path>: <reason>` before replay consumption. The
+  HTTP gateway (JSON-decoded input) was not affected. Affected:
+  `>=2.0.0, <=2.0.3` (in-process use of `createPepGatewayExecutor`).
+- **INVREG-F05: gateway configuration was read on every request.** Mutating the
+  `trustedAuthorizationAuthorities` array after construction widened
+  issuer-policy authority. It is now validated and copied at construction (a
+  malformed entry fails construction); `expectedAudience`,
+  `internalExecutorToken` and `executeUpstream` are also read once.
+  `trustedKeySets` in-place rotation and replay-store state remain live.
+- **RR-01 (gateway): truthy replay-store answers counted as a first consume.**
+  A store resolving `"OK"`, `1`, `"true"`, `{}` or `[]` let one authorization
+  dispatch repeatedly. Only the boolean `true` now dispatches; `false` is
+  `AUTH_REPLAY`; any other value is `REPLAY_STORE_UNAVAILABLE:INVALID_RESULT`.
+  On the 2.0.x line this applies to the gateway consume site only.
+- **Custom `hashAction` could leave forwarded fields unbound.** A `hashAction`
+  that omitted fields (for example a projection) left them outside
+  `authorization.intent_hash` while they were still forwarded upstream, so an
+  authorization for one amount could execute another. A request is now
+  accepted only if `hashAction` returns exactly the whole-action hash
+  (`sha256HexFromJson(action)`); anything else is denied with 403
+  `ACTION_HASH_UNCOVERED` before authorization verification and without
+  touching replay state. `hashAction` is deprecated (one-time
+  `DeprecationWarning`, code `OXDEAI_DEP_HASH_ACTION`) and will be removed in
+  the next major release. Affected: `>=2.0.0, <=2.0.3`, only deployments that
+  set a custom `hashAction`.
+- **HTTP request handling hardening.** `createPepGatewayHttpServer` and
+  `createProtectedUpstreamHttpServer` bound request bodies (`maxBodyBytes`,
+  default 1 MiB, allowed 1 KiB to 64 MiB): gateway 403 `BODY_TOO_LARGE`
+  (`NOT_DISPATCHED`), upstream 413. The protected upstream checks
+  `x-internal-executor-token` before reading the body, with a constant-time
+  comparison (also used by `hasValidInternalExecutorToken`). An empty
+  `expectedToken` is rejected at construction. Early rejections carry
+  `Connection: close`.
+- **OBS-E: the guard delegation path re-read the caller's live delegation
+  input.** `OxDeAIGuard` (and `createSecureGuard`) read `opts.delegation`
+  (`delegation`, `parentAuth`, `parentScope`) several times: once to verify the
+  parent and the chain, again to enforce scope, again to consume the replay
+  identifiers. An accessor or a `Proxy` could present one value to verification
+  and another to chain binding, scope enforcement or replay consumption, and a
+  plain mutation during the awaited delegation consume changed the parent
+  `auth_id` that was consumed. The guard now reads `opts.delegation` once and
+  takes one deep-frozen plain-data snapshot of it before any verification;
+  every later step, including the `beforeExecute` and `onDecision` hooks, reads
+  only that snapshot. Non-plain input (Proxy, accessors, class instances,
+  `Date`, `Map`, `Set`, typed arrays, functions, symbol keys, sparse arrays,
+  cycles, nesting deeper than 8) is rejected with `DELEGATION_INPUT_INVALID`
+  before verification and before any replay state is touched. JSON-decoded
+  input cannot carry accessors or Proxies. Affected: `>=2.0.0, <=2.0.3`
+  (in-process callers that pass `opts.delegation`).
+- **ACT-1: the action that executed could differ from the action the guard
+  verified.** `OxDeAIGuard` and `createSecureGuard` read the caller's live
+  `ProposedAction` at normalization and again at the delegation tool check,
+  passed the caller's object to `beforeExecute` and `onDecision`, and called
+  `execute()` with no argument, so the protected callback could only read
+  caller-owned state after the awaited replay consume and state commit. A
+  getter or `Proxy` could present one action to normalization and policy and
+  another to the executor; a plain mutation of the action (including its nested
+  `args`) during those awaits, or by a `beforeExecute` hook, changed the tool,
+  cost or arguments after authorization. The guard now takes one deep-frozen
+  plain-data snapshot of the action before normalization; normalization, policy
+  evaluation, `intent_hash` binding, delegation scope enforcement, both hooks
+  and the new `execute(action)` argument all use that snapshot. Non-plain
+  actions (Proxy, accessors, class instances, `Date`, `Map`, `Set`, typed
+  arrays, functions, symbol keys, sparse arrays, cycles) are rejected with
+  `NORMALIZATION_FAILURE` (`OxDeAINormalizationError`) before policy evaluation
+  and before any replay state is touched. Executors must read the action from
+  the `execute` argument to get this guarantee: a callback that keeps reading
+  the caller's own object is not protected. Affected: `>=2.0.0, <=2.0.3`.
+
+### Compatibility
+
+- **`executed` is now `boolean | null`, and `null` is falsy.** A client written
+  as `if (!res.body.executed) retry()` still retries on an `INDETERMINATE`
+  outcome and can still execute the action twice after upgrading. Branch on
+  `outcome`, or compare `executed === false` strictly. Retrying on `!ok` or on
+  an HTTP 5xx status is unsafe for the same reason.
+- `PepGatewayResponseBody` gains the required field `outcome`.
+- `PepGatewayResponseBody.decision` gains `"UNKNOWN"`. It is emitted only by the
+  HTTP handler's internal-error backstop, always with
+  `outcome: "INDETERMINATE"` and `executed: null`, and means that no decision
+  was reached. Code that switches exhaustively over `decision` must handle it.
+- A dispatched request that ends in a timeout or an error is now
+  `decision: "ALLOW"` with `outcome: "INDETERMINATE"`, where it was `"DENY"`.
+  Monitoring that counts `DENY` responses will count fewer. HTTP status codes
+  are unchanged (502, 504).
+- A 3xx upstream status is no longer `executed: true`; it is `INDETERMINATE`.
+- New exports: `defaultUpstreamSuccess`, `UpstreamResponse`,
+  `UpstreamSuccessContract`.
+- `docs/spec/test-vectors/pep-vectors-v1.json` moves to contract version 1.1.0.
+- **Behaviour changes shipped in a patch release under a security exception.**
+  A custom `hashAction` whose digest differs from the whole-action hash now
+  denies every request (migrate: remove `hashAction` and present exactly the
+  object hashed into `intent_hash`); request bodies above 1 MiB need
+  `maxBodyBytes` on the gateway and the protected upstream; a replay store must
+  resolve a boolean; non-plain in-process input is denied; a malformed
+  `trustedAuthorizationAuthorities` entry or an empty upstream `expectedToken`
+  fails construction; gateway options are captured at construction.
+- New gateway reasons: `ACTION_HASH_UNCOVERED`, `BODY_TOO_LARGE`,
+  `INVALID_REQUEST_INPUT:<path>: <reason>`,
+  `REPLAY_STORE_UNAVAILABLE:INVALID_RESULT`. New option: `maxBodyBytes`.
+- `OxDeAIGuard` and `createSecureGuard` delegation calls must pass plain data in
+  `opts.delegation` (plain or null-prototype objects and dense arrays of
+  strings, numbers, bigints, booleans, `null`, `undefined`). Other input, which
+  was previously accepted, is now rejected with `DELEGATION_INPUT_INVALID`.
+  Output of `createDelegation` and `signAuthorizationEd25519`, frozen objects
+  and JSON-decoded artifacts are unaffected. The `beforeExecute` and
+  `onDecision` hooks receive the frozen snapshot, not the caller's object.
+- `OxDeAIGuard` and `createSecureGuard` actions must be plain data (the same
+  model as `opts.delegation`, without its nesting limit). An action carrying a
+  `Date`, `Buffer`, class instance, function or other non-plain value, which was
+  previously accepted, is now rejected with `NORMALIZATION_FAILURE`. Encode such
+  values first (for example `date.toISOString()`). The guard does not freeze or
+  otherwise modify the caller's object.
+- `execute` is now called with one argument, the verified frozen action. Its
+  type widens to `(action: ProposedAction) => Promise<unknown>`; existing
+  zero-argument callbacks are unaffected. `mapActionToIntent`, `beforeExecute`
+  and `onDecision` receive the same frozen snapshot, so a hook or normalizer
+  that writes to the action now throws `TypeError`, which blocks execution.
+- The framework adapters do not use the gateway response contract.
+
+### After upgrading
+
+Treat `INDETERMINATE` as "may have happened". Do not retry automatically with a
+new authorization. Reconcile with the upstream first, for example through an
+idempotency key derived from `auth_id`.
 
 ## [2.0.3] - 2026-10-19
 

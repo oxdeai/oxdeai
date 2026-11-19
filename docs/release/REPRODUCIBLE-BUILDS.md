@@ -21,7 +21,7 @@ tarball is still produced **once**: the frozen-artifact rule below is unchanged.
 
 | Tool | Pin | Source of truth | Enforced by |
 |---|---|---|---|
-| Node.js | `22.9.0` | `.node-version` | `orchestrator.mjs pack`, `reproducible-pack.mjs`, CI `release-reproducibility` and `packed-artifact-consumer-gate` (`node-version-file`) |
+| Node.js | `22.23.4` | `.node-version` | `orchestrator.mjs pack`, `reproducible-pack.mjs`, CI `release-reproducibility` and `packed-artifact-consumer-gate` (`node-version-file`) |
 | pnpm | `10.34.5` | root `package.json` `packageManager` | same; `pnpm/action-setup` and corepack read `packageManager` |
 | Build tools (TypeScript, API Extractor, ...) | as locked | `pnpm-lock.yaml` | `pnpm install --frozen-lockfile` |
 | Pack-time manifest hook | as committed | `.pnpmfile.cjs` (checksum in `pnpm-lock.yaml`) | frozen install refuses a hook that differs from the lockfile |
