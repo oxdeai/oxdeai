@@ -3,8 +3,13 @@ Policy Enforcement Point for the OxDeAI execution-time authorization protocol.
 Verifies AuthorizationV1 locally, fail-closed.
 No valid authorization, no execution through the configured enforcement boundary.
 
-Current `@oxdeai/guard` package line: **2.0.3**. See [`CHANGELOG.md`](./CHANGELOG.md)
-for release details. 2.0.3 pins `@oxdeai/core@2.0.2`; 2.0.1 binds
+Current `@oxdeai/guard` package line: **2.0.5**. See [`CHANGELOG.md`](./CHANGELOG.md)
+for release details. 2.0.5 is the first published release with the 2.0.4
+changes (2.0.4 was never published to npm). It pins `@oxdeai/core@2.0.3`, passes
+the verified action snapshot to `execute(action)` (ACT-1), snapshots delegation
+input (OBS-E) and changes the PEP gateway response contract (three-state
+`outcome`, `executed: boolean | null`; see
+[PEP gateway execution outcome](#pep-gateway-execution-outcome)); 2.0.1 binds
 `DelegationV1.delegatee` to the acting agent;
 the 2.0 line requires `expectedAudience` and `trustedKeySets`, uses
 versioned/CAS `getState`/`setState`, and introduced `createSecureGuard`.
@@ -507,6 +512,30 @@ legacy mode is planned for a major release.)
 
 ---
 
+**In-process executor input (INVREG-F01/F02).** `createPepGatewayExecutor`
+takes one deep-frozen plain-data snapshot of the request before any security
+decision. Action hashing, authorization verification, intent binding, replay
+consumption, upstream dispatch and the response body all read only that
+snapshot, so mutating the caller's object during the awaited replay consume no
+longer changes what is sent upstream, and an accessor or `Proxy` on `auth_id`
+can no longer consume one signed authorization under several identifiers.
+Input that is not plain data (Proxy, accessor properties, class instances,
+`Date`, `Map`, `Buffer` and typed arrays, functions, symbol keys, sparse arrays,
+cycles, objects from another realm) is denied with
+`INVALID_REQUEST_INPUT:<path>: <reason>` before replay consumption. JSON-decoded
+input (the HTTP gateway) is unaffected. The upstream executor receives its own
+mutable deep copy of the verified action (GW-COMP-01) and is called with the
+options object as `this`.
+
+**Configuration read once (INVREG-F05).** `trustedAuthorizationAuthorities` is
+validated and copied at construction; later mutation of the caller's array no
+longer widens issuer-policy authority, and a malformed entry fails
+construction. `expectedAudience`, `internalExecutorToken` and `executeUpstream`
+are also read once. In-place `trustedKeySets` rotation and replay-store state
+remain live.
+
+---
+
 ## Replay store: contract and deployment requirements
 
 The guard verifies/authenticates before authoritative replay mutation and consumes
@@ -670,6 +699,44 @@ const myStore: ReplayStore = {
 ```
 
 ---
+
+## PEP gateway execution outcome
+
+`createPepGatewayExecutor` and `createPepGatewayHttpServer` report what happened
+to a request with a three-state `outcome` in the response body. It is the field
+to branch on.
+
+| `outcome` | Meaning | `executed` | `decision` | HTTP |
+| --- | --- | --- | --- | --- |
+| `NOT_DISPATCHED` | Denied before dispatch. The upstream was never called, so no side effect is possible. | `false` | `DENY` | 403 |
+| `EXECUTED` | The upstream confirmed success. | `true` | `ALLOW` | 200 |
+| `INDETERMINATE` | The request was dispatched and its outcome is unknown: timeout, transport error, thrown executor, or any non-success status. A side effect cannot be ruled out. | `null` | `ALLOW` | 502 or 504 |
+
+`executed: false` means a confirmed non-execution and nothing else. Before
+2.0.4 the gateway also reported it for dispatched requests that failed or timed
+out, although the upstream may already have acted (H-1).
+
+Three rules for callers:
+
+- **Branch on `outcome`, never on the truthiness of `executed`.** `null` is
+  falsy, so `if (!body.executed) retry()` retries an `INDETERMINATE` request and
+  can execute the action twice. If you must use `executed`, compare it strictly:
+  `body.executed === false`.
+- **Do not retry an `INDETERMINATE` request automatically**, and do not request
+  a new authorization for the same action until you have reconciled with the
+  upstream. An idempotency key derived from `auth_id` makes that reconciliation
+  possible. Retrying on `ok: false` or on an HTTP 5xx status is unsafe for the
+  same reason.
+- **`decision: "UNKNOWN"`** appears only when the HTTP handler hits an internal
+  fault after parsing and cannot tell whether dispatch occurred. It always comes
+  with `outcome: "INDETERMINATE"` and `executed: null`. Treat it as "no decision
+  was reached", never as `ALLOW` or `DENY`.
+
+`EXECUTED` means the upstream confirmed success under the configured success
+contract; by default that is an integer 2xx status, so a 3xx is
+`INDETERMINATE`. Supply `isUpstreamSuccess` (an `UpstreamSuccessContract`) when
+your upstream signals success differently. `EXECUTED` is the upstream's answer
+at this boundary. It is not proof that a business effect was durably committed.
 
 ## Error classes
 

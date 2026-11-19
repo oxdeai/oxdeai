@@ -24,7 +24,10 @@
 //     mutation. A pnpm-only, /tmp-scoped `pnpm.overrides` is used solely to
 //     let the pnpm consumer resolve not-yet-published internal versions
 //     from the co-installed local tarballs — this override never touches a
-//     repository file.
+//     repository file. Because it binds ranges regardless of what they say,
+//     dependency-range properties (the adapters' Guard security floor) are
+//     checked on the extracted manifests before any install, never inferred
+//     from a successful consumer install.
 
 import { packDestination, packWithoutOverwrite } from "./release-2.0/artifact-paths.mjs";
 import { spawnSync } from "node:child_process";
@@ -70,63 +73,63 @@ export const POLICY = {
     expectMain: true, expectTypes: true, expectExports: true, expectBin: null,
     expectedSymbols: ["PolicyEngine", "verifyAuthorization", "verifyTrustedTime"],
     cliCheck: null,
-    releaseLine: "2.0", version: "2.0.2", publishOrder: 10,
+    releaseLine: "2.0", version: "2.0.3", publishOrder: 10,
   },
   "@oxdeai/guard": {
     kind: "library",
     expectMain: true, expectTypes: true, expectExports: false, expectBin: null,
     expectedSymbols: ["OxDeAIGuard"],
     cliCheck: null,
-    releaseLine: "2.0", version: "2.0.3", publishOrder: 20,
+    releaseLine: "2.0", version: "2.0.5", publishOrder: 20,
   },
   "@oxdeai/sdk": {
     kind: "library",
     expectMain: true, expectTypes: true, expectExports: false, expectBin: null,
     expectedSymbols: ["buildState"],
     cliCheck: null,
-    releaseLine: "2.0", version: "2.0.2", publishOrder: 30,
+    releaseLine: "2.0", version: "2.0.3", publishOrder: 30,
   },
   "@oxdeai/conformance": {
     kind: "library+cli",
     expectMain: true, expectTypes: true, expectExports: true, expectBin: "oxdeai-conformance",
     expectedSymbols: ["runTrustedTimeConformance", "parseTrustedTimeFile", "trustedTimeExitCode"],
     cliCheck: "conformance-count",
-    releaseLine: "2.0", version: "2.0.2", publishOrder: 40,
+    releaseLine: "2.0", version: "2.0.4", publishOrder: 40,
   },
   "@oxdeai/autogen": {
     kind: "adapter",
     expectMain: true, expectTypes: true, expectExports: false, expectBin: null,
     expectedSymbols: ["createAutoGenGuard"],
     cliCheck: null,
-    releaseLine: "2.0", version: "2.0.0", publishOrder: 50,
+    releaseLine: "2.0", version: "2.0.1", publishOrder: 50,
   },
   "@oxdeai/crewai": {
     kind: "adapter",
     expectMain: true, expectTypes: true, expectExports: false, expectBin: null,
     expectedSymbols: ["createCrewAIGuard"],
     cliCheck: null,
-    releaseLine: "2.0", version: "2.0.0", publishOrder: 60,
+    releaseLine: "2.0", version: "2.0.1", publishOrder: 60,
   },
   "@oxdeai/langgraph": {
     kind: "adapter",
     expectMain: true, expectTypes: true, expectExports: false, expectBin: null,
     expectedSymbols: ["createLangGraphGuard"],
     cliCheck: null,
-    releaseLine: "2.0", version: "2.0.0", publishOrder: 70,
+    releaseLine: "2.0", version: "2.0.1", publishOrder: 70,
   },
   "@oxdeai/openai-agents": {
     kind: "adapter",
     expectMain: true, expectTypes: true, expectExports: false, expectBin: null,
     expectedSymbols: ["createOpenAIAgentsGuard"],
     cliCheck: null,
-    releaseLine: "2.0", version: "2.0.0", publishOrder: 80,
+    releaseLine: "2.0", version: "2.0.1", publishOrder: 80,
   },
   "@oxdeai/openclaw": {
     kind: "adapter",
     expectMain: true, expectTypes: true, expectExports: false, expectBin: null,
     expectedSymbols: ["createOpenClawGuard"],
     cliCheck: null,
-    releaseLine: "2.0", version: "2.0.0", publishOrder: 85,
+    releaseLine: "2.0", version: "2.0.1", publishOrder: 85,
   },
   // CLI tracks its own public/operator contract in the "cli" family.
   // It remains part of the same publication batch, after its dependencies.
@@ -135,7 +138,7 @@ export const POLICY = {
     expectMain: false, expectTypes: false, expectExports: false, expectBin: "oxdeai",
     expectedSymbols: [],
     cliCheck: "help",
-    releaseLine: "cli", version: "0.3.2", publishOrder: 90,
+    releaseLine: "cli", version: "0.3.3", publishOrder: 90,
   },
 };
 
@@ -160,6 +163,93 @@ export function assertReleaseMetadataConsistency(policy) {
   }
 }
 assertReleaseMetadataConsistency(POLICY);
+
+// ── Guard security floor (R3 F-02) ───────────────────────────────────────────
+//
+// Every framework adapter must require a Guard release that carries the ACT-1
+// immutable-action snapshot and the OBS-E delegation-input snapshot. The floor
+// is enforced on the manifest EXTRACTED FROM EACH PACKED TARBALL, before any
+// consumer install. The pnpm consumer binds internal ranges to local tarballs
+// through /tmp-scoped overrides, and npm co-installs whatever local Guard was
+// supplied; neither proves which Guard a registry consumer would resolve, so
+// neither may be relied on for this property.
+//
+// The accepted declaration is deliberately exact: `dependencies` must contain
+// GUARD_SECURITY_FLOOR.range verbatim, and Guard must not be redeclared in any
+// field that npm/pnpm let override or bundle it. A different range — even a
+// stricter one — fails closed until this constant is changed in review.
+// A range is not artifact authentication; tarball integrity is checked
+// separately by the release manifest.
+export const GUARD_PACKAGE = "@oxdeai/guard";
+export const GUARD_SECURITY_FLOOR = Object.freeze({ version: "2.0.5", range: "^2.0.5" });
+export const GUARD_FLOOR_PACKAGES = Object.freeze([
+  "@oxdeai/autogen", "@oxdeai/crewai", "@oxdeai/langgraph", "@oxdeai/openai-agents", "@oxdeai/openclaw",
+]);
+
+function exactCoreVersion(version) {
+  const m = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.exec(version ?? "");
+  return m ? m.slice(1).map(Number) : null;
+}
+
+// Fail closed at module load: the floor list must be exactly the adapter set
+// of POLICY (a new adapter is never silently exempt), and the Guard version
+// this policy releases must itself satisfy the floor.
+export function assertGuardFloorPolicy(policy = POLICY) {
+  const adapters = Object.entries(policy).filter(([, meta]) => meta.kind === "adapter").map(([name]) => name).sort();
+  if (JSON.stringify(adapters) !== JSON.stringify([...GUARD_FLOOR_PACKAGES].sort())) {
+    throw new Error(`Guard floor package set ${JSON.stringify(GUARD_FLOOR_PACKAGES)} must equal POLICY adapters ${JSON.stringify(adapters)}`);
+  }
+  if (GUARD_SECURITY_FLOOR.range !== `^${GUARD_SECURITY_FLOOR.version}`) {
+    throw new Error("GUARD_SECURITY_FLOOR.range must be the caret range of GUARD_SECURITY_FLOOR.version");
+  }
+  const floor = exactCoreVersion(GUARD_SECURITY_FLOOR.version);
+  const released = exactCoreVersion(policy[GUARD_PACKAGE]?.version);
+  if (!floor || floor[0] === 0) throw new Error("GUARD_SECURITY_FLOOR.version must be an exact non-prerelease version with major > 0");
+  if (!released || released[0] !== floor[0] ||
+      released[1] < floor[1] || (released[1] === floor[1] && released[2] < floor[2])) {
+    throw new Error(`POLICY['${GUARD_PACKAGE}'].version ${policy[GUARD_PACKAGE]?.version} does not satisfy the Guard security floor ${GUARD_SECURITY_FLOOR.range}`);
+  }
+}
+assertGuardFloorPolicy(POLICY);
+
+// Checks one packed manifest. Returns the accepted range for floor packages,
+// null for packages that do not depend on Guard. Throws GateFailure otherwise.
+export function assertGuardSecurityFloor(name, manifest) {
+  const reject = (detail) => fail({ pkg: name, phase: "guard-floor", command: null, exitCode: null, detail });
+  const isPlainObject = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
+  if (!isPlainObject(manifest)) reject("packed manifest is not an object");
+  const required = GUARD_FLOOR_PACKAGES.includes(name);
+
+  // Fields that would let a consumer's resolution differ from `dependencies`:
+  // optionalDependencies overrides dependencies in npm; peerDependencies moves
+  // resolution to the consumer; bundled dependencies ship a frozen copy.
+  for (const field of ["optionalDependencies", "peerDependencies"]) {
+    if (manifest[field] === undefined) continue;
+    if (!isPlainObject(manifest[field])) reject(`${field} must be an object when present`);
+    if (Object.hasOwn(manifest[field], GUARD_PACKAGE)) {
+      reject(`${field}.${GUARD_PACKAGE} = ${JSON.stringify(manifest[field][GUARD_PACKAGE])} is not permitted; declare Guard only in dependencies as "${GUARD_SECURITY_FLOOR.range}".`);
+    }
+  }
+  for (const field of ["bundleDependencies", "bundledDependencies"]) {
+    const v = manifest[field];
+    if (v === undefined || v === false) continue;
+    if (v === true || (Array.isArray(v) && v.includes(GUARD_PACKAGE)) || !Array.isArray(v)) {
+      reject(`${field} = ${JSON.stringify(v)} would bundle or may bundle ${GUARD_PACKAGE}; not permitted.`);
+    }
+  }
+
+  const deps = manifest.dependencies;
+  if (deps !== undefined && !isPlainObject(deps)) reject("dependencies must be an object when present");
+  const declared = deps !== undefined && Object.hasOwn(deps, GUARD_PACKAGE);
+  if (!declared) {
+    if (required) reject(`dependencies.${GUARD_PACKAGE} is missing; required "${GUARD_SECURITY_FLOOR.range}".`);
+    return null;
+  }
+  if (deps[GUARD_PACKAGE] !== GUARD_SECURITY_FLOOR.range) {
+    reject(`dependencies.${GUARD_PACKAGE} = ${JSON.stringify(deps[GUARD_PACKAGE])}; required exactly "${GUARD_SECURITY_FLOOR.range}" (Guard security floor ${GUARD_SECURITY_FLOOR.version}).`);
+  }
+  return deps[GUARD_PACKAGE];
+}
 
 // ── Structured failure ───────────────────────────────────────────────────────
 
@@ -600,26 +690,45 @@ export function assertPackedBijection(discovered, packed) {
   }
 }
 
+// Static checks on the bytes inside each tarball. Runs before the conformance
+// baseline and before any consumer install, so no install-time resolution
+// (including the pnpm consumer's local overrides) can mask a failure here.
+// The Guard floor is mandatory: every GUARD_FLOOR_PACKAGES member must be
+// present in `packed` and pass, or the gate fails.
+export function scanPackedTarballs(packed, base) {
+  const guardFloor = {};
+  for (const { name, tarballPath } of packed) {
+    const extractDir = path.join(base, "extracted", name.replace("/", "_"));
+    const packageDir = extractTarball(tarballPath, extractDir);
+    const manifest = scanPackedManifest(name, packageDir);
+    const range = assertGuardSecurityFloor(name, manifest);
+    if (range !== null) guardFloor[name] = range;
+    scanShippedRuntimePaths(name, packageDir);
+  }
+  const unchecked = GUARD_FLOOR_PACKAGES.filter((name) => guardFloor[name] !== GUARD_SECURITY_FLOOR.range);
+  if (unchecked.length > 0) {
+    fail({ pkg: unchecked.join(", "), phase: "guard-floor", command: null, exitCode: null,
+      detail: `Guard security floor was not verified for: ${unchecked.join(", ")}. All five adapter tarballs are required.` });
+  }
+  return { guardFloor };
+}
+
 export function verifyPackedTarballs(discovered, packed, { baseDir } = {}) {
   packed = packed.map(p => ({ ...p, tarballPath: path.resolve(p.tarballPath) }));
   assertPackedBijection(discovered, packed);
   assertPolicyCoverage(discovered);
 
-  console.log("Establishing monorepo conformance baseline...");
-  const monorepoConformanceCount = getMonorepoConformanceCount();
-  console.log(`  monorepo conformance: ${monorepoConformanceCount} assertions\n`);
-
   const base = path.resolve(baseDir ?? mkdtempSync(path.join(tmpdir(), "oxdeai-packed-gate-")));
   mkdirSync(base, { recursive: true });
 
-  console.log("Scanning packed manifests and shipped runtime JS...");
-  for (const { name, tarballPath } of packed) {
-    const extractDir = path.join(base, "extracted", name.replace("/", "_"));
-    const packageDir = extractTarball(tarballPath, extractDir);
-    scanPackedManifest(name, packageDir);
-    scanShippedRuntimePaths(name, packageDir);
-  }
-  console.log("  no forbidden dependency protocol or monorepo-relative runtime path found.\n");
+  console.log("Scanning packed manifests, Guard security floor and shipped runtime JS...");
+  const { guardFloor } = scanPackedTarballs(packed, base);
+  console.log(`  no forbidden dependency protocol or monorepo-relative runtime path found; ` +
+    `Guard floor ${GUARD_SECURITY_FLOOR.range} verified for ${Object.keys(guardFloor).length} adapter tarball(s).\n`);
+
+  console.log("Establishing monorepo conformance baseline...");
+  const monorepoConformanceCount = getMonorepoConformanceCount();
+  console.log(`  monorepo conformance: ${monorepoConformanceCount} assertions\n`);
 
   console.log("Installing packed tarballs into a clean external npm consumer...");
   const npmConsumer = path.join(base, "npm-consumer");
@@ -635,7 +744,7 @@ export function verifyPackedTarballs(discovered, packed, { baseDir } = {}) {
   runSmokeTestsForConsumer(packed, pnpmConsumer, "pnpm", monorepoConformanceCount);
   console.log("  pnpm consumer: all checks passed.\n");
 
-  return { base, monorepoConformanceCount };
+  return { base, monorepoConformanceCount, guardFloor };
 }
 
 async function main() {

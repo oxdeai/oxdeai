@@ -15,9 +15,11 @@ import {
   computeManifestIntegrity, computePrecheckReceiptDigest,
 } from "./orchestrator.mjs";
 import { observeRegistryPrecheck, RELEASE_REGISTRY_REQUIREMENTS } from "./auth-precheck.mjs";
+import { PRE_R3_PUBLISHED_BASELINE } from "./precheck-fixture.mjs";
 
 const REVISION = "a".repeat(40);
 const ORCHESTRATOR = new URL("./orchestrator.mjs", import.meta.url).href;
+const PRECHECK_FIXTURE = new URL("./precheck-fixture.mjs", import.meta.url).href;
 
 function writePackages(root) {
   return Object.entries(POLICY).map(([name, p]) => {
@@ -35,7 +37,8 @@ function fixture(t, { persist = true } = {}) {
   const discovered = writePackages(root);
   const source = { root, revision: REVISION, clean: true };
   const args = { discovered, releaseDir, sourceRevision: REVISION,
-    gitTransport: { isClean: () => source.clean }, sourceTransport: { snapshot: () => ({ ...source }) } };
+    gitTransport: { isClean: () => source.clean }, sourceTransport: { snapshot: () => ({ ...source }) },
+    publishedBaseline: PRE_R3_PUBLISHED_BASELINE };
   let calls = 0, duringPack = () => {};
   const packTransport = { packToDir(d, dest) {
     calls++; duringPack(d);
@@ -270,6 +273,7 @@ function phase(root, body) {
     import { readdirSync, readFileSync, writeFileSync, existsSync } from "node:fs";
     import path from "node:path";
     import * as o from ${JSON.stringify(ORCHESTRATOR)};
+    import { PRE_R3_PUBLISHED_BASELINE as publishedBaseline } from ${JSON.stringify(PRECHECK_FIXTURE)};
     const root = ${JSON.stringify(root)}, releaseDir = path.join(root, "release"), sourceRevision = ${JSON.stringify(REVISION)};
     const discovered = readdirSync(root).filter(n => existsSync(path.join(root, n, "package.json"))).map(n => {
       const manifest = JSON.parse(readFileSync(path.join(root, n, "package.json"), "utf8"));
@@ -290,7 +294,7 @@ test("lifecycle: PRECHECK -> PACK -> readiness consume the receipt PRECHECK pers
   writePackages(root);
   const releaseDir = path.join(root, "release");
 
-  phase(root, `o.precheck({ discovered, releaseDir, sourceRevision, sourceTransport, gitTransport: { isClean: () => true } });`);
+  phase(root, `o.precheck({ discovered, releaseDir, sourceRevision, sourceTransport, gitTransport: { isClean: () => true }, publishedBaseline });`);
   const receipt = JSON.parse(readFileSync(path.join(releaseDir, PRECHECK_FILENAME), "utf8"));
   assert.equal(receipt.workingTreeClean, true);
 

@@ -40,6 +40,62 @@ This project follows Semantic Versioning.
   (`createDelegation` defaults `issued_at` to now). Previously accepted
   malformed artifacts or ceilings are now rejected.
 
+## [2.0.3] - 2026-11-18
+
+Security patch release of `@oxdeai/core`. Three verification fixes, no new
+feature. No AuthorizationV1, DelegationV1, canonicalization, hashing or signing
+change. Advisory identifiers are assigned at publication.
+
+### Security
+
+- **S2: non-NFC authorization identifiers allowed one authorization to be
+  consumed twice.** The signing payload normalizes strings to Unicode NFC, so an
+  `auth_id` written in a canonically equivalent non-NFC form kept a valid
+  signature while presenting a different replay key. `verifyAuthorization` now
+  rejects an `auth_id` that is not in NFC with `AUTH_ID_NONCANONICAL`, and
+  `verifyDelegation` rejects such a `delegation_id` with
+  `DELEGATION_ID_NONCANONICAL`. Identifiers are rejected, not normalized.
+  Affected: `>=2.0.0, <=2.0.2`. Identifiers made only of ASCII characters,
+  including the SHA-256 hex `auth_id` issued by `PolicyEngine`, were never
+  affected.
+- **S3: Ed25519 small-order public keys were accepted.** A small-order public
+  key authenticates nothing: a signature checks against it whatever the message.
+  If such a key was present in a verifier's trusted key set, anyone could produce
+  artifacts that verified under it. Verification now fails for the small-order
+  points in every wire encoding, and for any public key that cannot be read.
+  Affected: `>=1.2.0, <=2.0.2`. Exploitation requires the key to be trusted by
+  the verifier.
+- **S4: non-canonical Base64 Ed25519 signature encodings were accepted.**
+  Several distinct strings decoding to the same 64 bytes all verified. A
+  signature now verifies only if the supplied string is the canonical standard
+  Base64 encoding of exactly 64 bytes. On the authorization path the canonical
+  unpadded base64url encoding of 64 bytes remains accepted. The signature itself
+  could not be forged, and OxDeAI's replay protection keys on `auth_id`, not on
+  the signature string. Affected: `>=1.2.0, <=2.0.2`.
+
+### Fixed
+
+- `schemas/verification-result.schema.json` now lists every
+  `VerificationViolationCode` and the optional result fields of the public
+  `VerificationResult` type. The published schema previously listed 9 of the
+  codes and rejected valid results. A contract test keeps the schema and the
+  type in step.
+
+### Compatibility
+
+- Two new `VerificationViolationCode` members: `AUTH_ID_NONCANONICAL` and
+  `DELEGATION_ID_NONCANONICAL`. Code that switches exhaustively over
+  `VerificationViolationCode` must handle them. This source-level change ships
+  in a patch release because the fix requires it. No other public API change:
+  the reviewed API report differs from 2.0.2 by these two members only.
+- Artifacts with a non-NFC identifier, a non-canonical signature encoding, or a
+  signature under a small-order key verified before and now fail. Artifacts
+  issued by OxDeAI are unaffected.
+- S3 and S4 also affect `@oxdeai/core` 1.2.0 to 1.7.0. This release contains
+  no 1.x backport: the fix for 1.x consumers is to upgrade to 2.0.3 (see the
+  2.0.0 notes for the breaking changes), or to apply the workarounds in the
+  security advisories until they can. S2 does not affect 1.x.
+
 ## [2.0.2] - 2026-10-19
 
 ### Security

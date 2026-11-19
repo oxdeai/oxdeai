@@ -2,6 +2,9 @@
 // RELEASE-FINALIZATION-01. Hermetic: an in-memory dist-tag registry behind an
 // injected transport. No npm, no subprocess, no network. Assertions inspect
 // the fake registry and the persisted state, not transport return values.
+// R4 (F-R4-1): on this R3 checkout a partial selection is invalid in every phase,
+// so finalization runs in the only valid mode, full mode (all ten POLICY
+// packages). The selection-specific cases are explicit rejection tests below.
 import test, { mock } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
@@ -9,8 +12,9 @@ import path from "node:path";
 import { tmpdir } from "node:os";
 import { POLICY } from "../verify-packed-artifacts.mjs";
 import { RELEASE_REGISTRY_REQUIREMENTS } from "./auth-precheck.mjs";
-import { persistFixturePrecheck } from "./precheck-fixture.mjs";
+import { forgeSelectionReceipt, persistFixturePrecheck } from "./precheck-fixture.mjs";
 import { fixturePlan } from "./publication-fixture.mjs";
+import { makePackedTarball } from "./tarball-fixture.mjs";
 import { consent as publicationConsent } from "./publication-authorization.fixture.mjs";
 import { validateNextRemovalAuthorization, validatePromotionAuthorization } from "./finalization-authorization.mjs";
 import {
@@ -23,28 +27,32 @@ import {
 } from "./release-finalization.mjs";
 
 const REGISTRY = RELEASE_REGISTRY_REQUIREMENTS.registry;
-const SELECTED = F2_CLI1_SELECTION.map((p) => p.package);
-const EXCLUDED = Object.keys(POLICY).filter((name) => !SELECTED.includes(name));
+// Full mode: every POLICY package is published and finalized, in manifest order.
+const SELECTED = Object.keys(POLICY);
+const COMPLETENESS = /R3 release completeness/;
 // Prior `latest` versions the operator consents to replace.
 const PRIOR = { "@oxdeai/core": "2.0.1", "@oxdeai/guard": "2.0.2", "@oxdeai/sdk": "2.0.1",
   "@oxdeai/conformance": "2.0.1", "@oxdeai/cli": "0.3.1" };
 
-function fixture(t, { selection = true } = {}) {
+function fixture(t) {
   const releaseDir = fs.mkdtempSync(path.join(tmpdir(), "oxdeai-finalization-"));
   t.after(() => fs.rmSync(releaseDir, { recursive: true, force: true }));
   const revision = "a".repeat(40);
   const discovered = Object.entries(POLICY).map(([name, p]) => ({ name, dir: `/fake/${name.slice(8)}`,
     manifest: { name, version: p.version, ...(name === "@oxdeai/core" ? {} : { dependencies: { "@oxdeai/core": "workspace:*" } }) } }));
-  const precheck = persistFixturePrecheck(discovered, path.join(releaseDir, "precheck"), revision, "/fake",
-    selection ? { selection: F2_CLI1_SELECTION } : {});
+  const precheck = persistFixturePrecheck(discovered, path.join(releaseDir, "precheck"), revision, "/fake");
+  // Frozen tarballs exist on disk: promoteLatest() reads the candidate version
+  // from them (promotion floor).
+  fs.mkdirSync(path.join(releaseDir, "tarballs"));
   const packages = discovered.map((d) => {
     const p = POLICY[d.name];
+    const tarball = `tarballs/${d.name.slice(8)}.tgz`, bytes = makePackedTarball({ name: d.name, version: p.version });
+    fs.writeFileSync(path.join(releaseDir, tarball), bytes);
     return { package: d.name, version: p.version, releaseLine: p.releaseLine, publishOrder: p.publishOrder,
-      tarball: `tarballs/${d.name.slice(8)}.tgz`, integrity: computeSriIntegrity(Buffer.from(d.name)) };
+      tarball, integrity: computeSriIntegrity(bytes) };
   });
   const manifest = { manifestVersion: MANIFEST_VERSION, releaseId: revision, sourceRevision: revision,
-    createdAt: "2026-10-20T00:00:00.000Z", packages, precheck,
-    ...(selection ? { selection: structuredClone(F2_CLI1_SELECTION) } : {}) };
+    createdAt: "2026-10-20T00:00:00.000Z", packages, precheck };
   manifest.manifestIntegrity = computeManifestIntegrity(manifest);
   const selected = new Set(publicationPackages(manifest).map((p) => p.package));
   const state = { stateVersion: STATE_VERSION, releaseId: revision, phase: "READY_TO_PROMOTE",
@@ -60,7 +68,7 @@ function fixture(t, { selection = true } = {}) {
   // Fake registry: package -> { latest, next }. Excluded packages carry tags too.
   const tags = new Map(packages.map((p) => [p.package, selected.has(p.package)
     ? { latest: PRIOR[p.package] ?? "1.9.9", next: p.version } : { latest: p.version, next: p.version }]));
-  const f = { manifest, state, releaseDir, registry: REGISTRY, tags, effects: [], observations: [], selected: [...selected] };
+  const f = { manifest, state, releaseDir, discovered, registry: REGISTRY, tags, effects: [], observations: [], selected: [...selected] };
   f.distTagTransport = {
     observeDistTag({ registry, package: name, tag }) {
       f.observations.push([name, tag]);
@@ -74,6 +82,19 @@ function fixture(t, { selection = true } = {}) {
   return f;
 }
 
+// Rewrites f's manifest (memory and disk) into an R3 partial-selection manifest
+// backed by a forged receipt with a recomputed digest, as an attacker or a stale
+// tool could. The manifest's own integrity is recomputed too, so only the
+// completeness rule can reject it.
+function withPartialSelection(f) {
+  const dir = path.join(f.releaseDir, "forged-precheck");
+  fs.mkdirSync(dir, { recursive: true });
+  f.manifest.precheck = forgeSelectionReceipt(f.discovered, dir, f.manifest.sourceRevision, "/fake", { selection: F2_CLI1_SELECTION });
+  f.manifest.selection = structuredClone(F2_CLI1_SELECTION);
+  f.manifest.manifestIntegrity = computeManifestIntegrity(f.manifest);
+  fs.writeFileSync(path.join(f.releaseDir, MANIFEST_FILENAME), JSON.stringify(f.manifest));
+  return f;
+}
 const versionOf = (f, name) => f.manifest.packages.find((p) => p.package === name).version;
 const integrityOf = (f, name) => f.manifest.packages.find((p) => p.package === name).integrity;
 function promotion(f, name, replaces = PRIOR[name] ?? "1.9.9") {
@@ -124,7 +145,7 @@ const assertNoExcludedTraffic = (f) => {
   for (const [name] of [...f.observations, ...f.effects.map(([, n]) => [n])]) assert.ok(f.selected.includes(name), name);
 };
 
-test("five selected packages: per-package promotion, independent verification, next removal, persisted finalization", (t) => {
+test("all ten packages (full mode): per-package promotion, independent verification, next removal, persisted finalization", (t) => {
   const f = fixture(t);
   assert.deepEqual(f.selected, SELECTED);
   for (const name of SELECTED) {
@@ -147,12 +168,11 @@ test("five selected packages: per-package promotion, independent verification, n
   assert.equal(persisted.phase, "FINALIZED");
   assert.equal(isReleaseFinalized(f.manifest, persisted), true);
   assert.deepEqual(persisted.finalization.packages.map((p) => [p.package, p.version, p.latest, p.next]),
-    F2_CLI1_SELECTION.map((p) => [p.package, p.version, p.version, null]));
+    SELECTED.map((n) => [n, versionOf(f, n), versionOf(f, n), null]));
   assert.equal(persisted.finalization.manifestIntegrity, f.manifest.manifestIntegrity);
   assert.equal(persisted.finalization.finalizationDigest, computeFinalizationDigest(persisted.finalization));
   assert.deepEqual(persisted.history.slice(-4).map((h) => h.phase), ["PROMOTING_LATEST", "PROMOTED", "REMOVING_NEXT", "FINALIZED"]);
   assert.deepEqual(f.effects, [...SELECTED.map((n) => ["add", n, versionOf(f, n)]), ...SELECTED.map((n) => ["rm", n])]);
-  for (const name of EXCLUDED) assert.deepEqual(persisted.packages[name], { publishStatus: "pending" });
   assertFinalRegistry(f);
   assertNoExcludedTraffic(f);
 });
@@ -226,17 +246,19 @@ for (const [label, op] of [["promotion", promoteLatest], ["next removal", remove
       { code: `${prefix}_AUTHORIZATION_MISMATCH` });
     assert.deepEqual(f.effects, []); assert.deepEqual(f.observations, []);
   });
-  test(`${label}: excluded package never receives an operation, even with a crafted receipt`, (t) => {
+  test(`${label}: an R3 partial-selection manifest is refused for every package before observation or effect`, (t) => {
     const f = fixture(t); ready(f); const before = diskState(f);
-    for (const name of EXCLUDED) {
-      const crafted = { ...(op === promoteLatest ? promotion(f, "@oxdeai/core") : removal(f, "@oxdeai/core")),
-        package: name, version: versionOf(f, name), integrity: integrityOf(f, name) };
-      const call = op === promoteLatest ? promoteArgs(f, name, crafted) : removeArgs(f, name, crafted);
-      assert.throws(() => op(call), { code: "PACKAGE_NOT_SELECTED" });
+    withPartialSelection(f);
+    for (const name of SELECTED) {
+      const auth = op === promoteLatest ? promotion(f, name) : removal(f, name);
+      const call = op === promoteLatest ? promoteArgs(f, name, auth) : removeArgs(f, name, auth);
+      assert.throws(() => op(call), COMPLETENESS, name);
       const validator = op === promoteLatest ? validatePromotionAuthorization : validateNextRemovalAuthorization;
-      assert.throws(() => validator({ authorization: crafted, manifest: f.manifest, package: name, registry: REGISTRY }),
-        { code: `${prefix}_AUTHORIZATION_MISMATCH` });
+      assert.throws(() => validator({ authorization: auth, manifest: f.manifest, package: name, registry: REGISTRY }));
     }
+    // The loader checks integrity only (historical manifests keep loading); every
+    // phase that acts on the loaded manifest then refuses it.
+    assert.throws(() => validateState(loadAndValidateManifest(f.releaseDir), loadState(f.releaseDir)), COMPLETENESS);
     assert.deepEqual(f.effects, []); assert.deepEqual(f.observations, []); assert.equal(diskState(f), before);
   });
   for (const [obsLabel, response] of [
@@ -292,7 +314,13 @@ for (const [label, op] of [["promotion", promoteLatest], ["next removal", remove
     const persisted = loadState(f.releaseDir);
     assert.equal(persisted.finalizationBlocker.code, "DIST_TAG_CONFLICT");
     assert.equal(isReleaseFinalized(f.manifest, persisted), false);
-    assert.throws(() => op({ ...args(f), state: persisted }), { code: "DIST_TAG_CONFLICT" }, "retry still fails closed");
+    // On retry `latest` (9.9.9) is above the candidate, so promoteLatest() is now
+    // refused earlier by the promotion floor; removeNext() still reports the conflict.
+    const persistedBytes = fs.readFileSync(path.join(f.releaseDir, STATE_FILENAME), "utf8"), effects = f.effects.length;
+    assert.throws(() => op({ ...args(f), state: persisted }),
+      { code: op === promoteLatest ? "LATEST_NOT_ADVANCING" : "DIST_TAG_CONFLICT" }, "retry still fails closed");
+    assert.equal(f.effects.length, effects, "retry performs no effect");
+    assert.equal(fs.readFileSync(path.join(f.releaseDir, STATE_FILENAME), "utf8"), persistedBytes, "retry changes no state");
   });
 }
 
@@ -341,9 +369,9 @@ test("next removal cannot start before PROMOTED or while any selected latest has
 test("latest verification requires every selected package and observes them all independently", (t) => {
   const f = fixture(t);
   assert.throws(() => verifyLatestPromotion(f), { code: "FINALIZATION_PHASE_INVALID" });
-  for (const name of SELECTED.slice(0, 4)) promoteLatest(promoteArgs(f, name));
+  for (const name of SELECTED.slice(0, -1)) promoteLatest(promoteArgs(f, name));
   assert.throws(() => verifyLatestPromotion(f), { code: "PROMOTION_INCOMPLETE" });
-  promoteLatest(promoteArgs(f, "@oxdeai/cli"));
+  promoteLatest(promoteArgs(f, SELECTED.at(-1)));
   f.tags.get("@oxdeai/sdk").latest = "2.0.1"; // out-of-band rollback after recording
   const before = diskState(f);
   assert.throws(() => verifyLatestPromotion(f), { code: "PROMOTION_VERIFICATION_FAILED" });
@@ -375,10 +403,11 @@ test("partial next removal is not finalization; out-of-band removal reconciles w
   assert.throws(() => verifyFinalization(f), { code: "FINALIZATION_INCOMPLETE" });
   delete f.tags.get("@oxdeai/sdk").next; // removed by someone else meanwhile
   assert.equal(removeNext(removeArgs(f, "@oxdeai/sdk")).effect, false);
-  for (const name of ["@oxdeai/conformance", "@oxdeai/cli"]) removeNext(removeArgs(f, name));
+  const rest = SELECTED.filter((n) => !["@oxdeai/core", "@oxdeai/guard", "@oxdeai/sdk"].includes(n));
+  for (const name of rest) removeNext(removeArgs(f, name));
   assert.equal(verifyFinalization(f).phase, "FINALIZED");
   assert.deepEqual(f.effects.map(([k, n]) => `${k}:${n}`),
-    ["rm:@oxdeai/core", "rm:@oxdeai/guard", "rm:@oxdeai/conformance", "rm:@oxdeai/cli"]);
+    ["rm:@oxdeai/core", "rm:@oxdeai/guard", ...rest.map((n) => `rm:${n}`)]);
 });
 
 for (const [label, mutate] of [
@@ -386,7 +415,7 @@ for (const [label, mutate] of [
   ["latest drifted", (f) => { f.tags.get("@oxdeai/guard").latest = "2.0.2"; }],
   ["indeterminate", (f) => { f.distTagTransport.observeDistTag = () => ({}); }],
 ]) {
-  test(`final verification of all five fails closed: ${label}`, (t) => {
+  test(`final verification of all ten fails closed: ${label}`, (t) => {
     const f = fixture(t); finalizePromotion(f);
     for (const name of SELECTED) removeNext(removeArgs(f, name));
     mutate(f);
@@ -479,7 +508,7 @@ test("restart mid-promotion and mid-removal continues from persisted state only"
   restart(f);
   assert.equal(f.state.phase, "REMOVING_NEXT");
   assert.equal(finalizeAll(f).phase, "FINALIZED");
-  assert.equal(f.effects.length, 10);
+  assert.equal(f.effects.length, 2 * SELECTED.length);
 });
 
 test("persistence failure before the effect: no remote effect, memory abandoned, reload converges", (t) => {
@@ -493,7 +522,7 @@ test("persistence failure before the effect: no remote effect, memory abandoned,
   assert.deepEqual(fs.readdirSync(f.releaseDir).filter((n) => n.endsWith(".tmp")), []);
   assert.throws(() => promoteLatest(promoteArgs(f, "@oxdeai/core")), /abandoned/);
   assert.equal(finalizeAll(f).phase, "FINALIZED"); // finalizeAll reloads from disk
-  assert.equal(f.effects.length, 10);
+  assert.equal(f.effects.length, 2 * SELECTED.length);
   assertFinalRegistry(f);
 });
 
@@ -540,7 +569,8 @@ test("historical PROMOTED state can finalize only after fresh independent latest
 });
 
 test("legacy all-package V1 manifest (no selection) finalizes all ten under the same rules", (t) => {
-  const f = fixture(t, { selection: false });
+  const f = fixture(t);
+  assert.equal(f.manifest.selection, undefined);
   assert.equal(f.selected.length, 10);
   assert.equal(finalizeAll(f).phase, "FINALIZED");
   assert.equal(f.state.finalization.packages.length, 10);
@@ -553,8 +583,9 @@ for (const [label, mutate] of [
   ["latestVerified before promotion", (s) => { s.packages["@oxdeai/core"].latestVerified = true; }],
   ["nextRemoved in PROMOTED", (s) => { s.phase = "PROMOTED"; for (const n of SELECTED) s.packages[n].latestVerified = true; s.packages["@oxdeai/core"].nextRemoved = true; }],
   ["partial latest evidence in PROMOTED", (s) => { s.phase = "PROMOTED"; s.packages["@oxdeai/core"].latestVerified = true; }],
-  ["excluded package evidence", (s) => { s.phase = "PROMOTING_LATEST"; s.packages["@oxdeai/autogen"].latestVerified = true; }],
-  ["attempt for excluded package", (s) => { s.phase = "PROMOTING_LATEST"; s.finalizationAttempt = { operation: "promote-latest", package: "@oxdeai/autogen", version: "2.0.0", startedAt: "x" }; }],
+  ["evidence for a package outside the manifest", (s) => { s.phase = "PROMOTING_LATEST"; s.packages["@oxdeai/unknown"] = { publishStatus: "published", latestVerified: true }; }],
+  ["attempt for a package outside the manifest", (s) => { s.phase = "PROMOTING_LATEST"; s.finalizationAttempt = { operation: "promote-latest", package: "@oxdeai/unknown", version: "2.0.0", startedAt: "x" }; }],
+  ["attempt with wrong version", (s) => { s.phase = "PROMOTING_LATEST"; s.finalizationAttempt = { operation: "promote-latest", package: "@oxdeai/autogen", version: "2.0.0", startedAt: "x" }; }],
   ["attempt with wrong operation", (s) => { s.phase = "PROMOTING_LATEST"; s.finalizationAttempt = { operation: "remove-next", package: "@oxdeai/core", version: "2.0.2", startedAt: "x" }; }],
   ["non-boolean nextRemoved", (s) => { s.phase = "REMOVING_NEXT"; s.packages["@oxdeai/core"].nextRemoved = "yes"; }],
 ]) {
@@ -565,6 +596,17 @@ for (const [label, mutate] of [
     assert.equal(isReleaseFinalized(f.manifest, s), false);
   });
 }
+
+test("R3 partial-selection manifest: state validation, finalization and its record are refused", (t) => {
+  const f = fixture(t);
+  finalizeAll(f);
+  const finalized = structuredClone(f.state);
+  withPartialSelection(f);
+  assert.throws(() => validateState(f.manifest, finalized), COMPLETENESS);
+  assert.equal(isReleaseFinalized(f.manifest, finalized), false, "fails closed");
+  assert.throws(() => publicationPackages(f.manifest), COMPLETENESS);
+  assert.throws(() => validateState(loadAndValidateManifest(f.releaseDir), loadState(f.releaseDir)), COMPLETENESS);
+});
 
 test("finalization record is bound to manifest, selection and its digest", (t) => {
   const f = fixture(t);

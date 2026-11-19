@@ -1,15 +1,42 @@
 // SPDX-License-Identifier: Apache-2.0
-// Hermetic PRECHECK inputs for unit tests. Receipts are always produced by the
-// real precheck(); only git/package.json observations are injected.
-import { mkdtempSync, rmSync } from "node:fs";
+// Hermetic PRECHECK inputs for unit tests. Receipts are produced by the real
+// precheck(); only git/package.json observations are injected. The single
+// exception is forgeSelectionReceipt below, which exists only for negative tests.
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { precheck, computeManifestIntegrity } from "./orchestrator.mjs";
+import { precheck, computeManifestIntegrity, computePrecheckReceiptDigest, PRECHECK_FILENAME } from "./orchestrator.mjs";
 export const fixturePackages = { read: d => Buffer.from(JSON.stringify(d.manifest)) };
+// Registry state before the R3 release (the versions npm held before 2026-11-18).
+// Hermetic tests release the current POLICY against this baseline; the committed
+// published-baseline.json (the R3 versions themselves) makes PRECHECK refuse.
+export const PRE_R3_PUBLISHED_BASELINE = Object.freeze({
+  $comment: "test fixture: npm registry state before the R3 release",
+  baselineVersion: 1, registry: "https://registry.npmjs.org/", recordedAt: "2026-11-17",
+  packages: Object.fromEntries([["@oxdeai/core", "2.0.2"], ["@oxdeai/guard", "2.0.3"], ["@oxdeai/sdk", "2.0.2"],
+    ["@oxdeai/conformance", "2.0.2"], ["@oxdeai/autogen", "2.0.0"], ["@oxdeai/crewai", "2.0.0"], ["@oxdeai/langgraph", "2.0.0"],
+    ["@oxdeai/openai-agents", "2.0.0"], ["@oxdeai/openclaw", "2.0.0"], ["@oxdeai/cli", "0.3.2"]]
+    .map(([name, version]) => [name, { version, integrity: `sha512-${"A".repeat(86)}==`, publishedAt: "2026-10-20T00:00:00.000Z" }])),
+});
 export function persistFixturePrecheck(discovered, releaseDir, revision = "a".repeat(40), root = "/fake", overrides = {}) {
   return precheck({ discovered, releaseDir, sourceRevision: revision,
     gitTransport: { isClean: () => true }, sourceTransport: { snapshot: () => ({ root, revision, clean: true }) },
-    packageTransport: fixturePackages, ...overrides });
+    packageTransport: fixturePackages, publishedBaseline: PRE_R3_PUBLISHED_BASELINE, ...overrides });
+}
+// NEGATIVE TESTS ONLY (R4, F-R4-1). Reproduces the forgery that bypassed the
+// PRECHECK-only completeness rule: the real precheck() runs in full mode, then
+// `selection` is inserted where PRECHECK would place it and the consistency
+// digest (not an authentication) is recomputed. The forged receipt is written
+// WITHOUT validation; every phase after PRECHECK must reject it on this R3
+// checkout. It is never a valid receipt and is not a compatibility fixture.
+export function forgeSelectionReceipt(discovered, releaseDir, revision = "a".repeat(40), root = "/fake", { selection, ...overrides } = {}) {
+  if (selection === undefined) throw new Error("forgeSelectionReceipt requires a selection");
+  const { receiptDigest, ...full } = persistFixturePrecheck(discovered, releaseDir, revision, root, overrides);
+  const { receiptVersion, ok, sourceRevision, ...rest } = full;
+  const receipt = { receiptVersion, ok, sourceRevision, selection: structuredClone(selection), ...rest };
+  receipt.receiptDigest = computePrecheckReceiptDigest(receipt);
+  writeFileSync(path.join(releaseDir, PRECHECK_FILENAME), `${JSON.stringify(receipt, null, 2)}\n`);
+  return receipt;
 }
 // For unit tests of phases AFTER VERIFY_LOCAL that start from hand-built
 // manifests/states. Not used by lifecycle tests (precheck-receipt.test.mjs,

@@ -1,6 +1,6 @@
 # @oxdeai/openclaw
-OpenClaw adapter for the OxDeAI execution-time authorization protocol.
-Enforces the execution boundary via @oxdeai/guard; no authorization, no execution.
+Shape adapter that maps OpenClaw-style actions to @oxdeai/guard. It registers no OpenClaw hook; only actions
+you route through it are authorized. No authorization, no execution.
 
 ---
 
@@ -16,6 +16,22 @@ identity and use a different shape from OxDeAI's `ProposedAction`. This adapter:
 
 Everything else - policy evaluation, authorization verification, state
 persistence, fail-closed behavior - happens inside `@oxdeai/guard`.
+
+---
+
+## Integration level
+
+This package is a **shape adapter**, not a native OpenClaw integration:
+
+- It does not depend on or import OpenClaw. Its input is a plain object with the OpenClaw action fields
+  (`{ name, args, step_id, workflow_id }`).
+- It registers no OpenClaw hook, callback or middleware. Nothing is intercepted automatically.
+- Enforcement covers only the calls your code passes to the returned guard function, with the tool run
+  inside `execute`. Any other path that runs the tool is not authorized by OxDeAI.
+- Compatibility with a specific OpenClaw release's objects is not tested in this repository.
+- The repository example ([`examples/openclaw`](https://github.com/oxdeai/oxdeai/tree/main/examples/openclaw))
+  uses OpenClaw-shaped actions without an OpenClaw runtime.
+- No native OpenClaw enforcement integration is published.
 
 ---
 
@@ -217,4 +233,4 @@ Demo:
 
 > Tip: if `OXDEAI_ENGINE_SECRET` is unset, the demo falls back to a bundled demo secret. Set your own secret for non-demo use.
 
-The execution-binding contract requires an `@oxdeai/guard` release that includes ACT-1 (`^2.0.5` on the 2.0.x line). Framework identifiers are captured once during translation. Top-level framework getters and Proxies may run during translation; only the constructed action is subject to Guard plain-data validation.
+The execution-binding contract requires `@oxdeai/guard ^2.0.5`. Framework identifiers are captured once during translation. Top-level framework getters and Proxies may run during translation; only the constructed action is subject to Guard plain-data validation.

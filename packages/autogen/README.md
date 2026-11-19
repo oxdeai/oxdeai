@@ -1,6 +1,6 @@
 # @oxdeai/autogen
-AutoGen adapter to the OxDeAI execution-time authorization protocol.
-Sends AutoGen tool calls through @oxdeai/guard; enforcement is local and fail-closed.
+Shape adapter that maps AutoGen-style function calls to @oxdeai/guard. AutoGen is a Python framework; this
+is a TypeScript package, not an AutoGen extension. Enforcement is local and fail-closed for routed calls.
 
 ---
 
@@ -15,6 +15,22 @@ a different shape from OxDeAI's `ProposedAction`. This adapter:
 
 Everything else - policy evaluation, authorization verification, state
 persistence, fail-closed behavior - happens inside `@oxdeai/guard`.
+
+---
+
+## Integration level
+
+This package is a **shape adapter**, not a native AutoGen integration:
+
+- It does not depend on or import AutoGen. Its input is a plain object with the AutoGen function-call fields
+  (`{ name, args, id }`).
+- It registers no AutoGen hook, callback or middleware. Nothing is intercepted automatically.
+- Enforcement covers only the calls your code passes to the returned guard function, with the tool run
+  inside `execute`. Any other path that runs the tool is not authorized by OxDeAI.
+- Compatibility with a specific AutoGen release's objects is not tested in this repository.
+- AutoGen is a Python framework. No Python adapter is published, and the repository example
+  ([`examples/autogen`](../../examples/autogen)) uses AutoGen-shaped objects without AutoGen.
+- No native AutoGen enforcement integration is published.
 
 ---
 
@@ -187,4 +203,4 @@ All of that lives in `@oxdeai/guard`.
 - [Adapter reference architecture](../../docs/adapters/adapter-reference-architecture.md)
 - [Root README](../../README.md)
 
-The execution-binding contract requires an `@oxdeai/guard` release that includes ACT-1 (`^2.0.5` on the 2.0.x line). Framework identifiers are captured once during translation. Top-level framework getters and Proxies may run during translation; only the constructed action is subject to Guard plain-data validation.
+The execution-binding contract requires `@oxdeai/guard ^2.0.5`. Framework identifiers are captured once during translation. Top-level framework getters and Proxies may run during translation; only the constructed action is subject to Guard plain-data validation.

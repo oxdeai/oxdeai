@@ -1,6 +1,6 @@
 # @oxdeai/openai-agents
-OpenAI Agents SDK adapter for the OxDeAI execution-time authorization protocol.
-All tool calls pass through @oxdeai/guard (fail-closed verification).
+Shape adapter that maps OpenAI Agents SDK-style tool calls to @oxdeai/guard. It does not register with the
+Agents SDK; only calls you route through it are authorized (fail-closed verification).
 
 ---
 
@@ -16,6 +16,23 @@ identity and use a different shape from OxDeAI's `ProposedAction`. This adapter:
 
 Everything else - policy evaluation, authorization verification, state
 persistence, fail-closed behavior - happens inside `@oxdeai/guard`.
+
+---
+
+## Integration level
+
+This package is a **shape adapter**, not a native OpenAI Agents SDK integration:
+
+- It does not depend on or import the OpenAI Agents SDK. Its input is a plain object with the Agents SDK
+  tool-call fields (`{ name, input, call_id }`).
+- It registers no Agents SDK hook, callback, guardrail or middleware. Nothing is intercepted automatically.
+- Enforcement covers only the calls your code passes to the returned guard function, with the tool run
+  inside `execute`. Any other path that runs the tool is not authorized by OxDeAI.
+- Compatibility with a specific Agents SDK release's objects is not tested in this repository.
+- The repository example ([`examples/openai-agents-sdk`](https://github.com/oxdeai/oxdeai/tree/main/examples/openai-agents-sdk))
+  uses Agents SDK-shaped objects without the SDK. `examples/openai-tools` uses the real `openai` package
+  (Chat Completions tool calls), but it calls `@oxdeai/core` directly and does not use this adapter.
+- No native OpenAI Agents SDK enforcement integration is published.
 
 ---
 
@@ -228,4 +245,4 @@ and [`docs/testing/delegation-pbt.md`](../../docs/testing/delegation-pbt.md).
 - [Adapter reference architecture](https://github.com/oxdeai/oxdeai/blob/main/docs/adapters/adapter-reference-architecture.md)
 - [Root README](https://github.com/oxdeai/oxdeai/blob/main/README.md)
 
-The execution-binding contract requires an `@oxdeai/guard` release that includes ACT-1 (`^2.0.5` on the 2.0.x line). Framework identifiers are captured once during translation. Top-level framework getters and Proxies may run during translation; only the constructed action is subject to Guard plain-data validation.
+The execution-binding contract requires `@oxdeai/guard ^2.0.5`. Framework identifiers are captured once during translation. Top-level framework getters and Proxies may run during translation; only the constructed action is subject to Guard plain-data validation.
