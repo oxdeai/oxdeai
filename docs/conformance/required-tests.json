@@ -709,7 +709,7 @@
         },
         {
           "file": "packages/core/dist/test/verify.s4-canonical-signature.test.js",
-          "name": "S4-B e2e: canonical standard Encoding-B signature also verifies"
+          "name": "S4-B e2e: standard-base64 signature under ed25519 (cross-alphabet) is rejected"
         },
         {
           "file": "packages/core/dist/test/verify.s4-canonical-signature.test.js",
