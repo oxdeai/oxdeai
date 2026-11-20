@@ -8,6 +8,7 @@ import { resolveReplayProtection, strictFromConfig } from "./replayProtection.js
 import type { ReplayProtection } from "./replayProtection.js";
 import type { ReplayStore } from "./replayStore.js";
 import { snapshotPlainData } from "./delegationSnapshot.js";
+import { signedEffectiveExpiry } from "./authorizationExpiry.js";
 
 export const INTERNAL_EXECUTOR_TOKEN_HEADER = "x-internal-executor-token";
 
@@ -680,7 +681,7 @@ export function createPepGatewayExecutor(options: PepGatewayOptions) {
     try {
       // INVREG-F02: `authorization` is the frozen snapshot that was verified,
       // so the consumed auth_id is the verified auth_id.
-      consumed = await replayStore.consumeAuthId(authorization.auth_id, { expiry: authorization.expiry });
+      consumed = await replayStore.consumeAuthId(authorization.auth_id, { expiry: signedEffectiveExpiry(authorization) as number });
     } catch (err) {
       return deny(403, `REPLAY_STORE_UNAVAILABLE:${err instanceof Error ? err.message : String(err)}`);
     }

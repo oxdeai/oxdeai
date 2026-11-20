@@ -69,7 +69,7 @@
       "sources": [
         {"path": "docs/verification/spec-claims/claims.json", "claimId": "ETA-SIGNING-001", "role": "registry-state"},
         {"path": "docs/spec/core/eta-core-v1.md", "section": "## 5. Authorization Artifact (AuthorizationV1)", "quote": "- The signature preimage MUST be the canonical JSON bytes of the AuthorizationV1 object, **excluding the `signature` field**, using the canonicalization rules in `canonicalization-v1.md`.", "role": "normative"},
-        {"path": "docs/spec/artifacts/authorization-v1.md", "section": "### Signing preimage", "quote": "2. For nested signatures: include `signature: { alg, kid }` (without `sig`)", "role": "conflicting-preimage"}
+        {"path": "docs/spec/artifacts/authorization-v1.md", "section": "### Signing preimage", "quote": "otherwise (no top-level `alg`/`kid`, the Sift-compatible form), include `signature: { alg, kid }` (without `sig`).", "role": "conflicting-preimage"}
       ]
     },
     {

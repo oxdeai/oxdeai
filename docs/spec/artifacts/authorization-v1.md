@@ -136,20 +136,22 @@ Produced by the Sift adapter in `@oxdeai/sift`.
 **Distinguishing characteristics:**
 - Expiry field: **`expires_at`** (integer unix seconds)
 - Algorithm identifier: **`"ed25519"`** (lowercase, case-sensitive)
-- Signature: nested object, `sig` field is **base64url** encoded (RFC 4648 §5)
+- Signature: nested object (**required** — a flat signature string with `alg: "ed25519"` **MUST** be rejected with `AUTH_ALG_UNSUPPORTED`), `sig` field is **base64url** encoded (RFC 4648 §5)
 - Signing preimage: `canonicalJson(payload_without_sig_bytes)` (no domain prefix)
 
 ---
 
 ### Expiry field resolution
 
-A verifier **MUST** resolve the effective expiry as follows:
+Authorization validity **MUST** derive only from an expiry value covered by the signature. A verifier **MUST** resolve the effective expiry as follows:
 
-1. If `expiry` is present and is an integer: use `expiry`
-2. Else if `expires_at` is present and is an integer: use `expires_at`
-3. Else: reject with `AUTH_MISSING_FIELD`
+1. A present expiry field (`expiry` or `expires_at`, value other than absent) that is not a safe integer **MUST** be rejected with `AUTH_MISSING_FIELD`. A malformed `expiry` is **never** skipped in favour of `expires_at`.
+2. If neither field is present: reject with `AUTH_MISSING_FIELD`.
+3. **Flat signature (Encoding A flat):** the preimage signs `expiry` and not `expires_at`, so `expiry` is **REQUIRED**; an artifact carrying only `expires_at` **MUST** be rejected with `AUTH_MISSING_FIELD`. An `expires_at` beside it is an unsigned alias and is accepted only if it equals `expiry`.
+4. **Nested signature:** both fields are signed when present. Use `expiry` when present, otherwise `expires_at`.
+5. If both fields are present and differ: reject with `AUTH_SIGNATURE_INVALID` (unsigned or duplicated data contradicts the signed value). `expiry` still takes precedence for the expiry check, so an expired `expiry` additionally yields `AUTH_EXPIRED`.
 
-Both fields **MUST NOT** be accepted simultaneously with conflicting values. `expiry` takes precedence when both are present.
+Consumers that act on expiry after verification (replay-store retention, delegation expiry ceilings) **MUST** use this same effective expiry. A delegation parent without a valid integer `expiry` **MUST** be rejected (`DELEGATION_MISSING_FIELD`), never treated as unbounded.
 
 ---
 
@@ -199,12 +201,10 @@ The OxDeAI reference implementation accepts `alg: "HMAC-SHA256"` artifacts only 
 
 | Encoding | `signature.sig` format | Decoding |
 |---|---|---|
-| Core-native | Standard base64 (RFC 4648 §4) | `Buffer.from(sig, "base64")` |
-| Sift-compatible | Base64url (RFC 4648 §5) | `Buffer.from(sig, "base64url")` |
+| Core-native (`"Ed25519"`) | Canonical standard base64 (RFC 4648 §4), padded, 64 bytes | `Buffer.from(sig, "base64")` |
+| Sift-compatible (`"ed25519"`) | Canonical base64url (RFC 4648 §5), unpadded, 64 bytes | `Buffer.from(sig, "base64url")` |
 
-Auto-detection: if `sig` contains `-` or `_` characters, it is base64url; otherwise standard base64.
-
-Standard base64 never contains `-` or `_`. Base64url never contains `+` or `/`. The two formats are unambiguous.
+The alphabet is **bound to the declared `alg`**; it is never auto-detected from the signature string. A verifier **MUST NOT** fall back to the other alphabet or to the other encoding's preimage. A signature in the wrong alphabet, or over the other encoding's preimage, **MUST** be rejected with `AUTH_SIGNATURE_INVALID` (conformance vectors `w-006`, `w-007`, `w-008a`, `w-008b`).
 
 ---
 
@@ -212,16 +212,37 @@ Standard base64 never contains `-` or `_`. Base64url never contains `+` or `/`. 
 
 The signed payload **MUST** be reconstructed as follows:
 
-1. Take all fields from the authorization object **except** the signature bytes (`signature.sig` or the bare signature string)
-2. For nested signatures: include `signature: { alg, kid }` (without `sig`)
+1. Take the **signed fields** present in the authorization object (see *Signed field set* below), **except** the signature bytes (`signature.sig` or the bare signature string)
+2. For nested signatures:
+   * if top-level `alg` and `kid` are **both present**, they are signed as top-level fields and the `signature` object is **excluded entirely** from the preimage;
+   * otherwise (no top-level `alg`/`kid`, the Sift-compatible form), include `signature: { alg, kid }` (without `sig`).
 3. Apply `canonicalJson` (sorted keys, deterministic serialization per `canonicalization-v1.md`)
 4. Encode as UTF-8 bytes
+
+**Ambiguity rule.** When the signature is nested and either top-level `alg` or `kid` is present, **both** **MUST** be present and **MUST** equal `signature.alg` and `signature.kid` exactly. Any partial or conflicting pair (including an empty or `null` top-level value) is an ambiguous encoding and **MUST** be rejected with `AUTH_ALG_UNSUPPORTED` (conformance vectors `w-002a`, `w-002b`, `w-002c`).
 
 For **Encoding A** (Core-native): prepend `"OXDEAI_AUTH_V1\n"` to the UTF-8 bytes before signing.
 
 For **Encoding B** (Sift-compatible): use the UTF-8 bytes directly, with no prefix.
 
 The canonicalized preimage includes whichever expiry field name (`expiry` or `expires_at`) was present in the artifact. Changing the field name invalidates the signature.
+
+---
+
+### Signed field set
+
+An `AuthorizationV1` artifact is a **closed** set of top-level fields. Every field **MUST** be one of the following; any other top-level field, and any field other than `alg`, `kid`, `sig` inside a nested `signature` object, **MUST** be rejected with `AUTH_SIGNATURE_INVALID`. A verifier **MUST NOT** silently drop unknown fields and continue.
+
+| Field | Status |
+|---|---|
+| `auth_id`, `issuer`, `audience`, `decision`, `intent_hash`, `state_hash`, `policy_id`, `issued_at` | Signed, required |
+| `expiry` | Signed (see *Expiry field resolution*) |
+| `alg`, `kid` | Signed (top-level), or carried in the nested `signature` object per step 2 |
+| `version`, `nonce`, `capability` | Signed, optional |
+| `expires_at` | Signed in nested encodings; in the flat encoding an unsigned alias that **MUST** equal `expiry` |
+| `signature` | Signature bytes (`signature.sig`) and, per step 2, `signature.alg` / `signature.kid` |
+| `authorization_id` | PolicyEngine legacy field, **not signed**; **MUST** equal `auth_id`, else `AUTH_SIGNATURE_INVALID` |
+| `policy_version`, `state_snapshot_hash`, `engine_signature` | PolicyEngine legacy fields, **not covered by the AuthorizationV1 signature** (engine-HMAC domain only). **MUST** be strings. AuthorizationV1 verification never consults them, and an enforcement boundary **MUST NOT** pass them to hooks, audit records or other consumers as verified data. |
 
 ---
 
@@ -448,12 +469,23 @@ The following encodings are **explicitly rejected** and **MUST** produce `AUTH_A
 The following structural forms produce `AUTH_MISSING_FIELD`:
 
 * Neither `expiry` nor `expires_at` present
-* `expiry` or `expires_at` present but not an integer
+* `expiry` or `expires_at` present but not an integer (no fallback to the other field)
+* Flat signature without `expiry` (an unsigned `expires_at` cannot supply it)
+
+The following also produce `AUTH_ALG_UNSUPPORTED`:
+
+* Nested signature with top-level `alg`/`kid` that are partial or differ from `signature.alg`/`signature.kid`
+* `alg = "ed25519"` with a flat (non-nested) signature string
 
 The following produce `AUTH_SIGNATURE_INVALID`:
 
 * Signature bytes do not verify against the reconstructed preimage
 * Tampering any field covered by the preimage without re-signing
+* `"Ed25519"` signature over the non-prefixed preimage, or `"ed25519"` signature over the prefixed preimage (cross-encoding)
+* Signature string in the alphabet of the other encoding (cross-alphabet)
+* `expiry` and `expires_at` both present with different values
+* A top-level field outside the *Signed field set*, or a nested `signature` field other than `alg`/`kid`/`sig`
+* `authorization_id` different from `auth_id`, or a non-string `policy_version` / `state_snapshot_hash` / `engine_signature`
 
 > Ambiguous inputs **MUST** be rejected. There is no partial acceptance.
 
@@ -475,6 +507,21 @@ Conformance is verified by `packages/conformance`. The following vector groups c
 | `authorization-sig-006` | — | Tampered field → AUTH_SIGNATURE_INVALID |
 | `authorization-sig-007` | — | Expired → AUTH_EXPIRED |
 | `authorization-sig-008` | — | Replay → AUTH_REPLAY |
+
+Wire-encoding separation fixtures are generated reproducibly (test key only, `node:crypto` only) by `scripts/repro/authorization-wire-encoding-fixtures.mjs` and asserted by `packages/core/src/test/verify.authorization-wire-encoding.test.ts`:
+
+| Vector | Proves |
+|---|---|
+| `w-001` / `w-003` | Valid Core-native / Sift-compatible baselines |
+| `w-002a` | Nested + equal top-level `alg`/`kid`: preimage excludes the `signature` object → accepted |
+| `w-002b` | Same shape signed with `signature: { alg, kid }` also in preimage → `AUTH_SIGNATURE_INVALID` |
+| `w-002c` | Nested `kid` ≠ top-level `kid` → `AUTH_ALG_UNSUPPORTED` |
+| `w-006` | `"Ed25519"` over non-prefixed preimage → `AUTH_SIGNATURE_INVALID` |
+| `w-007` | `"ed25519"` over prefixed preimage → `AUTH_SIGNATURE_INVALID` |
+| `w-008a` / `w-008b` | Cross-alphabet signature → `AUTH_SIGNATURE_INVALID` |
+| `w-009` | Flat signature with `"ed25519"` → `AUTH_ALG_UNSUPPORTED` |
+
+The locked corpus `docs/spec/test-vectors/authorization-v1.json` is Core-native (domain-prefixed) and is regenerated reproducibly by `scripts/generate-authorization-v1-vectors.mjs`.
 
 ---
 

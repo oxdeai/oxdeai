@@ -110,9 +110,10 @@ export function verifyEd25519(
     // character whose unused low bits differ, base64url with '-'/'_'); require
     // the supplied string to equal the standard re-encoding of the decoded bytes
     // and reject everything else. Fail closed (return false), never throw.
-    // Note: this path is standard-Base64 only; the base64url (Encoding B)
-    // tolerance lives in verifyAuthorization's verifyEd25519Raw, canonicalised
-    // per-encoding there.
+    // Note: this path is standard-Base64 only (Encoding A, alg "Ed25519").
+    // Encoding B (alg "ed25519", base64url, non-prefixed) is verified by
+    // verifyAuthorization's verifyEd25519SiftCompatible; the two are never
+    // tried as fallbacks for each other.
     if (sig.length !== 64 || sig.toString("base64") !== signatureBase64) return false;
     const key = createPublicKey(normalizePem(publicKeyPem));
     // S3: reject small-order / unreadable public keys before trusting the verify

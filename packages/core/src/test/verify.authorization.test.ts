@@ -201,8 +201,15 @@ test("invalid: changing only an unrelated intent-shaped field cannot affect the 
     opts
   );
 
-  assert.deepEqual(withFakeIntentTimestamp.violations, baseline.violations);
+  // The smuggled field has zero effect on the issued_at outcome ...
+  const isR04 = (v: { code: string; message?: string }) =>
+    v.code === "AUTH_SIGNATURE_INVALID" && String(v.message).startsWith("field(s) not covered by the signature");
+  assert.deepEqual(withFakeIntentTimestamp.violations.filter((v) => !isR04(v)), baseline.violations);
   assert.ok(baseline.violations.some((v) => v.code === "AUTH_ISSUED_AT_IMPLAUSIBLE"));
+  // ... and, under R-04 (authorization-v1.md §5 "Signed field set"), the
+  // unsigned field is itself rejected rather than silently tolerated.
+  assert.ok(withFakeIntentTimestamp.violations.some(isR04));
+  assert.equal(baseline.violations.some(isR04), false);
 });
 
 test("ok: explicit maxFutureIssuedAtSkewSeconds overrides the default", () => {

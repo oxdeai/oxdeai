@@ -49,8 +49,10 @@ function verifyAuth(auth, keys, expectedIntentHash, stateSnapshot) {
   }
 
   const { signature, ...rest } = auth;
-  // Preimage excludes signature entirely to match the provided test vectors
-  const preimage = canonicalize(rest);
+  // Encoding A (Core-native, authorization-v1.md §5): the nested signature
+  // object is excluded (top-level alg/kid are signed) and the canonical bytes
+  // are domain-prefixed with "OXDEAI_AUTH_V1\n".
+  const preimage = "OXDEAI_AUTH_V1\n" + canonicalize(rest);
 
   const key = keys.find((k) => k.kid === signature.kid && k.alg === signature.alg);
   if (!key) return { decision: "DENY", error: "UNKNOWN_KID" };

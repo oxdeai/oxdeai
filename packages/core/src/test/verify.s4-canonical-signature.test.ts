@@ -96,11 +96,11 @@ test("S4-B empty signature authorization is rejected", () => {
 });
 
 // ── Encoding B END-TO-END through verifyAuthorization ─────────────────────────
-// A real Encoding-B signature is over the DOMAIN-LESS preimage
-// canonicalJson(authorizationSigningPayload(auth)) consumed by verifyEd25519Raw,
-// in nested-signature form. We sign that exact preimage with node:crypto and run
-// it through verifyAuthorization to prove canonical base64url is accepted and
-// non-canonical is rejected - without altering production behavior.
+// A real Encoding-B (Sift-compatible) artifact is alg "ed25519" (lowercase),
+// nested { alg, kid, sig }, expires_at, signed over the DOMAIN-LESS preimage
+// canonicalJson(authorizationSigningPayload(auth)), base64url signature
+// (authorization-v1.md §5). The alphabet and preimage are bound to alg: there is
+// no cross-encoding fallback.
 import { sign as nodeSign } from "node:crypto";
 import { canonicalJson } from "../crypto/hashes.js";
 import { authorizationSigningPayload } from "../verification/verifyAuthorization.js";
@@ -110,8 +110,8 @@ function nestedAuth(sigEncoded: string): any {
   return {
     auth_id: encBAuthId, issuer: "iss", audience: "aud", intent_hash: "0".repeat(64),
     state_hash: "0".repeat(64), policy_id: "p1", decision: "ALLOW",
-    issued_at: NOW - 5, expiry: NOW + 600, alg: "Ed25519", kid: "k1",
-    signature: { alg: "Ed25519", kid: "k1", sig: sigEncoded },
+    issued_at: NOW - 5, expires_at: NOW + 600,
+    signature: { alg: "ed25519", kid: "k1", sig: sigEncoded },
   };
 }
 // Select a valid signature containing a base64url-specific character.
@@ -134,9 +134,24 @@ test("S4-B e2e: canonical base64url Encoding-B signature verifies via verifyAuth
   assert.equal(r.ok, true, "canonical base64url Encoding-B must verify");
   assert.equal(r.signatureVerified, true);
 });
-test("S4-B e2e: canonical standard Encoding-B signature also verifies", () => {
+test("S4-B e2e: standard-base64 signature under ed25519 (cross-alphabet) is rejected", () => {
   const r = verifyAuthorization(nestedAuth(encBRaw.toString("base64")), vopts);
-  assert.equal(r.ok, true);
+  assert.equal(r.ok, false, "ed25519 binds base64url; standard base64 must not verify");
+  assert.ok(r.violations.some((v) => v.code === "AUTH_SIGNATURE_INVALID"));
+});
+test("S4-B e2e: non-prefixed preimage declared as Ed25519 (cross-encoding) is rejected", () => {
+  // Same bytes as a valid Encoding-B signature, relabelled as Core-native.
+  const { expires_at, signature, ...rest } = nestedAuth("");
+  const relabelled = {
+    ...rest, expiry: expires_at, alg: "Ed25519", kid: "k1",
+    signature: { alg: "Ed25519", kid: "k1", sig: "" },
+  };
+  const preimage = Buffer.from(canonicalJson(authorizationSigningPayload(relabelled as any)), "utf8");
+  const raw = nodeSign(null, preimage, kp.privateKey);
+  relabelled.signature.sig = raw.toString("base64");
+  const r = verifyAuthorization(relabelled as any, vopts);
+  assert.equal(r.ok, false, "Ed25519 requires the OXDEAI_AUTH_V1 domain prefix");
+  assert.ok(r.violations.some((v) => v.code === "AUTH_SIGNATURE_INVALID"));
 });
 test("S4-B e2e: non-canonical base64url (extra char) Encoding-B is rejected", () => {
   const r = verifyAuthorization(nestedAuth(encBRaw.toString("base64url") + "A"), vopts);

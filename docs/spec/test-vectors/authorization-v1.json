@@ -3,12 +3,12 @@
     {
       "kid": "auth-key-1",
       "alg": "Ed25519",
-      "public_key_pem": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASyQL4zdR435kMZBiqIKq87JvPivVmhOsAnGWZV4HJDY=\n-----END PUBLIC KEY-----\n"
+      "public_key_pem": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA8/Bg08dynxA5UFNR0uRHyRCoLveZBjxqhPTmcesTwYg=\n-----END PUBLIC KEY-----\n"
     },
     {
       "kid": "sb-key-1",
       "alg": "Ed25519",
-      "public_key_pem": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAEpLwEc8AC3nZVxl/gO8ibomzrH3FVO9dzugk/ku9ack=\n-----END PUBLIC KEY-----\n"
+      "public_key_pem": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAfS8Ho98xgotvke6b3hdyjxVL89QtEcGRyCW64RP6wN4=\n-----END PUBLIC KEY-----\n"
     },
     {
       "kid": "portable-key-1",
@@ -36,7 +36,7 @@
         "signature": {
           "alg": "Ed25519",
           "kid": "auth-key-1",
-          "sig": "Zef4gpQ+YpEtM8IyzLl3T3/sUEdTvGEvdbt45CtLNBkEROBZh2qYMNfuo1mer4mRC0VC5GSrRxCVAzNiaZUTBg=="
+          "sig": "zR9vkjpXZuZzI3vMY9T6ShNn2Qu999obHQygwkuicmO0b/4DDOCfXDrnqSylSXsf614LLOZX+U/lfcmMbIVpDQ=="
         }
       },
       "expected": {
@@ -63,7 +63,7 @@
         "signature": {
           "alg": "Ed25519",
           "kid": "auth-key-1",
-          "sig": "UBz1+nmPjhTX9S/Jil9ryuqSj7+akOcOCX+WDKCLdaOshIFPsiF0qR96R38kr4VhkMBPJs18vMcT5xxfEwZbAw=="
+          "sig": "bBQLLkunP9pY5+jbdlAsooe8OYC7bEJjq/GBpep0SoeJv1af1x1UR78ifRympWJD2IGTRT8FFwM3FiSr15OjDw=="
         }
       },
       "expected": {
@@ -95,7 +95,7 @@
         "signature": {
           "alg": "Ed25519",
           "kid": "auth-key-1",
-          "sig": "WV0CFa7cSOBAnMbzVpSPxiEIJoCPEQJhAbCwcqOyemO1XeQcGrwGzpQhgNOPJtYewV1CvhksHpclbWEZqQpACg=="
+          "sig": "anxKmFxWvx/MPkZ3Oy+txKQuSXdKaO7pO02JUxXS+jpE4O/15b7JnVD0WHdT8sZNFiMCrAZ3uj1uCTs11E1pBg=="
         }
       },
       "expected": {
@@ -127,7 +127,7 @@
         "signature": {
           "alg": "Ed25519",
           "kid": "portable-key-1",
-          "sig": "dOdPWhWrher1lKQqF2Aa9lXX5blqo7GAqxSvEDqWLJSxIgSDhG0g+CwQxIPZioKQhBVYdLhIAmzpw/rDmYc6Ag=="
+          "sig": "e+4woGfubbR/I52KcbKR2hgLHy9OUHZ+fv6grkKMcamqCg8iCUYNC9xWbdWodixGl2VJ66slVRY0z2g7LBWaBg=="
         }
       },
       "expected": {
@@ -155,7 +155,7 @@
         "signature": {
           "alg": "Ed25519",
           "kid": "portable-key-1",
-          "sig": "HpvWICtMB/dieClCnUFIi+g3XXlOUwTP2O9GhaKmuwISpCHLYEOF2BBnvjvjbYMrwXeoGFy3849/nK2jHEHGCw=="
+          "sig": "Gs9ICCw+l8sRKXvmU8kTmr7jexN77pf3ubv6kaIVOd1sREvdxipRMiBgJnQPohdXWh/xVnxKljUGcVb7AA4iCw=="
         }
       },
       "expected": {
@@ -182,7 +182,7 @@
         "signature": {
           "alg": "Ed25519",
           "kid": "portable-key-1",
-          "sig": "IFUjndKq1bMwNRZordKUPZpfdKenul9XkrgLq5xQXQabTxudV11nrSdWBWi07cA+GChfwzkuokpVawbKJoo2AA=="
+          "sig": "rs2SSs375pzbTuemXyrw8RUPofVfyy3brEIRZNw26+1ZJ8d+XE9p8/uXl9TPhLXbJ55qv4Zj9mE6WzxWE2AIBw=="
         }
       },
       "expected": {
@@ -209,7 +209,7 @@
         "signature": {
           "alg": "Ed25519",
           "kid": "provider-receipt-key-1",
-          "sig": "IFUjndKq1bMwNRZordKUPZpfdKenul9XkrgLq5xQXQabTxudV11nrSdWBWi07cA+GChfwzkuokpVawbKJoo2AA=="
+          "sig": "rs2SSs375pzbTuemXyrw8RUPofVfyy3brEIRZNw26+1ZJ8d+XE9p8/uXl9TPhLXbJ55qv4Zj9mE6WzxWE2AIBw=="
         }
       },
       "expected": {
@@ -264,7 +264,7 @@
         "signature": {
           "alg": "Ed25519",
           "kid": "sb-key-1",
-          "sig": "hVMlD53hOVGfvPYZyyMLAMgoLetBWwy5RDu2uptXgHpc742G1niWhZl5wtR9eebf0C1lRVvumDB02Cjv7WzyDQ=="
+          "sig": "iGjNodwiDRt35sTkiWX23D6FTbXHPhrbcJxlSyR3sakQGrsAlumTQ0uuEfWfZ6R4cvhJT4XVHZz3x7BHNTqQAg=="
         }
       },
       "expected": {
@@ -292,7 +292,7 @@
         "signature": {
           "alg": "Ed25519",
           "kid": "sb-key-1",
-          "sig": "9pCXkk3UtL3syp2hXsQpqKtHY/W0mIDcRLk23BY+NTSpG3MUEKpbnBOrvhoAqVBs9cBk53gXHL2V6WF7w450Cg=="
+          "sig": "M/bHIWRwgU7DpdkRACW/hucZPlWv5shrJDSHApR9Mj0N0+MZnk5wXpLaFFFU/Q4qGRZ80UXQ7KAumruHl/e4Dw=="
         }
       },
       "expected": {
@@ -347,7 +347,7 @@
         "signature": {
           "alg": "Ed25519",
           "kid": "sb-key-1",
-          "sig": "uvdN4IS3Nt/BvbRzcCpt0wODciRPLBqOAnbuAjCBHz18LSLTV5xb89NL4jQBh1UJugQvyjy2IOqazyPjMjBQBA=="
+          "sig": "lhhMNh73APKumy8R683N5dWb703+tLzmo+b0PsACJwtHWfgpBRx9QaNXn6fnChcEXeFs8hh9Fo8H+BwFZg+sBw=="
         }
       },
       "expected": {
