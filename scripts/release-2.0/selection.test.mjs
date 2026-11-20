@@ -121,9 +121,8 @@ for (const [label, mutate] of [
   assert.deepEqual(f.effects, []); assert.deepEqual(f.observations, []);
 });
 
-// In full mode, per-operation consent is enforced by the authorized npm wrapper
-// (publishAuthorizedOperation); publishPlannedOperation itself checks consent
-// only for selection manifests. Both are unchanged from the R3 baseline.
+// Per-operation consent is enforced by publishPlannedOperation in every mode
+// (E3), and again by the authorized npm wrapper (publishAuthorizedOperation).
 for (const [label, mutate] of [
   ['missing authorization', f => { delete f.authorization; }],
   ['wrong operation authorization', f => { f.authorization = consent(f,1); }],
@@ -167,14 +166,21 @@ test('resume refuses an R3 partial-selection manifest before observing the regis
   assert.deepEqual(f.observations, []);
 });
 
-// Full mode records an `ok` publish response as published (unchanged from the
-// R3 baseline); the independent registry verification then fails closed.
-test('full mode: success responses without registry bytes cannot pass registry verification', t => {
+// E4: an `ok` publish response is never publication evidence. Without the
+// version on the registry the package stays pending behind a blocker, later
+// operations are refused, and PUBLISHED_NEXT / registry verification are unreachable.
+test('full mode: success responses without registry bytes record no publication', t => {
   const f = fixture(t);
   f.registryTransport.publish = (command) => { f.effects.push(command.package); return {ok:true}; };
-  for (let i = 0; i < f.plan.operations.length; i++) { f.operationIndex = i; f.authorization = consent(f); publishPlannedOperation(f); }
-  assert.equal(f.state.phase, 'PUBLISHED_NEXT');
-  assert.throws(() => verifyRegistry(f), /registry verification failed: .* not present/);
+  publishPlannedOperation(f);
+  const first = f.plan.operations[0].package;
+  assert.deepEqual(f.state.packages[first], { publishStatus: 'pending' });
+  assert.equal(f.state.blocker.package, first);
+  assert.equal(f.state.phase, 'PARTIAL_NEXT');
+  f.operationIndex = 1; f.authorization = consent(f);
+  assert.throws(() => publishPlannedOperation(f), { code: 'PUBLICATION_ORDER_NOT_SATISFIED' });
+  assert.deepEqual(f.effects, [first]);
+  assert.throws(() => verifyRegistry(f));
   assert.notEqual(f.state.phase, 'REGISTRY_VERIFIED');
 });
 

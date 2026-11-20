@@ -13,6 +13,7 @@ import { fixturePlan } from "./publication-fixture.mjs";
 import {
   publishPlannedOperation, publishNext, computeManifestIntegrity, computeSriIntegrity,
   MANIFEST_VERSION, STATE_VERSION, loadState, ReleaseOrchestratorError, RegistryIntegrityConflictError,
+  resume, MANIFEST_FILENAME,
 } from "./orchestrator.mjs";
 
 function fixture(t) {
@@ -37,15 +38,39 @@ function fixture(t) {
   bindFixturePrecheck(manifest, state);
   const plan = fixturePlan(manifest, releaseDir);
   const calls = { observe: [], publish: [] };
+  // Simulated registry: an accepted publication becomes observable (E4: the
+  // orchestrator records publication only from this observation, never from
+  // the `ok` response).
+  const registry = new Map();
   const registryTransport = {
-    getRegistryVersion(name, version) { calls.observe.push([name, version]); return { exists: false }; },
-    publish(command) { calls.publish.push(command); return { ok: true }; },
+    getRegistryVersion(name, version) {
+      calls.observe.push([name, version]);
+      return registry.has(name) ? { exists: true, integrity: registry.get(name) } : { exists: false };
+    },
+    publish(command) {
+      calls.publish.push(command);
+      const p = packages.find(q => q.package === command.package);
+      if (p) registry.set(p.package, p.integrity);
+      return { ok: true };
+    },
   };
-  return { plan, manifest, state, releaseDir, operationIndex: 0, registryTransport, calls };
+  return { plan, manifest, state, releaseDir, operationIndex: 0, registryTransport, calls, registry };
+}
+// E3: every invocation carries exact consent for its selected operation unless
+// a test sets `f.authorization` itself. Unbuildable consent (mutated plans) is
+// left undefined; those cases must still fail closed.
+function consentFor(f) {
+  try {
+    const p = f.plan.operations[f.operationIndex];
+    return { kind: "publication-authorization", authorizationVersion: 1,
+      releaseId: f.manifest.releaseId, manifestIntegrity: f.manifest.manifestIntegrity,
+      operationIndex: f.operationIndex, package: p.package, version: p.version, tarball: p.tarball,
+      integrity: p.integrity, registry: p.registry, tag: "next", access: "public" };
+  } catch { return undefined; }
 }
 function invoke(f) {
   const before = f.calls.publish.length;
-  try { return publishPlannedOperation(f); }
+  try { return publishPlannedOperation(Object.hasOwn(f, "authorization") ? f : { ...f, authorization: consentFor(f) }); }
   finally { assert.ok(f.calls.publish.length - before <= 1, "one invocation must call publish at most once"); }
 }
 function observation(f, fn) {
@@ -77,7 +102,8 @@ test("correct predecessors allow one explicit non-first selection and leave late
   assert.equal(invoke(f).phase, "PARTIAL_NEXT");
   const p = f.plan.operations[2];
   assert.deepEqual(f.calls.publish, [p.command]);
-  assert.deepEqual(f.calls.observe, [[p.package, p.version]]);
+  // E4: observed before the attempt and independently after it.
+  assert.deepEqual(f.calls.observe, [[p.package, p.version], [p.package, p.version]]);
   assert.deepEqual(f.state.packages[p.package], { publishStatus: "published", registryIntegrity: p.integrity });
   onlySelected(f, before);
   assert.deepEqual(f.state.history.slice(-2).map(h => h.phase), ["PUBLISHING_NEXT", "PARTIAL_NEXT"]);
@@ -279,17 +305,29 @@ test("publication uses only injected effects; no child process, network or promo
   } finally { mock.restoreAll(); syncBuiltinESMExports(); }
 });
 
-test("retry requires another explicit invocation and clears only the selected blocker", t => {
-  const f = fixture(t);
-  publication(f, () => ({ ok: false, error: "not accepted" }));
+test("retry after an unresolved blocker requires full-plan reconciliation first (E4)", t => {
+  const f = fixture(t), p = f.plan.operations[0];
+  f.registryTransport.publish = data => { f.calls.publish.push(data); return { ok: false, error: "not accepted" }; };
   invoke(f);
   assert.equal(f.calls.publish.length, 1);
-  assert.equal(f.state.blocker.package, f.plan.operations[0].package);
-  publication(f, () => ({ ok: true }));
+  assert.equal(f.state.blocker.package, p.package);
+  // A second invocation, even with exact consent for the same package, is
+  // refused before any registry access while the blocker is unresolved.
+  const observed = f.calls.observe.length;
+  assert.throws(() => invoke(f), { code: "PUBLICATION_STATE_INVALID" });
+  assert.equal(f.calls.publish.length, 1);
+  assert.equal(f.calls.observe.length, observed);
+  // resume() reconciles the full frozen plan and clears the blocker; only then
+  // may another explicit, authorized invocation attempt the publication.
+  fs.writeFileSync(path.join(f.releaseDir, MANIFEST_FILENAME), JSON.stringify(f.manifest));
+  f.state = resume({ releaseDir: f.releaseDir, registryTransport: f.registryTransport }).state;
+  assert.equal(Object.hasOwn(f.state, "blocker"), false);
+  f.registryTransport.publish = data => { f.calls.publish.push(data); f.registry.set(p.package, p.integrity); return { ok: true }; };
   invoke(f);
-  assert.equal(f.calls.publish.length, 2); // Two separate invocations.
+  assert.equal(f.calls.publish.length, 2); // Two separate invocations, separated by reconciliation.
   assert.equal(f.state.phase, "PARTIAL_NEXT");
   assert.equal(Object.hasOwn(f.state, "blocker"), false);
+  assert.deepEqual(f.state.packages[p.package], { publishStatus: "published", registryIntegrity: p.integrity });
   assert.deepEqual(f.state.history.slice(-2).map(h => h.phase), ["PUBLISHING_NEXT", "PARTIAL_NEXT"]);
 });
 
