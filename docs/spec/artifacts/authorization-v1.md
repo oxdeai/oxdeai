@@ -508,7 +508,7 @@ Conformance is verified by `packages/conformance`. The following vector groups c
 | `authorization-sig-007` | — | Expired → AUTH_EXPIRED |
 | `authorization-sig-008` | — | Replay → AUTH_REPLAY |
 
-Wire-encoding separation fixtures are generated reproducibly (test key only, `node:crypto` only) by `scripts/repro/authorization-wire-encoding-fixtures.mjs` and asserted by `packages/core/src/test/verify.authorization-wire-encoding.test.ts`:
+Wire-encoding separation fixtures are committed as `docs/spec/test-vectors/authorization-wire-encoding-v1.json`, generated reproducibly (test key only, `node:crypto` only) by `scripts/repro/authorization-wire-encoding-fixtures.mjs` (`--check` fails on drift, `--write` regenerates byte-identically), and asserted by `packages/core/src/test/verify.authorization-wire-encoding.test.ts`. `expected.codes` is the **exact** set of distinct normative `AUTH_*` violation codes a conforming verifier returns for that case (order not significant); a verifier that returns additional codes does not match the vector.
 
 | Vector | Proves |
 |---|---|
@@ -522,6 +522,19 @@ Wire-encoding separation fixtures are generated reproducibly (test key only, `no
 | `w-009` | Flat signature with `"ed25519"` → `AUTH_ALG_UNSUPPORTED` |
 
 The locked corpus `docs/spec/test-vectors/authorization-v1.json` is Core-native (domain-prefixed) and is regenerated reproducibly by `scripts/generate-authorization-v1-vectors.mjs`.
+
+**Error vocabulary of the locked corpus.** `authorization-v1.json` records the outcome at the enforcement point (`expected.decision` / `expected.error`), which combines artifact verification with the PEP's intent and state binding checks. Its `expected.error` values are a PEP decision vocabulary, kept for compatibility with existing consumers; they are **not** verifier codes. The normative verifier codes are the `AUTH_*` codes used throughout this specification, and conformance claims about artifact verification **MUST** be stated in `AUTH_*` codes. The correspondence below gives the code that determines each corpus outcome; a verifier may report further codes for the same artifact (for example `auth-expiry-wins-over-expires-at` also yields `AUTH_SIGNATURE_INVALID` under *Expiry field resolution* rule 5). Exact code sets are asserted only by the wire-encoding corpus above.
+
+| `expected.error` (locked corpus) | Determining verifier code | Where it is decided |
+|---|---|---|
+| `EXPIRED` | `AUTH_EXPIRED` | Artifact verification |
+| `UNKNOWN_KID` | `AUTH_KID_UNKNOWN` | Artifact verification |
+| `INVALID_SIGNATURE` | `AUTH_SIGNATURE_INVALID` | Artifact verification |
+| `STATE_HASH_MISSING` | `AUTH_MISSING_FIELD` (`state_hash`) | Artifact verification |
+| `INTENT_HASH_MISMATCH` | — (artifact verifies) | PEP intent binding, outside `verifyAuthorization` |
+| `STATE_HASH_MISMATCH` | — (artifact verifies) | PEP state binding, outside `verifyAuthorization` |
+
+For the two binding rows, the artifact itself is valid; the denial comes from comparing a valid `intent_hash` / `state_hash` with the action or state presented at the boundary.
 
 ---
 

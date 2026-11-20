@@ -1,0 +1,278 @@
+{
+  "version": 1,
+  "note": "TEST KEY ONLY - never funded. expected.codes is the EXACT set of distinct normative AUTH_* violation codes (authorization-v1.md); order is not significant.",
+  "verifier_options": {
+    "now": 1730000010,
+    "mode": "strict",
+    "requireSignatureVerification": true,
+    "expectedIssuer": "oxdeai.policy-engine",
+    "expectedAudience": "merchant-gateway",
+    "trustedKeySets": [
+      {
+        "issuer": "oxdeai.policy-engine",
+        "version": "1",
+        "keys": [
+          {
+            "kid": "2026-01",
+            "alg": "Ed25519",
+            "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAWiMMGTYK7zzHwZXLzDpCshxAH6Lgx8gVsJaixePuY7g=\n-----END PUBLIC KEY-----\n"
+          }
+        ]
+      }
+    ]
+  },
+  "vectors": [
+    {
+      "id": "w-001",
+      "description": "Core-native flat: Ed25519, expiry, prefixed preimage, standard base64",
+      "artifact": {
+        "auth_id": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        "issuer": "oxdeai.policy-engine",
+        "audience": "merchant-gateway",
+        "decision": "ALLOW",
+        "intent_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "state_hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "policy_id": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "issued_at": 1730000000,
+        "expiry": 1730000060,
+        "alg": "Ed25519",
+        "kid": "2026-01",
+        "signature": "87cMTeifpSh9YkBf3OtFe1TdLm373x7l/pCvlYUFQre4Ct5qlEefC5SC889O9z9J44V7paol6ySoDOxyZz15Bw=="
+      },
+      "expected": {
+        "status": "ok",
+        "violations": []
+      }
+    },
+    {
+      "id": "w-003",
+      "description": "Sift-compatible: ed25519, nested, expires_at, non-prefixed, base64url",
+      "artifact": {
+        "auth_id": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        "issuer": "oxdeai.policy-engine",
+        "audience": "merchant-gateway",
+        "decision": "ALLOW",
+        "intent_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "state_hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "policy_id": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "issued_at": 1730000000,
+        "expires_at": 1730000060,
+        "signature": {
+          "alg": "ed25519",
+          "kid": "2026-01",
+          "sig": "ZOUbLS8050A5SuSM9-H2TqHW14j5QHcqKKargc4zWdpgCa53CmTUEQCqbpaBv_w6CzV7G83v_FRCZUtvV_R7DQ"
+        }
+      },
+      "expected": {
+        "status": "ok",
+        "violations": []
+      }
+    },
+    {
+      "id": "w-002a",
+      "description": "Core-native nested {alg,kid,sig} + equal top-level alg/kid: preimage = top-level fields, nested object excluded",
+      "artifact": {
+        "auth_id": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        "issuer": "oxdeai.policy-engine",
+        "audience": "merchant-gateway",
+        "decision": "ALLOW",
+        "intent_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "state_hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "policy_id": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "issued_at": 1730000000,
+        "expiry": 1730000060,
+        "alg": "Ed25519",
+        "kid": "2026-01",
+        "signature": {
+          "alg": "Ed25519",
+          "kid": "2026-01",
+          "sig": "87cMTeifpSh9YkBf3OtFe1TdLm373x7l/pCvlYUFQre4Ct5qlEefC5SC889O9z9J44V7paol6ySoDOxyZz15Bw=="
+        }
+      },
+      "expected": {
+        "status": "ok",
+        "violations": []
+      }
+    },
+    {
+      "id": "w-002b",
+      "description": "Same shape, signed with signature:{alg,kid} ALSO in the preimage (previous §5 step-2 reading) -> rejected",
+      "artifact": {
+        "auth_id": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        "issuer": "oxdeai.policy-engine",
+        "audience": "merchant-gateway",
+        "decision": "ALLOW",
+        "intent_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "state_hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "policy_id": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "issued_at": 1730000000,
+        "expiry": 1730000060,
+        "alg": "Ed25519",
+        "kid": "2026-01",
+        "signature": {
+          "alg": "Ed25519",
+          "kid": "2026-01",
+          "sig": "0YsCMRiu/5kykpRGUNwsQj46La7F+bfvvAPIueOk5kuj8cT9/A25LZNRSliuqRdMfrvgCQ+qvI5PBkvVBC/+Bw=="
+        }
+      },
+      "expected": {
+        "status": "invalid",
+        "codes": [
+          "AUTH_SIGNATURE_INVALID"
+        ]
+      }
+    },
+    {
+      "id": "w-002c",
+      "description": "Nested kid differs from top-level kid (ambiguous encoding) -> rejected",
+      "artifact": {
+        "auth_id": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        "issuer": "oxdeai.policy-engine",
+        "audience": "merchant-gateway",
+        "decision": "ALLOW",
+        "intent_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "state_hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "policy_id": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "issued_at": 1730000000,
+        "expiry": 1730000060,
+        "alg": "Ed25519",
+        "kid": "k-decoy",
+        "signature": {
+          "alg": "Ed25519",
+          "kid": "2026-01",
+          "sig": "l3UNx3rd1qG9bdT1wMw9QFzPwjYAmH+RldChfg3vnwqO1CrxAbvx35dPgYMl0nIht+Q8jVVnKi3hLvONpbf/BQ=="
+        }
+      },
+      "expected": {
+        "status": "invalid",
+        "codes": [
+          "AUTH_ALG_UNSUPPORTED"
+        ]
+      }
+    },
+    {
+      "id": "w-006",
+      "description": "Declared Ed25519 (Core-native), standard base64, but NON-prefixed preimage -> rejected",
+      "artifact": {
+        "auth_id": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        "issuer": "oxdeai.policy-engine",
+        "audience": "merchant-gateway",
+        "decision": "ALLOW",
+        "intent_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "state_hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "policy_id": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "issued_at": 1730000000,
+        "expiry": 1730000060,
+        "alg": "Ed25519",
+        "kid": "2026-01",
+        "signature": "4dEONhET5qyEuSpBJHQviAEJt2d0opaGMSpQDhQzgvHEqsZXbL0AeEBxstJhate+FZk5ZOp5PcVaowPmV7aqCw=="
+      },
+      "expected": {
+        "status": "invalid",
+        "codes": [
+          "AUTH_SIGNATURE_INVALID"
+        ]
+      }
+    },
+    {
+      "id": "w-007",
+      "description": "Declared ed25519 (Sift), base64url, but PREFIXED preimage -> rejected",
+      "artifact": {
+        "auth_id": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        "issuer": "oxdeai.policy-engine",
+        "audience": "merchant-gateway",
+        "decision": "ALLOW",
+        "intent_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "state_hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "policy_id": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "issued_at": 1730000000,
+        "expires_at": 1730000060,
+        "signature": {
+          "alg": "ed25519",
+          "kid": "2026-01",
+          "sig": "bQs055I64mhrLEzRgZunFZ4V1zVOQNAWX30t9d4nSsHxlbCK2pRB7DSZf2E1V9NMIRU93EibQv00Sg3KgPpaBQ"
+        }
+      },
+      "expected": {
+        "status": "invalid",
+        "codes": [
+          "AUTH_SIGNATURE_INVALID"
+        ]
+      }
+    },
+    {
+      "id": "w-008a",
+      "description": "Declared Ed25519 with base64url signature over non-prefixed preimage (cross-alphabet) -> rejected",
+      "artifact": {
+        "auth_id": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        "issuer": "oxdeai.policy-engine",
+        "audience": "merchant-gateway",
+        "decision": "ALLOW",
+        "intent_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "state_hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "policy_id": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "issued_at": 1730000000,
+        "expiry": 1730000060,
+        "alg": "Ed25519",
+        "kid": "2026-01",
+        "signature": "4dEONhET5qyEuSpBJHQviAEJt2d0opaGMSpQDhQzgvHEqsZXbL0AeEBxstJhate-FZk5ZOp5PcVaowPmV7aqCw"
+      },
+      "expected": {
+        "status": "invalid",
+        "codes": [
+          "AUTH_SIGNATURE_INVALID"
+        ]
+      }
+    },
+    {
+      "id": "w-008b",
+      "description": "Declared ed25519 with STANDARD base64 signature, non-prefixed preimage (cross-alphabet) -> rejected",
+      "artifact": {
+        "auth_id": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        "issuer": "oxdeai.policy-engine",
+        "audience": "merchant-gateway",
+        "decision": "ALLOW",
+        "intent_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "state_hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "policy_id": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "issued_at": 1730000000,
+        "expires_at": 1730000060,
+        "signature": {
+          "alg": "ed25519",
+          "kid": "2026-01",
+          "sig": "ZOUbLS8050A5SuSM9+H2TqHW14j5QHcqKKargc4zWdpgCa53CmTUEQCqbpaBv/w6CzV7G83v/FRCZUtvV/R7DQ=="
+        }
+      },
+      "expected": {
+        "status": "invalid",
+        "codes": [
+          "AUTH_SIGNATURE_INVALID"
+        ]
+      }
+    },
+    {
+      "id": "w-009",
+      "description": "Flat signature declared ed25519 (Encoding B requires the nested object) -> rejected",
+      "artifact": {
+        "auth_id": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        "issuer": "oxdeai.policy-engine",
+        "audience": "merchant-gateway",
+        "decision": "ALLOW",
+        "intent_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "state_hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "policy_id": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "issued_at": 1730000000,
+        "expiry": 1730000060,
+        "alg": "ed25519",
+        "kid": "2026-01",
+        "signature": "oix9AzjEniPW2hZSNxwijFiimwFb4_07O2f-SaP3OQvZD5SHIPyIIkvIy-yMHW4uP8bs71DEPWWd4WlktW9UBg"
+      },
+      "expected": {
+        "status": "invalid",
+        "codes": [
+          "AUTH_ALG_UNSUPPORTED"
+        ]
+      }
+    }
+  ]
+}
