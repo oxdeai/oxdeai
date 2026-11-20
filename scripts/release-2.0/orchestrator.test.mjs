@@ -34,7 +34,7 @@ import {
   pack,
   precheck,
   promote,
-  publishPlannedOperation,
+  publishPlannedOperation as publishPlannedOperationWithConsent,
   requireOriginalTarballs,
   resume,
   runDeterminismProbe,
@@ -143,6 +143,26 @@ function dirtyGit() {
   return { isClean: () => false };
 }
 
+// E3: publication requires exact consent for the selected operation in every
+// mode. These tests exercise other properties (integrity, order, recovery), so
+// each call carries consent bound to its operation unless the test sets one.
+// Consent enforcement itself is tested in publication-e3-e4.test.mjs.
+function consentFor(inputs) {
+  try {
+    const p = inputs.plan.operations[inputs.operationIndex];
+    return { kind: "publication-authorization", authorizationVersion: 1,
+      releaseId: inputs.manifest.releaseId, manifestIntegrity: inputs.manifest.manifestIntegrity,
+      operationIndex: inputs.operationIndex, package: p.package, version: p.version, tarball: p.tarball,
+      integrity: p.integrity, registry: p.registry, tag: "next", access: "public" };
+  } catch { return undefined; }
+}
+function publishPlannedOperation(inputs) {
+  if (inputs === null || typeof inputs !== "object" || Object.hasOwn(inputs, "authorization")) {
+    return publishPlannedOperationWithConsent(inputs);
+  }
+  return publishPlannedOperationWithConsent({ ...inputs, authorization: consentFor(inputs) });
+}
+
 // A fake registry transport backed by an in-memory Map<name@version, integrity>.
 function fakeRegistry(initial = {}) {
   const store = new Map(Object.entries(initial));
@@ -152,8 +172,10 @@ function fakeRegistry(initial = {}) {
       const key = `${name}@${version}`;
       return store.has(key) ? { exists: true, integrity: store.get(key) } : { exists: false };
     },
+    // E4: the registry exposes the integrity of the bytes actually published
+    // (the tarball named by the command), which the orchestrator re-observes.
     publish(commandData) {
-      store.set(`${commandData.package}@${commandData.version}`, "PUBLISHED-BY-FAKE-TRANSPORT");
+      store.set(`${commandData.package}@${commandData.version}`, computeSriIntegrity(readFileSync(commandData.args[1])));
       return { ok: true };
     },
   };
@@ -773,6 +795,8 @@ for (const stop of ["conflict", "throw", "ambiguous conflict"]) {
           if (stop === "throw") throw new Error("transport unavailable");
           if (stop === "conflict" || attempted.includes(name)) return { exists: true, integrity: "sha512-WRONG" };
         }
+        // E4: the first publication is recorded only once the registry exposes it.
+        if (name === first.package && attempted.includes(name)) return { exists: true, integrity: first.integrity };
         return { exists: false };
       },
       publish(data) {
@@ -912,7 +936,8 @@ for (const mode of ["missing", "matching", "divergent"]) {
         queried.push(name);
         assert.equal(name, selected.package);
         assert.equal(version, selected.version);
-        return mode === "missing" ? { exists: false } : {
+        // E4: in "missing" mode the version appears only after the attempt.
+        return mode === "missing" && attempts.length === 0 ? { exists: false } : {
           exists: true, integrity: mode === "divergent" ? "sha512-WRONG" : selected.integrity,
         };
       },
@@ -931,7 +956,8 @@ for (const mode of ["missing", "matching", "divergent"]) {
       assert.equal(invoke().phase, "PUBLISHED_NEXT");
       assert.equal(f.state.packages[selected.package].registryIntegrity, selected.integrity);
     }
-    assert.deepEqual(queried, [selected.package]);
+    // Observed once, plus once more after an attempt (E4 independent reconciliation).
+    assert.deepEqual(queried, mode === "missing" ? [selected.package, selected.package] : [selected.package]);
     assert.deepEqual(attempts, mode === "missing" ? [selected.package] : []);
     for (const p of f.manifest.packages.filter(p => p.package !== selected.package)) {
       assert.deepEqual(f.state.packages[p.package], before[p.package]);

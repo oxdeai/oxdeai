@@ -1572,15 +1572,21 @@ export function publishPlannedOperation(inputs = {}) {
         const s = state.packages[entry.package];
         return s.publishStatus === "published" ? s.registryIntegrity !== entry.integrity || state.phase === "VERIFIED_LOCAL"
           : s.registryIntegrity !== undefined;
-      }) || (Object.hasOwn(state, "blocker") &&
-        (state.phase !== "PARTIAL_NEXT" || !object(state.blocker) || state.blocker.package !== p.package))) {
+      }) || Object.hasOwn(state, "blocker")) {
+    // E4: an unresolved blocker (ambiguous, failed or conflicting effect) is
+    // never retried from here, not even for the same package: resume() must
+    // first reconcile the full frozen plan against the registry and clear it.
     fail("PUBLICATION_STATE_INVALID", "publication state or unresolved blocker is incompatible with this selection");
   }
+  // E3: explicit consent for exactly this operation is mandatory in every mode
+  // (full or selection), before the transport is consulted and before any
+  // state transition. The receipt is unsigned control-flow data: it binds one
+  // operation but does not authenticate its issuer or prove freshness.
+  validatePublicationAuthorization({ authorization: inputs.authorization, plan, operationIndex, manifest });
   if (!registryTransport || typeof registryTransport.getRegistryVersion !== "function" ||
       typeof registryTransport.publish !== "function") {
     fail("PUBLICATION_TRANSPORT_INVALID", "an injected synchronous observation and publication transport is required");
   }
-  if (manifest.selection !== undefined) validatePublicationAuthorization({ authorization: inputs.authorization, plan, operationIndex, manifest });
   // Only the selected original artifact is read. No reconstruction or packing.
   requireOriginalTarballs(releaseDir, { packages: [p] });
   const observe = () => {
@@ -1603,7 +1609,10 @@ export function publishPlannedOperation(inputs = {}) {
       let result, publicationError;
       try { result = registryTransport.publish(structuredClone(p.command)); }
       catch (error) { publicationError = error; }
-      published = manifest.selection === undefined ? (object(result) && result.ok === true) || observe() : observe();
+      // E4: the transport response (even `ok: true`) is process evidence only.
+      // Only an independent observation of the exact planned integrity records
+      // publication; absent -> blocker, conflict/unknown -> fail closed.
+      published = observe();
       if (!published) {
         if (publicationError) throw publicationError;
         persistPublicationBlocker({ manifest, state, releaseDir, activePackage: p.package,
