@@ -106,6 +106,43 @@
       "supportFiles": []
     },
     {
+      "id": "docs-authorization-wire-encoding-v1",
+      "authority": "docs/spec/test-vectors/authorization-wire-encoding-v1.json",
+      "representations": [
+        {
+          "path": "docs/spec/test-vectors/authorization-wire-encoding-v1.json",
+          "format": "vectors",
+          "generated": false
+        }
+      ],
+      "status": "normative",
+      "semanticScope": "AuthorizationV1 wire-encoding separation (authorization-v1.md §5, §13): Core-native vs Sift-compatible preimage and alphabet binding, nested alg/kid preimage and ambiguity rule. Expected codes are the exact set of normative AUTH_* codes.",
+      "spec": "docs/spec/artifacts/authorization-v1.md",
+      "consumers": [
+        {
+          "representation": "docs/spec/test-vectors/authorization-wire-encoding-v1.json",
+          "path": "packages/core/src/test/verify.authorization-wire-encoding.test.ts",
+          "binding": "authorization-wire-encoding-v1.json",
+          "command": "pnpm --filter @oxdeai/core test",
+          "runtime": "TypeScript",
+          "execution": "default-ci",
+          "role": "verifier",
+          "notes": "Core verifyAuthorization over all 10 cases with exact code-set comparison; also asserts byte-identity with the generator."
+        },
+        {
+          "representation": "docs/spec/test-vectors/authorization-wire-encoding-v1.json",
+          "path": "scripts/repro/authorization-wire-encoding-fixtures.mjs",
+          "binding": "authorization-wire-encoding-v1.json",
+          "command": "node scripts/repro/authorization-wire-encoding-fixtures.mjs --check",
+          "runtime": "JavaScript",
+          "execution": "manual",
+          "role": "maintenance",
+          "notes": "Independent node:crypto-only generator; --check fails on drift, --write regenerates. Drift is enforced in default CI by the Core consumer's byte-identity test. Generation is not verification."
+        }
+      ],
+      "supportFiles": []
+    },
+    {
       "id": "docs-pep-vectors-v1",
       "authority": "docs/spec/test-vectors/pep-vectors-v1.json",
       "representations": [

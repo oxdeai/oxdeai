@@ -6,9 +6,20 @@
 //
 // TEST KEY ONLY — the repository's public conformance fixture key. Never fund.
 //
-// Usage: node scripts/repro/authorization-wire-encoding-fixtures.mjs > fixtures.json
+// The committed corpus is docs/spec/test-vectors/authorization-wire-encoding-v1.json.
+// Ed25519 signatures are deterministic, so regeneration is byte-identical.
+//
+// Usage:
+//   node scripts/repro/authorization-wire-encoding-fixtures.mjs           # print to stdout
+//   node scripts/repro/authorization-wire-encoding-fixtures.mjs --check   # exit 1 if the committed corpus drifts
+//   node scripts/repro/authorization-wire-encoding-fixtures.mjs --write   # rewrite the committed corpus
 
 import { createPrivateKey, createPublicKey, sign } from "node:crypto";
+import { readFileSync, writeFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const CORPUS = resolve(dirname(fileURLToPath(import.meta.url)), "../../docs/spec/test-vectors/authorization-wire-encoding-v1.json");
 
 const PRIVATE_PEM = `-----BEGIN PRIVATE KEY-----
 MC4CAQAwBQYDK2VwBCIEIBx0hBPi6cIYPo/JZbavNXDDLlfV1vj+IyS+R4oq2Zvx
@@ -78,8 +89,11 @@ add("w-008b", "Declared ed25519 with STANDARD base64 signature, non-prefixed pre
   { ...siftFields, signature: { alg: "ed25519", kid: "2026-01",
     sig: sig({ ...siftFields, signature: { alg: "ed25519", kid: "2026-01" } }, { prefixed: false, alphabet: "base64" }) } },
   bad("AUTH_SIGNATURE_INVALID"));
+// Carries a signed `expiry` (not `expires_at`) so the only defect is the flat
+// "ed25519" shape; an `expires_at`-only flat artifact would also trip §5
+// "Expiry field resolution" rule 3 (AUTH_MISSING_FIELD).
 add("w-009", "Flat signature declared ed25519 (Encoding B requires the nested object) -> rejected",
-  (() => { const f = { ...siftFields, alg: "ed25519", kid: "2026-01" };
+  (() => { const f = { ...base, expiry: 1730000060, alg: "ed25519", kid: "2026-01" };
     return { ...f, signature: sig(f, { prefixed: false, alphabet: "base64url" }) }; })(),
   bad("AUTH_ALG_UNSUPPORTED"));
 
@@ -92,13 +106,28 @@ for (const id of ["w-008a", "w-008b"]) {
   if (id === "w-008b" && !s.endsWith("=")) throw new Error("w-008b must be padded standard base64");
 }
 
-process.stdout.write(JSON.stringify({
+const out = JSON.stringify({
   version: 1,
-  note: "TEST KEY ONLY - never funded. Expected codes are normative AUTH_* codes (authorization-v1.md).",
+  note: "TEST KEY ONLY - never funded. expected.codes is the EXACT set of distinct normative AUTH_* violation codes (authorization-v1.md); order is not significant.",
   verifier_options: {
     now: NOW, mode: "strict", requireSignatureVerification: true,
     expectedIssuer: "oxdeai.policy-engine", expectedAudience: "merchant-gateway",
     trustedKeySets: [{ issuer: "oxdeai.policy-engine", version: "1", keys: [{ kid: "2026-01", alg: "Ed25519", public_key: PUBLIC_PEM }] }],
   },
   vectors,
-}, null, 2) + "\n");
+}, null, 2) + "\n";
+
+if (process.argv.includes("--write")) {
+  writeFileSync(CORPUS, out);
+  console.error(`wrote ${CORPUS}`);
+} else if (process.argv.includes("--check")) {
+  let committed = null;
+  try { committed = readFileSync(CORPUS, "utf8"); } catch { /* missing corpus is drift */ }
+  if (committed !== out) {
+    console.error("authorization-wire-encoding-v1.json drifts from the generator; run with --write");
+    process.exit(1);
+  }
+  console.error("authorization-wire-encoding-v1.json matches the generator");
+} else {
+  process.stdout.write(out);
+}
