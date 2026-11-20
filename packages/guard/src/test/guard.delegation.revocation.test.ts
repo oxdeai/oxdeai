@@ -358,18 +358,26 @@ function assertDeniedNoHook(r: { executed: number; error: unknown }, s: ReturnTy
   assert.equal(s.hook.calls, 0, `${label}: beforeExecute must not run`);
 }
 
-test("C18 fixtures: every nested-signature parent used below passes strict core verification", () => {
-  const cases = [
+test("C18 fixtures: consistent nested-signature parents pass strict core verification; conflicting top-level/nested kid is rejected by core", () => {
+  const vopts = { now: T_NOW, mode: "strict" as const, trustedKeySets: [KS_PDP_2KEYS], requireSignatureVerification: true };
+  for (const p of [
     makeNestedParent({ sigKid: "k1", topKid: "k1" }),
+    makeNestedParent({ sigKid: "k1" }),
+  ]) {
+    const r = verifyAuthorization(p, vopts);
+    assert.equal(r.status, "ok", JSON.stringify(r.violations));
+  }
+  // authorization-v1.md §5/§13: top-level alg/kid beside a nested signature
+  // MUST equal signature.alg/kid; otherwise the encoding is ambiguous.
+  for (const p of [
     makeNestedParent({ sigKid: "k1", topKid: "k-decoy" }),
     makeNestedParent({ sigKid: "k2", topKid: "k1", key: KP_PDP_2 }),
     makeNestedParent({ sigKid: "k1", topKid: "" }),
     makeNestedParent({ sigKid: "k1", topKid: null }),
-    makeNestedParent({ sigKid: "k1" }),
-  ];
-  for (const p of cases) {
-    const r = verifyAuthorization(p, { now: T_NOW, mode: "strict", trustedKeySets: [KS_PDP_2KEYS], requireSignatureVerification: true });
-    assert.equal(r.status, "ok", JSON.stringify(r.violations));
+  ]) {
+    const r = verifyAuthorization(p, vopts);
+    assert.equal(r.status, "invalid");
+    assert.ok(r.violations.some((v) => v.code === "AUTH_ALG_UNSUPPORTED"), JSON.stringify(r.violations));
   }
 });
 
@@ -401,7 +409,7 @@ test("C21 mismatched top-level/nested kids fail closed even when neither key is 
     const s = setupWithHook(rev(() => [krl(revoked)]), { trustedKeySets: [KS_PDP_2KEYS, KS_AGENT] });
     const r = await present(s.guard, parent);
     assertDeniedNoHook(r, s, "AUTHORIZATION_VERIFICATION_FAILED", label);
-    assert.match(String((r.error as Error).message), /ambiguous or unconfirmed/, label);
+    assert.match(String((r.error as Error).message), /ambiguous or unconfirmed|AUTH_ALG_UNSUPPORTED/, label);
   }
 });
 
@@ -419,7 +427,7 @@ test("C21b N3: top-level kid \"\" or null beside a valid nested signing key is a
       const r = await present(s.guard, p, d);
       assertDeniedNoHook(r, s, "AUTHORIZATION_VERIFICATION_FAILED", label);
       assert.ok(r.error instanceof OxDeAIAuthorizationError, label);
-      assert.match((r.error as Error).message, /ambiguous or unconfirmed/, label);
+      assert.match((r.error as Error).message, /ambiguous or unconfirmed|AUTH_ALG_UNSUPPORTED/, label);
     }
   }
 });
@@ -620,7 +628,7 @@ test("C29 pinned confirmation is evaluated (not skipped) with the full strict op
       assert.match(String((r.error as Error).message), /trustedKeySets: not supported plain data/, label);
       continue;
     }
-    assert.match(String((r.error as Error).message), /ambiguous or unconfirmed/, label);
+    assert.match(String((r.error as Error).message), /ambiguous or unconfirmed|AUTH_ALG_UNSUPPORTED/, label);
   }
 });
 
@@ -838,7 +846,7 @@ test("A5-12 mutation across asynchronous boundaries cannot bypass validation", a
     });
     const r = await present(s.guard);
     assertDeniedNoHook(r, s, "AUTHORIZATION_VERIFICATION_FAILED", "k1 material swapped mid-request");
-    assert.match((r.error as Error).message, /ambiguous or unconfirmed/);
+    assert.match((r.error as Error).message, /ambiguous or unconfirmed|AUTH_ALG_UNSUPPORTED/);
   }
   // (d) an alias present when the request STARTS and removed during an await:
   // the parent/chain verification must never run on unvalidated trust, even
@@ -965,7 +973,7 @@ test("IR1-F1c post-await confirmation uses the fresh snapshot: live key objects 
   const r = await present(s.guard);
   assert.ok(probe.state.reads >= 2, "probe reached the pinned confirmation");
   // Message wording: see IR1-F3 (accepted, deferred).
-  assertSnapshotDenied(r, s, "AUTHORIZATION_VERIFICATION_FAILED", OxDeAIAuthorizationError, /ambiguous or unconfirmed/, "IR1-F1c");
+  assertSnapshotDenied(r, s, "AUTHORIZATION_VERIFICATION_FAILED", OxDeAIAuthorizationError, /ambiguous or unconfirmed|AUTH_ALG_UNSUPPORTED/, "IR1-F1c");
 });
 
 test("IR1-F1d revocation enabled: reassigning config.trustedKeySets is not observed by any path (IM9)", async () => {

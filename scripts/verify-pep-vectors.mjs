@@ -46,7 +46,8 @@ function verifyAuthByRef(ref, authFile) {
   const preimage = canonicalize(rest);
   const key = authFile.keys.find((k) => k.kid === signature.kid && k.alg === signature.alg);
   if (!key) return { ok: false, error: "UNKNOWN_KID" };
-  const ok = verify(null, Buffer.from(preimage, "utf8"), key.public_key_pem, Buffer.from(signature.sig, "base64"));
+  // Encoding A (Core-native, authorization-v1.md §5): domain-prefixed preimage.
+  const ok = verify(null, Buffer.from("OXDEAI_AUTH_V1\n" + preimage, "utf8"), key.public_key_pem, Buffer.from(signature.sig, "base64"));
   if (!ok) return { ok: false, error: "INVALID_SIGNATURE" };
   const now = 1712448050;
   if (auth.expiry <= now) return { ok: false, error: "EXPIRED" };

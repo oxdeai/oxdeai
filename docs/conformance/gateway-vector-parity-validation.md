@@ -99,6 +99,19 @@ is not presented as Core-only semantics or gateway live-state re-verification.
 
 ## Confirmed signing-payload defect (repair preserved)
 
+> **Superseded (2026-11, encoding separation).** The corpus construction
+> described below signed **without** the `OXDEAI_AUTH_V1\n` domain prefix while
+> declaring `alg: "Ed25519"`; it verified only because Core fell back to the
+> non-prefixed preimage for every alg. That fallback is removed: `"Ed25519"`
+> now verifies only the domain-prefixed preimage with standard base64, and
+> `"ed25519"` only the non-prefixed preimage with base64url
+> (`authorization-v1.md` §5). The corpus was re-signed accordingly by
+> `scripts/generate-authorization-v1-vectors.mjs`; `auth-key-1` and `sb-key-1`
+> were rotated to seed-derived test keys (original private keys were not
+> available), `portable-key-1` is unchanged. The SPKI bodies and preimage
+> fingerprints below are historical. The top-level `alg`/`kid` payload repair
+> itself remains in force.
+
 `auth-allow-valid` uses `auth-key-1`, whose committed Ed25519 SPKI body is
 `MCowBQYDK2VwAyEASyQL4zdR435kMZBiqIKq87JvPivVmhOsAnGWZV4HJDY=`.
 The consumer imports that public key unchanged into a fixed `issuer-1` KeySet.

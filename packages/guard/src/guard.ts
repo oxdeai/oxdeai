@@ -8,6 +8,7 @@ import { snapshotPlainData, DelegationSnapshotError } from "./delegationSnapshot
 import { settleCallback, type SettledCallback } from "./settleCallback.js";
 import { resolveReplayProtection, strictFromConfig } from "./replayProtection.js";
 import type { ReplayStore } from "./replayStore.js";
+import { signedEffectiveExpiry } from "./authorizationExpiry.js";
 import { createLifecycle, emitBoundaryEvent, reject } from "./boundaryEvent.js";
 import type { GuardLifecycle } from "./boundaryEvent.js";
 import type { ProvenanceRecord } from "./provenance.js";
@@ -926,7 +927,7 @@ export function OxDeAIGuard(config: OxDeAIGuardConfig) {
       let parentAuthConsumed: unknown;
       try {
         parentAuthConsumed = await replayStore.consumeAuthId(
-          parentAuth.auth_id, { expiry: parentAuth.expiry }
+          parentAuth.auth_id, { expiry: signedEffectiveExpiry(parentAuth) as number }
         );
       } catch (err) {
         throw reject(
@@ -949,9 +950,18 @@ export function OxDeAIGuard(config: OxDeAIGuardConfig) {
       }
       lifecycle.authorizationConsumed = true;
       // parentAuth is AuthorizationV1; cast to Authorization for hook/audit
-      // compatibility. Legacy fields will be absent — callers on the delegation
-      // path should treat the value as AuthorizationV1 shape only.
-      const parentAuthCompat = parentAuth as unknown as Authorization;
+      // compatibility. R-04: the parent arrives from outside, so hooks receive a
+      // frozen copy WITHOUT the engine-HMAC legacy fields (policy_version,
+      // state_snapshot_hash, engine_signature), which no AuthorizationV1
+      // signature covers. The remaining fields are signed or bound to a signed
+      // field by equality (authorization_id, flat expires_at) by core.
+      const {
+        policy_version: _pv,
+        state_snapshot_hash: _ssh,
+        engine_signature: _es,
+        ...parentSignedView
+      } = parentAuth as unknown as Record<string, unknown>;
+      const parentAuthCompat = Object.freeze(parentSignedView) as unknown as Authorization;
 
       // ── Delegation: beforeExecute hook ────────────────────────────────
       lifecycle.stage = "EXECUTION_GATE";
@@ -1193,7 +1203,7 @@ export function OxDeAIGuard(config: OxDeAIGuardConfig) {
     let authConsumed: unknown;
     try {
       authConsumed = await replayStore.consumeAuthId(
-        authorization.auth_id, { expiry: (authorization as AuthorizationV1).expiry ?? 0 }
+        authorization.auth_id, { expiry: signedEffectiveExpiry(authorization) as number }
       );
     } catch (err) {
       throw reject(

@@ -111,6 +111,12 @@ function delegationKey(delegationId: string): string {
  * is not a clock-skew buffer or proof of retention across the replay domain.
  */
 function computeTtl(expiry: number): number {
+  // R-03: a missing/malformed expiry must never become a 1-second (or NaN)
+  // retention window. Throwing makes the store unavailable for this request,
+  // which the guard and gateway translate into DENY (fail closed).
+  if (!Number.isSafeInteger(expiry)) {
+    throw new TypeError("replay store: expiry must be integer unix seconds");
+  }
   const now = Math.floor(Date.now() / 1000);
   return Math.max(1, expiry - now);
 }

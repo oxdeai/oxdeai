@@ -9,6 +9,17 @@ This project follows Semantic Versioning.
 
 ## [Unreleased]
 
+### Security (R-03 / R-04)
+
+- Replay-store retention (gateway and guard, standard and delegation paths)
+  uses the signed effective expiry (`expiry`, else a nested signed
+  `expires_at`). `createRedisReplayStore` throws on a non-integer expiry
+  (DENY) instead of a 1-second or NaN TTL; valid Encoding B artifacts now work
+  with the Redis store.
+- Delegation path: `beforeExecute` / `onDecision` receive a frozen copy of the
+  externally supplied parent without the unsigned engine-HMAC fields
+  `policy_version`, `state_snapshot_hash`, `engine_signature`.
+
 Changes on `main` that are not in a published release. Several entries below
 (HTTP gateway hardening, INVREG-F01/F02/F05, GW-COMP-01 and the gateway part of
 RR-01) were also published in 2.0.5 from the 2.0.x maintenance line; see

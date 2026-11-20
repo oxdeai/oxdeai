@@ -141,11 +141,17 @@ test("nested corpus signatures bind top-level alg/kid and public fields", () => 
     const key = corpus.keys.find((entry: any) => entry.kid === signature.kid);
     // Independent crypto over the committed corpus construction, not a
     // signature generated with the same payload helper that we are testing.
+    // Encoding A (authorization-v1.md §5): "OXDEAI_AUTH_V1\n" || canonicalJson.
     const bytes = canonicalJson(signed);
-    assert.equal(verify(null, Buffer.from(bytes), key.public_key_pem, Buffer.from(signature.sig, "base64")), true, id);
+    const prefixed = Buffer.concat([Buffer.from("OXDEAI_AUTH_V1\n"), Buffer.from(bytes)]);
+    const sigBytes = Buffer.from(signature.sig, "base64");
+    assert.equal(verify(null, prefixed, key.public_key_pem, sigBytes), true, id);
+    // The non-prefixed preimage MUST NOT verify (no cross-encoding acceptance).
+    assert.equal(verify(null, Buffer.from(bytes), key.public_key_pem, sigBytes), false, `${id}: raw preimage`);
     assert.equal(canonicalJson(authorizationSigningPayload(auth)), bytes, id);
     const { alg: _alg, kid: _kid, ...oldPayload } = signed;
-    assert.equal(verify(null, Buffer.from(canonicalJson(oldPayload)), key.public_key_pem, Buffer.from(signature.sig, "base64")), false, id);
+    const oldPrefixed = Buffer.concat([Buffer.from("OXDEAI_AUTH_V1\n"), Buffer.from(canonicalJson(oldPayload))]);
+    assert.equal(verify(null, oldPrefixed, key.public_key_pem, sigBytes), false, id);
     for (const field of ["alg", "kid", "audience", "policy_id", "state_hash"] as const) {
       const mutated = { ...auth, [field]: `${auth[field]}-tampered` } as AuthorizationV1;
       const result = verifyAuthorization(mutated, {
@@ -158,6 +164,10 @@ test("nested corpus signatures bind top-level alg/kid and public fields", () => 
       assert.equal(result.signatureVerified, false, `${id}: ${field}`);
       assert.equal(result.status, "invalid", `${id}: ${field}`);
       assert.ok(result.violations.some(v => v.code === "AUTH_SIGNATURE_INVALID"), `${id}: ${field}`);
+      if (field === "alg" || field === "kid") {
+        // Top-level alg/kid now conflict with signature.alg/kid: ambiguous encoding.
+        assert.ok(result.violations.some(v => v.code === "AUTH_ALG_UNSUPPORTED"), `${id}: ${field} ambiguity`);
+      }
     }
   }
 });

@@ -360,7 +360,11 @@ export function verifyDelegationChain(
   }
 
   // ── Parent expiry ──────────────────────────────────────────────────────────
-  if (Number.isInteger(parent.expiry) && now >= parent.expiry) {
+  // R-03: the parent-expiry check and the expiry ceiling below MUST NOT be
+  // skipped when the parent carries no valid signed expiry. Fail closed.
+  if (!Number.isSafeInteger(parent.expiry)) {
+    violations.push({ code: "DELEGATION_MISSING_FIELD", message: "parent authorization expiry must be integer unix seconds" });
+  } else if (now >= parent.expiry) {
     violations.push({ code: "DELEGATION_PARENT_EXPIRED", message: "parent authorization has expired" });
   }
 

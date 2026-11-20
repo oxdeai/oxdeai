@@ -9,6 +9,40 @@ This project follows Semantic Versioning.
 
 ## [Unreleased]
 
+### Security (breaking for non-conforming artifacts)
+
+- R-03: AuthorizationV1 validity no longer derives from an unsigned expiry.
+  A present but malformed `expiry` is rejected (`AUTH_MISSING_FIELD`) instead
+  of falling back to `expires_at`; flat-signature artifacts require a signed
+  `expiry`; conflicting `expiry`/`expires_at` are rejected
+  (`AUTH_SIGNATURE_INVALID`, `AUTH_EXPIRED` still reported from `expiry`).
+  `verifyDelegationChain` rejects a parent without a valid integer `expiry`
+  (`DELEGATION_MISSING_FIELD`) instead of skipping the parent-expiry and
+  expiry-ceiling checks.
+- R-04: AuthorizationV1 is a closed field set (authorization-v1.md §5
+  "Signed field set"). Top-level fields not covered by the signature, and
+  extra fields in a nested `signature` object, are rejected
+  (`AUTH_SIGNATURE_INVALID`). PolicyEngine legacy fields remain accepted:
+  `authorization_id` must equal `auth_id`; `policy_version`,
+  `state_snapshot_hash`, `engine_signature` must be strings.
+
+### Security (encoding separation)
+
+- AuthorizationV1 wire-encoding separation (authorization-v1.md §5).
+  `verifyAuthorization` no longer tries both the domain-prefixed and the
+  non-prefixed Ed25519 preimage, nor both base64 alphabets, regardless of the
+  declared encoding. `alg: "Ed25519"` now verifies only
+  `"OXDEAI_AUTH_V1\n" || canonicalJson` with canonical standard base64;
+  `alg: "ed25519"` only the non-prefixed `canonicalJson` with canonical
+  base64url and a nested signature object. Cross-encoding and cross-alphabet
+  signatures fail with `AUTH_SIGNATURE_INVALID`.
+- A nested signature whose top-level `alg`/`kid` are partial or differ from
+  `signature.alg`/`signature.kid`, and a flat signature declaring `"ed25519"`,
+  are rejected as ambiguous/unsupported encodings (`AUTH_ALG_UNSUPPORTED`).
+- The locked `docs/spec/test-vectors/authorization-v1.json` corpus was
+  re-signed with the domain prefix (it previously relied on the removed
+  fallback). See `scripts/generate-authorization-v1-vectors.mjs`.
+
 ### Documentation
 
 - F4-1/F4-2: corrected the `VerifyDelegationOptions.trustedDelegationAuthorities`

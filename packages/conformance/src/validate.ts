@@ -436,18 +436,28 @@ function validateAuthorizationVectors(ctx: CheckCtx, adapter: ConformanceAdapter
   }
 }
 
+/**
+ * Wrap a structural (unsigned, no-trust) authorization vector in a placeholder
+ * signature envelope of the encoding the vector describes. R-03
+ * (authorization-v1.md §5 "Expiry field resolution"): `expires_at` is signed
+ * only in the nested encodings, so an `expires_at`-only (Sift-compatible,
+ * Encoding B) vector is wrapped as a nested `ed25519` signature rather than a
+ * flat one. Vector data and expectations are unchanged.
+ */
+function structuralEnvelope(fields: Record<string, unknown>): AuthorizationV1 {
+  const encodingB = fields.expires_at !== undefined && fields.expiry === undefined;
+  return (encodingB
+    ? { signature: { alg: "ed25519", kid: "legacy", sig: "legacy-placeholder" }, ...fields }
+    : { alg: "HMAC-SHA256", kid: "legacy", signature: "legacy-placeholder", ...fields }) as unknown as AuthorizationV1;
+}
+
 function validateAuthorizationVerificationVectors(ctx: CheckCtx, adapter: ConformanceAdapter): void {
   const file = loadJson<VectorFile>("authorization-verification.json");
 
   for (const v of file.vectors) {
     const id = String(v.id);
     const input = asRecord(v.input);
-    const auth = {
-      alg: "HMAC-SHA256",
-      kid: "legacy",
-      signature: "legacy-placeholder",
-      ...(asRecord(input.auth) as Record<string, unknown>)
-    } as AuthorizationV1;
+    const auth = structuralEnvelope(asRecord(input.auth) as Record<string, unknown>);
     const opts = (input.opts ? asRecord(input.opts) : {}) as {
       now?: number;
       expectedIssuer?: string;
@@ -469,12 +479,7 @@ function validateClockSemanticsVectors(ctx: CheckCtx, adapter: ConformanceAdapte
   for (const v of file.vectors) {
     const id = String(v.id);
     const input = asRecord(v.input);
-    const auth = {
-      alg: "HMAC-SHA256",
-      kid: "legacy",
-      signature: "legacy-placeholder",
-      ...(asRecord(input.auth) as Record<string, unknown>)
-    } as AuthorizationV1;
+    const auth = structuralEnvelope(asRecord(input.auth) as Record<string, unknown>);
     const opts = (input.opts ? asRecord(input.opts) : {}) as { now?: number };
     const expected = asRecord(v.expected);
     const got = adapter.verifyAuthorization(auth, opts);
@@ -758,8 +763,8 @@ function validateDelegationSignatureVectors(ctx: CheckCtx): void {
  *   - base64url-encoded signature bytes
  *   - signing preimage: canonicalJson(unsigned) with no domain prefix
  *
- * The verifier accepts this via the ed25519 branch + verifyEd25519Raw fallback
- * + base64url decoding in decodeSignatureBytes.
+ * The verifier accepts this only via the ed25519 branch (non-prefixed preimage,
+ * canonical base64url); there is no cross-encoding fallback.
  */
 function makeSiftWireFormatAuth(now = 1730000000): AuthorizationV1 {
   const unsigned: Record<string, unknown> = {

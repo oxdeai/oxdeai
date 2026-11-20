@@ -97,6 +97,34 @@ function hasText(value: unknown): value is string {
   return typeof value === "string" && value.length > 0;
 }
 
+/**
+ * Normative AuthorizationV1 top-level fields that are covered by the signature
+ * (authorization-v1.md §5 "Signed field set"). `expires_at` is signed in the
+ * nested encodings; in the flat encoding it is accepted only as an alias that
+ * MUST equal the signed `expiry` (checked in verifyAuthorization).
+ */
+const AUTHORIZATION_SIGNED_FIELDS: ReadonlySet<string> = new Set([
+  "version", "auth_id", "issuer", "audience", "intent_hash", "state_hash", "policy_id",
+  "decision", "issued_at", "expiry", "expires_at", "alg", "kid", "nonce", "capability", "signature"
+]);
+
+/**
+ * PolicyEngine legacy fields NOT covered by the AuthorizationV1 signature.
+ * `authorization_id` must equal the signed `auth_id`; `policy_version`,
+ * `state_snapshot_hash` and `engine_signature` belong to the engine-HMAC
+ * domain and are never consulted by AuthorizationV1 verification.
+ */
+const AUTHORIZATION_LEGACY_ENGINE_FIELDS: ReadonlySet<string> = new Set([
+  "authorization_id", "policy_version", "state_snapshot_hash", "engine_signature"
+]);
+
+const NESTED_SIGNATURE_FIELDS: ReadonlySet<string> = new Set(["alg", "kid", "sig"]);
+
+/** Own property with a defined value (JSON cannot carry `undefined`). */
+function isPresent(obj: Record<string, unknown>, key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(obj, key) && obj[key] !== undefined;
+}
+
 function signatureParts(auth: AuthorizationV1): { alg?: string; kid?: string; sig?: string; nested: boolean } {
   const raw = auth.signature;
   if (raw && typeof raw === "object" && !Array.isArray(raw)) {
@@ -115,7 +143,12 @@ function signatureParts(auth: AuthorizationV1): { alg?: string; kid?: string; si
   };
 }
 
-/** @internal - exported for regression tests; NOT part of the public API (not re-exported by the package entry point). */
+/**
+ * @internal - exported for regression tests; NOT part of the public API (not
+ * re-exported by the package entry point). Accepts either canonical alphabet and
+ * is therefore NOT used by verifyAuthorization, which binds the alphabet to the
+ * declared alg (see canonicalBase64UrlSignatureBytes / verifyEd25519).
+ */
 export function canonicalSignatureBytes(encoded: string): Buffer | null {
   // S4: accept base64url (RFC 4648 §5, Encoding B) alongside standard base64
   // (Encoding A), but ONLY in the canonical encoding of an exactly-64-byte
@@ -137,9 +170,27 @@ export function canonicalSignatureBytes(encoded: string): Buffer | null {
   return null;
 }
 
-function verifyEd25519Raw(payload: unknown, signatureBase64: string, publicKeyPem: string): boolean {
+/**
+ * Encoding B (Sift-compatible) signature decoder: canonical, unpadded base64url
+ * (RFC 4648 §5) of exactly 64 bytes, and nothing else. A standard-base64 string
+ * is NOT accepted here — the alphabet is bound to the declared encoding
+ * (authorization-v1.md §5), never auto-detected.
+ * @internal
+ */
+function canonicalBase64UrlSignatureBytes(encoded: string): Buffer | null {
+  if (typeof encoded !== "string" || encoded.length === 0) return null;
+  const url = Buffer.from(encoded, "base64url");
+  if (url.length === 64 && url.toString("base64url") === encoded) return url;
+  return null;
+}
+
+/**
+ * Encoding B verification: non-prefixed canonical preimage, base64url signature.
+ * Used ONLY for `alg === "ed25519"`.
+ */
+function verifyEd25519SiftCompatible(payload: unknown, signatureBase64Url: string, publicKeyPem: string): boolean {
   try {
-    const bytes = canonicalSignatureBytes(signatureBase64);
+    const bytes = canonicalBase64UrlSignatureBytes(signatureBase64Url);
     if (!bytes) return false;
     // S3: reject small-order / unreadable public keys on the Encoding-B fallback
     // path too, before trusting the verify result. Fail closed.
@@ -360,6 +411,19 @@ export function verifyAuthorization(
   }
   const sig = signatureParts(auth);
 
+  // Ambiguity guard (authorization-v1.md §5, §13): when the signature is nested,
+  // top-level alg/kid are either absent, or BOTH present and identical to
+  // signature.alg / signature.kid. A partial or conflicting pair would let the
+  // signed top-level alg differ from the alg that selects the wire encoding.
+  if (sig.nested && (auth.alg !== undefined || auth.kid !== undefined)) {
+    if (auth.alg !== sig.alg || auth.kid !== sig.kid) {
+      violations.push({
+        code: "AUTH_ALG_UNSUPPORTED",
+        message: "ambiguous signature encoding: top-level alg/kid conflict with signature.alg/kid"
+      });
+    }
+  }
+
   if (!hasText(sig.alg)) {
     violations.push({ code: "AUTH_MISSING_FIELD", message: "alg is required" });
   }
@@ -370,15 +434,70 @@ export function verifyAuthorization(
     violations.push({ code: "AUTH_MISSING_FIELD", message: "signature is required" });
   }
 
-  // Accept 'expires_at' (Sift wire format) as a fallback when 'expiry' is absent.
-  const effectiveExpiry = Number.isInteger(auth.expiry)
-    ? auth.expiry
-    : Number.isInteger((auth as Record<string, unknown>)["expires_at"] as number)
-    ? (auth as Record<string, unknown>)["expires_at"] as number
-    : undefined;
-  if (!Number.isInteger(effectiveExpiry)) {
+  // R-04 (authorization-v1.md §5 "Signed field set"): the artifact is a CLOSED
+  // set. Every top-level field must be covered by the signature, except the
+  // enumerated PolicyEngine legacy fields, which are either bound to a signed
+  // field by equality or are engine-HMAC fields that core never consults.
+  // Unknown fields are rejected rather than silently tolerated or dropped.
+  const rawAuth = auth as unknown as Record<string, unknown>;
+  const unsignedFields = Object.keys(rawAuth).filter(
+    (k) => !AUTHORIZATION_SIGNED_FIELDS.has(k) && !AUTHORIZATION_LEGACY_ENGINE_FIELDS.has(k)
+  );
+  if (unsignedFields.length > 0) {
+    violations.push({
+      code: "AUTH_SIGNATURE_INVALID",
+      message: `field(s) not covered by the signature: ${unsignedFields.slice(0, 5).map((k) => JSON.stringify(k).slice(0, 64)).join(", ")}`
+    });
+  }
+  if (sig.nested) {
+    const unsignedSigFields = Object.keys(rawAuth.signature as Record<string, unknown>).filter(
+      (k) => !NESTED_SIGNATURE_FIELDS.has(k)
+    );
+    if (unsignedSigFields.length > 0) {
+      violations.push({ code: "AUTH_SIGNATURE_INVALID", message: "signature object carries fields other than alg, kid, sig" });
+    }
+  }
+  if (isPresent(rawAuth, "authorization_id") && rawAuth.authorization_id !== auth.auth_id) {
+    violations.push({ code: "AUTH_SIGNATURE_INVALID", message: "unsigned authorization_id must equal the signed auth_id" });
+  }
+  for (const k of ["policy_version", "state_snapshot_hash", "engine_signature"] as const) {
+    if (isPresent(rawAuth, k) && typeof rawAuth[k] !== "string") {
+      violations.push({ code: "AUTH_SIGNATURE_INVALID", message: `legacy field ${k} must be a string` });
+    }
+  }
+
+  // R-03 (authorization-v1.md §5 "Expiry field resolution"): validity MUST
+  // derive only from a SIGNED expiry. A present expiry field is never skipped
+  // over when malformed (no fallback), and the flat encoding — whose preimage
+  // signs `expiry` but not `expires_at` — requires `expiry`.
+  const expiryPresent = isPresent(rawAuth, "expiry");
+  const expiresAtPresent = isPresent(rawAuth, "expires_at");
+  const expiryOk = expiryPresent && Number.isSafeInteger(rawAuth.expiry);
+  const expiresAtOk = expiresAtPresent && Number.isSafeInteger(rawAuth.expires_at);
+  if (expiryPresent && !expiryOk) {
     violations.push({ code: "AUTH_MISSING_FIELD", message: "expiry must be integer unix seconds" });
-  } else if (now >= (effectiveExpiry as number)) {
+  }
+  if (expiresAtPresent && !expiresAtOk) {
+    violations.push({ code: "AUTH_MISSING_FIELD", message: "expires_at must be integer unix seconds" });
+  }
+  if (!expiryPresent && !expiresAtPresent) {
+    violations.push({ code: "AUTH_MISSING_FIELD", message: "expiry must be integer unix seconds" });
+  } else if (!sig.nested && !expiryPresent) {
+    violations.push({ code: "AUTH_MISSING_FIELD", message: "flat signature requires signed expiry (expires_at is not signed in this encoding)" });
+  }
+  if (expiryOk && expiresAtOk && rawAuth.expiry !== rawAuth.expires_at) {
+    // Same classification as PolicyEngine.verifyAuthorization for a conflicting
+    // expiry alias: data outside (or beside) the signature contradicts it.
+    violations.push({ code: "AUTH_SIGNATURE_INVALID", message: "expiry and expires_at conflict" });
+  }
+  // `expiry` takes precedence; `expires_at` is used only by the nested encoding
+  // (where it is signed) and only when `expiry` is absent.
+  const effectiveExpiry = expiryOk
+    ? (rawAuth.expiry as number)
+    : sig.nested && !expiryPresent && expiresAtOk
+    ? (rawAuth.expires_at as number)
+    : undefined;
+  if (effectiveExpiry !== undefined && now >= effectiveExpiry) {
     violations.push({ code: "AUTH_EXPIRED", message: "authorization has expired" });
   }
 
@@ -443,7 +562,10 @@ export function verifyAuthorization(
     const sigAlg = sig.alg as string;
     const sigKid = sig.kid as string;
     const sigValue = sig.sig as string;
-    if (sigAlg === "Ed25519" || sigAlg === "ed25519") {
+    if (sigAlg === "ed25519" && !sig.nested) {
+      // Encoding B is defined only with a nested { alg, kid, sig } object.
+      violations.push({ code: "AUTH_ALG_UNSUPPORTED", message: "unsupported signature algorithm" });
+    } else if (sigAlg === "Ed25519" || sigAlg === "ed25519") {
       if (trusted.length === 0) {
         if (requireSig) {
           violations.push({ code: "AUTH_TRUST_MISSING", message: "trustedKeySets required for Ed25519 verification" });
@@ -460,10 +582,14 @@ export function verifyAuthorization(
           // check is engaged, independent of the outcome; `signatureVerified`
           // flips true only if it succeeds.
           verificationCoverage = "authorization-v1-full";
-          if (
-            !verifyEd25519(SIGNING_DOMAINS.AUTH_V1, payload, sigValue, key.public_key) &&
-            !verifyEd25519Raw(payload, sigValue, key.public_key)
-          ) {
+          // The declared alg selects exactly ONE (preimage, alphabet) pair —
+          // no cross-encoding fallback (authorization-v1.md §5):
+          //   "Ed25519" → "OXDEAI_AUTH_V1\n" || canonicalJson, standard base64
+          //   "ed25519" → canonicalJson (no prefix),           base64url
+          const cryptoOk = sigAlg === "Ed25519"
+            ? verifyEd25519(SIGNING_DOMAINS.AUTH_V1, payload, sigValue, key.public_key)
+            : verifyEd25519SiftCompatible(payload, sigValue, key.public_key);
+          if (!cryptoOk) {
             violations.push({ code: "AUTH_SIGNATURE_INVALID", message: "signature verification failed" });
           } else {
             signatureVerified = true;
