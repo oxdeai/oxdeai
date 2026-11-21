@@ -1,4 +1,5 @@
-# Settlement-recovery profile (sr-001–sr-016)
+# Settlement-recovery sandbox (non-normative example)
+Non-normative example. Not part of the OxDeAI conformance suite.
 
 Synthetic public fixtures for the admission step after `verifyAuthorization`. This profile does not alter `verifyAuthorization` or the AuthorizationV1 contract. No file under `packages/core` changes.
 

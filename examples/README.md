@@ -21,7 +21,7 @@ explicitly from application code.
 - `autogen` - **framework-shaped** (no AutoGen): `@oxdeai/autogen` with the shared boundary contract
 - `openclaw` - **framework-shaped** (no OpenClaw runtime): `@oxdeai/openclaw` with the canonical authorization boundary flow
 - `rust-verifier` - reference-only Rust verifier skeleton (`AuthorizationV1` fail-closed path)
-- `settlement-recovery` - 16 synthetic settlement-recovery / replay checks, sr-001–sr-016 (`pnpm test:settlement-recovery`)
+- `settlement-recovery` - non-normative example, not part of the OxDeAI conformance suite. 16 synthetic checks, sr-001–sr-016 (`pnpm test:settlement-recovery`). Status codes and lease states are runner choices rather than an OxDeAI profile.
 - `agentgram-demo` - deterministic execution boundary for Agentgram actions using the OxDeAI SDK
 - `delegation` - `DelegationV1` demo: a parent agent delegates strictly narrowed authority to a child agent
 - `execution-boundary-demo` - two-panel UI contrasting an unprotected path against the OxDeAI-guarded path
