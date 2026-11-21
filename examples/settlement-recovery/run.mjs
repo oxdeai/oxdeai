@@ -12,8 +12,8 @@ if (raw.includes("\r")) throw new Error("fixture must be LF");
 if (/seed_hex|BEGIN PRIVATE KEY/i.test(raw)) throw new Error("fixture contains key material");
 
 const fixture = JSON.parse(raw);
-if (fixture.vectors.length !== 14) {
-  throw new Error(`expected 14 vectors, got ${fixture.vectors.length}`);
+if (fixture.vectors.length !== 16) {
+  throw new Error(`expected 16 vectors, got ${fixture.vectors.length}`);
 }
 if (fixture.alg !== "Ed25519") throw new Error("fixture alg must be Ed25519");
 if (typeof fixture.public_key !== "string" || !fixture.public_key.includes("BEGIN PUBLIC KEY")) {
@@ -39,28 +39,32 @@ function leaseSnapshot(store) {
   return JSON.stringify([...store.entries()]);
 }
 
-// Admission entry point. From UNSEEN, strict verifyAuthorization and then
-// presented-intent equality both run before any lease record is allocated.
-// Either failure returns without creating or mutating lease state.
+function verifierErrorCode(verified) {
+  const codes = [...new Set(verified.violations.map((v) => v.code))].sort();
+  return codes[0] ?? null;
+}
+
+// Admission entry point. Strict verifyAuthorization and presented-intent
+// equality both run before any lease lookup, allocation, or coalescence.
+// Either failure returns the verifier code or AUTH_INTENT_MISMATCH, with no
+// record and no tx_hash, and does not mutate a stored lease.
 function admit(store, auth, intent) {
-  const existing = store.get(auth.auth_id);
   const verified = verifyAuthorization(structuredClone(auth), verifyOptions);
   const presented = sha256HexFromJson(intent);
   const binding = presented === auth.intent_hash ? null : "AUTH_INTENT_MISMATCH";
 
+  if (!verified.ok || binding) {
+    return {
+      status: "REJECTED",
+      verified,
+      binding,
+      errorCode: !verified.ok ? verifierErrorCode(verified) : "AUTH_INTENT_MISMATCH",
+      wrote: false,
+    };
+  }
+
+  const existing = store.get(auth.auth_id);
   if (!existing) {
-    if (!verified.ok) {
-      return { status: "REJECTED", verified, binding, errorCode: null, wrote: false };
-    }
-    if (binding) {
-      return {
-        status: "REJECTED",
-        verified,
-        binding,
-        errorCode: "AUTH_INTENT_MISMATCH",
-        wrote: false,
-      };
-    }
     const record = {
       intent_hash: presented,
       state: "LEASED",
@@ -121,7 +125,10 @@ function withOneMutatedSignatureByte(auth) {
 
 function runVector(vec) {
   const source = vec.authorization;
-  const auth = vec.case === "reject-tampered-signature" ? withOneMutatedSignatureByte(source) : source;
+  const auth =
+    vec.case === "reject-tampered-signature" || vec.case === "reject-tampered-settled"
+      ? withOneMutatedSignatureByte(source)
+      : source;
   const secondary = vec.secondary_intent
     ? sha256HexFromJson(vec.secondary_intent) === auth.intent_hash
       ? null
@@ -163,7 +170,18 @@ function runVector(vec) {
       assert.equal(store.size, 0, `${vec.id} lease absent`);
       assert.equal(store.has(auth.auth_id), false, vec.id);
     }
-    extension = decision.errorCode;
+    if (!verified.ok) assert.equal(decision.errorCode, codes[0], `${vec.id} verifier code`);
+    if (vec.initial) {
+      const stored = store.get(auth.auth_id);
+      assert.ok(stored, `${vec.id} stored lease`);
+      assert.equal(stored.state, vec.initial, vec.id);
+      assert.equal(stored.tx_hash, vec.tx_hash, `${vec.id} stored tx`);
+      assert.equal(stored.epoch, 1, vec.id);
+      assert.deepEqual(stored.transitions, [vec.initial], vec.id);
+      extension = decision.errorCode;
+    } else {
+      extension = verified.ok ? decision.errorCode : null;
+    }
     http = 422;
   } else if (vec.case === "replay-settled") {
     const existing = store.get(auth.auth_id);
