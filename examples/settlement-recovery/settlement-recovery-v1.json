@@ -508,6 +508,87 @@
         "extension_code": "PARTIAL_SETTLEMENT_DRIFT",
         "http_status": 502
       }
+    },
+    {
+      "id": "sr-013",
+      "case": "reject-intent-mismatch",
+      "intent": {
+        "chain": "eip155:8453",
+        "asset": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
+        "payTo": "0x1111111111111111111111111111111111111111",
+        "amountAtomic": "5000000",
+        "resource": "https://api.example.org/v1/query"
+      },
+      "authorization": {
+        "auth_id": "sr-001",
+        "issuer": "oxdeai.policy-engine",
+        "audience": "merchant-gateway",
+        "intent_hash": "e7fa1b3fd9ebd9c68963b5f67d8d99c5d1fdbb3ede5a834ea42689ad0122b8f7",
+        "state_hash": "d285c85baff40168ccdafc28c3f2c38f3d7ec45d05caaa59a60218fbbd5521e1",
+        "policy_id": "sandbox-policy",
+        "decision": "ALLOW",
+        "issued_at": 1730000000,
+        "expiry": 1730003630,
+        "kid": "sandbox-sr-1",
+        "alg": "Ed25519",
+        "signature": "9B/By4gu+Sz0nRZ+xnFfwl/Dnr7145x1AsMauKLJJPrR2vRCRHimNXYwsZsleNvGdqRKc1fs6BFmyoEhyHyYBw=="
+      },
+      "tx_hash": null,
+      "expect": {
+        "verifier_ok": true,
+        "verifier_codes": [],
+        "binding_code": "AUTH_INTENT_MISMATCH",
+        "transitions": [
+          "UNSEEN"
+        ],
+        "final_state": "UNSEEN",
+        "epoch": 0,
+        "recovered_tx_hash": null,
+        "extension_code": "AUTH_INTENT_MISMATCH",
+        "http_status": 422
+      }
+    },
+    {
+      "id": "sr-014",
+      "case": "reject-tampered-signature",
+      "intent": {
+        "chain": "eip155:8453",
+        "asset": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
+        "payTo": "0x1111111111111111111111111111111111111111",
+        "amountAtomic": "10000",
+        "resource": "https://api.example.org/v1/query"
+      },
+      "authorization": {
+        "auth_id": "sr-001",
+        "issuer": "oxdeai.policy-engine",
+        "audience": "merchant-gateway",
+        "intent_hash": "e7fa1b3fd9ebd9c68963b5f67d8d99c5d1fdbb3ede5a834ea42689ad0122b8f7",
+        "state_hash": "d285c85baff40168ccdafc28c3f2c38f3d7ec45d05caaa59a60218fbbd5521e1",
+        "policy_id": "sandbox-policy",
+        "decision": "ALLOW",
+        "issued_at": 1730000000,
+        "expiry": 1730003630,
+        "kid": "sandbox-sr-1",
+        "alg": "Ed25519",
+        "signature": "9B/By4gu+Sz0nRZ+xnFfwl/Dnr7145x1AsMauKLJJPrR2vRCRHimNXYwsZsleNvGdqRKc1fs6BFmyoEhyHyYBw=="
+      },
+      "tx_hash": null,
+      "expect": {
+        "verifier_ok": false,
+        "signature_verified": false,
+        "verifier_codes": [
+          "AUTH_SIGNATURE_INVALID"
+        ],
+        "binding_code": null,
+        "transitions": [
+          "UNSEEN"
+        ],
+        "final_state": "UNSEEN",
+        "epoch": 0,
+        "recovered_tx_hash": null,
+        "extension_code": null,
+        "http_status": 422
+      }
     }
   ]
 }

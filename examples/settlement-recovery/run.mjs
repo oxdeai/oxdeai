@@ -12,8 +12,8 @@ if (raw.includes("\r")) throw new Error("fixture must be LF");
 if (/seed_hex|BEGIN PRIVATE KEY/i.test(raw)) throw new Error("fixture contains key material");
 
 const fixture = JSON.parse(raw);
-if (fixture.vectors.length !== 12) {
-  throw new Error(`expected 12 vectors, got ${fixture.vectors.length}`);
+if (fixture.vectors.length !== 14) {
+  throw new Error(`expected 14 vectors, got ${fixture.vectors.length}`);
 }
 if (fixture.alg !== "Ed25519") throw new Error("fixture alg must be Ed25519");
 if (typeof fixture.public_key !== "string" || !fixture.public_key.includes("BEGIN PUBLIC KEY")) {
@@ -35,19 +35,50 @@ const verifyOptions = {
   ],
 };
 
-function acquire(store, authId, intentHash, signedHash) {
-  const existing = store.get(authId);
+function leaseSnapshot(store) {
+  return JSON.stringify([...store.entries()]);
+}
+
+// Admission entry point. From UNSEEN, strict verifyAuthorization and then
+// presented-intent equality both run before any lease record is allocated.
+// Either failure returns without creating or mutating lease state.
+function admit(store, auth, intent) {
+  const existing = store.get(auth.auth_id);
+  const verified = verifyAuthorization(structuredClone(auth), verifyOptions);
+  const presented = sha256HexFromJson(intent);
+  const binding = presented === auth.intent_hash ? null : "AUTH_INTENT_MISMATCH";
+
   if (!existing) {
-    if (intentHash !== signedHash) return { status: "REPLAY_REJECTED", errorCode: "AUTH_REPLAYED" };
+    if (!verified.ok) {
+      return { status: "REJECTED", verified, binding, errorCode: null, wrote: false };
+    }
+    if (binding) {
+      return {
+        status: "REJECTED",
+        verified,
+        binding,
+        errorCode: "AUTH_INTENT_MISMATCH",
+        wrote: false,
+      };
+    }
     const record = {
-      intent_hash: intentHash,
+      intent_hash: presented,
       state: "LEASED",
       epoch: 1,
       tx_hash: null,
       transitions: ["UNSEEN", "LEASED"],
     };
-    store.set(authId, record);
-    return { status: "ACQUIRED", record };
+    store.set(auth.auth_id, record);
+    return { status: "ACQUIRED", verified, binding, errorCode: null, record, wrote: true };
+  }
+
+  return { status: "EXISTING", verified, binding, errorCode: null, record: existing, wrote: false };
+}
+
+function acquire(store, authId, intentHash) {
+  const existing = store.get(authId);
+  if (!existing) {
+    throw new Error("lease allocation is performed only by admit");
   }
   if (existing.intent_hash !== intentHash) {
     return { status: "REPLAY_REJECTED", errorCode: "AUTH_REPLAYED", record: existing };
@@ -72,10 +103,25 @@ function commit(record, epoch, next, tx) {
   return { ok: true };
 }
 
+function withOneMutatedSignatureByte(auth) {
+  const payload = structuredClone(auth);
+  const bytes = Buffer.from(payload.signature, "base64");
+  assert.equal(bytes.length, 64);
+  const before = Buffer.from(bytes);
+  bytes[0] ^= 0x01;
+  let diffs = 0;
+  for (let i = 0; i < bytes.length; i += 1) {
+    if (bytes[i] !== before[i]) diffs += 1;
+  }
+  assert.equal(diffs, 1);
+  payload.signature = bytes.toString("base64");
+  assert.notEqual(payload.signature, auth.signature);
+  return payload;
+}
+
 function runVector(vec) {
-  const auth = vec.authorization;
-  const presented = sha256HexFromJson(vec.intent);
-  const binding = presented === auth.intent_hash ? null : "AUTH_INTENT_MISMATCH";
+  const source = vec.authorization;
+  const auth = vec.case === "reject-tampered-signature" ? withOneMutatedSignatureByte(source) : source;
   const secondary = vec.secondary_intent
     ? sha256HexFromJson(vec.secondary_intent) === auth.intent_hash
       ? null
@@ -92,9 +138,12 @@ function runVector(vec) {
     });
   }
 
-  const verified = verifyAuthorization(structuredClone(auth), verifyOptions);
+  const before = leaseSnapshot(store);
+  const decision = admit(store, auth, vec.intent);
+  const verified = decision.verified;
+  const binding = decision.binding;
   const codes = [...new Set(verified.violations.map((v) => v.code))].sort();
-  assert.equal(verified.signatureVerified, true, vec.id);
+  assert.equal(verified.signatureVerified, vec.expect.signature_verified ?? true, vec.id);
   assert.equal(verified.ok, vec.expect.verifier_ok, `${vec.id} verifier`);
   assert.deepEqual(codes, [...vec.expect.verifier_codes].sort(), vec.id);
   assert.equal(binding, vec.expect.binding_code, `${vec.id} binding`);
@@ -106,18 +155,28 @@ function runVector(vec) {
   let http = 200;
   let recovered = null;
 
-  if (!verified.ok) {
+  if (decision.status === "REJECTED") {
+    assert.equal(leaseSnapshot(store), before, `${vec.id} lease unchanged`);
+    assert.equal(decision.wrote, false, vec.id);
+    assert.equal(decision.record, undefined, vec.id);
+    if (!vec.initial) {
+      assert.equal(store.size, 0, `${vec.id} lease absent`);
+      assert.equal(store.has(auth.auth_id), false, vec.id);
+    }
+    extension = decision.errorCode;
     http = 422;
   } else if (vec.case === "replay-settled") {
     const existing = store.get(auth.auth_id);
     assert.ok(existing);
     assert.equal(existing.state, "SETTLED");
+    assert.equal(decision.wrote, false, vec.id);
+    assert.equal(leaseSnapshot(store), before, `${vec.id} lease unchanged`);
     extension = "AUTH_REPLAYED";
     recovered = existing.tx_hash;
     http = 422;
   } else {
-    const first = acquire(store, auth.auth_id, presented, auth.intent_hash);
-    assert.equal(first.status, "ACQUIRED", vec.id);
+    assert.equal(decision.status, "ACQUIRED", vec.id);
+    const first = decision;
     if (vec.case === "settle") {
       assert.equal(commit(first.record, 1, "SETTLED", vec.tx_hash).ok, true);
       recovered = vec.tx_hash;
@@ -135,17 +194,16 @@ function runVector(vec) {
       extension = "SETTLEMENT_UNCERTAIN";
       http = 504;
     } else if (vec.case === "coalesce") {
-      assert.equal(acquire(store, auth.auth_id, presented, auth.intent_hash).status, "IN_FLIGHT");
+      assert.equal(acquire(store, auth.auth_id, sha256HexFromJson(vec.intent)).status, "IN_FLIGHT");
       assert.equal(commit(first.record, 1, "SETTLED", vec.tx_hash).ok, true);
-      const again = acquire(store, auth.auth_id, presented, auth.intent_hash);
+      const again = acquire(store, auth.auth_id, sha256HexFromJson(vec.intent));
       assert.equal(again.status, "COALESCED_SETTLED");
       recovered = again.record.tx_hash;
     } else if (vec.case === "reject-mutated") {
       const replay = acquire(
         store,
         auth.auth_id,
-        sha256HexFromJson(vec.secondary_intent),
-        auth.intent_hash
+        sha256HexFromJson(vec.secondary_intent)
       );
       assert.equal(replay.status, "REPLAY_REJECTED");
       assert.equal(replay.errorCode, "AUTH_REPLAYED");
@@ -184,13 +242,29 @@ function runVector(vec) {
   assert.equal(http, vec.expect.http_status, vec.id);
 
   if (vec.id === "sr-001") {
-    const flipped = structuredClone(auth);
+    const flipped = structuredClone(source);
     const chars = flipped.signature.split("");
     chars[0] = chars[0] === "A" ? "B" : "A";
     flipped.signature = chars.join("");
     const bad = verifyAuthorization(flipped, verifyOptions);
     assert.equal(bad.ok, false);
     assert.ok(bad.violations.some((v) => v.code === "AUTH_SIGNATURE_INVALID"));
+  }
+
+  if (vec.case === "reject-intent-mismatch") {
+    assert.equal(decision.status, "REJECTED");
+    assert.equal(decision.errorCode, "AUTH_INTENT_MISMATCH");
+    assert.equal(store.size, 0);
+    assert.equal(record, undefined);
+  }
+
+  if (vec.case === "reject-tampered-signature") {
+    assert.equal(decision.status, "REJECTED");
+    assert.equal(verified.ok, false);
+    assert.ok(codes.includes("AUTH_SIGNATURE_INVALID"));
+    assert.equal(store.size, 0);
+    assert.equal(record, undefined);
+    assert.deepEqual(record ? record.transitions : [], []);
   }
 }
 
