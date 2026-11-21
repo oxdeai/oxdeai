@@ -1,0 +1,513 @@
+{
+  "now": 1730000030,
+  "issuer": "oxdeai.policy-engine",
+  "audience": "merchant-gateway",
+  "kid": "sandbox-sr-1",
+  "alg": "Ed25519",
+  "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA7kdzDxAqnWrF39YBPn0Wtms1j3DHHZiXERmoHC8kK3w=\n-----END PUBLIC KEY-----\n",
+  "vectors": [
+    {
+      "id": "sr-001",
+      "case": "settle",
+      "intent": {
+        "chain": "eip155:8453",
+        "asset": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
+        "payTo": "0x1111111111111111111111111111111111111111",
+        "amountAtomic": "10000",
+        "resource": "https://api.example.org/v1/query"
+      },
+      "authorization": {
+        "auth_id": "sr-001",
+        "issuer": "oxdeai.policy-engine",
+        "audience": "merchant-gateway",
+        "intent_hash": "e7fa1b3fd9ebd9c68963b5f67d8d99c5d1fdbb3ede5a834ea42689ad0122b8f7",
+        "state_hash": "d285c85baff40168ccdafc28c3f2c38f3d7ec45d05caaa59a60218fbbd5521e1",
+        "policy_id": "sandbox-policy",
+        "decision": "ALLOW",
+        "issued_at": 1730000000,
+        "expiry": 1730003630,
+        "kid": "sandbox-sr-1",
+        "alg": "Ed25519",
+        "signature": "9B/By4gu+Sz0nRZ+xnFfwl/Dnr7145x1AsMauKLJJPrR2vRCRHimNXYwsZsleNvGdqRKc1fs6BFmyoEhyHyYBw=="
+      },
+      "tx_hash": "0x0000000000000000000000000000000000000000000000000000000000000001",
+      "expect": {
+        "verifier_ok": true,
+        "verifier_codes": [],
+        "binding_code": null,
+        "transitions": [
+          "UNSEEN",
+          "LEASED",
+          "SETTLED"
+        ],
+        "final_state": "SETTLED",
+        "epoch": 1,
+        "recovered_tx_hash": "0x0000000000000000000000000000000000000000000000000000000000000001",
+        "extension_code": null,
+        "http_status": 200
+      }
+    },
+    {
+      "id": "sr-002",
+      "case": "abort-before-send",
+      "intent": {
+        "chain": "eip155:8453",
+        "asset": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
+        "payTo": "0x1111111111111111111111111111111111111111",
+        "amountAtomic": "10000",
+        "resource": "https://api.example.org/v1/query"
+      },
+      "authorization": {
+        "auth_id": "sr-002",
+        "issuer": "oxdeai.policy-engine",
+        "audience": "merchant-gateway",
+        "intent_hash": "e7fa1b3fd9ebd9c68963b5f67d8d99c5d1fdbb3ede5a834ea42689ad0122b8f7",
+        "state_hash": "d285c85baff40168ccdafc28c3f2c38f3d7ec45d05caaa59a60218fbbd5521e1",
+        "policy_id": "sandbox-policy",
+        "decision": "ALLOW",
+        "issued_at": 1730000000,
+        "expiry": 1730003630,
+        "kid": "sandbox-sr-1",
+        "alg": "Ed25519",
+        "signature": "0cnbaHbCbe5fs+UAXtT+fjpZpZ77yycrZHN1miTv4t4+ueKs3sQrwzISarY+65rwx6ACMZYHftSlhgNpmXCaCw=="
+      },
+      "tx_hash": null,
+      "expect": {
+        "verifier_ok": true,
+        "verifier_codes": [],
+        "binding_code": null,
+        "transitions": [
+          "UNSEEN",
+          "LEASED",
+          "RECOVERY_PENDING",
+          "FAILED_FINAL"
+        ],
+        "final_state": "FAILED_FINAL",
+        "epoch": 2,
+        "recovered_tx_hash": null,
+        "extension_code": "LEASE_ABORTED_NO_SETTLEMENT",
+        "http_status": 422
+      }
+    },
+    {
+      "id": "sr-003",
+      "case": "recover-confirmed",
+      "intent": {
+        "chain": "eip155:8453",
+        "asset": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
+        "payTo": "0x1111111111111111111111111111111111111111",
+        "amountAtomic": "10000",
+        "resource": "https://api.example.org/v1/query"
+      },
+      "authorization": {
+        "auth_id": "sr-003",
+        "issuer": "oxdeai.policy-engine",
+        "audience": "merchant-gateway",
+        "intent_hash": "e7fa1b3fd9ebd9c68963b5f67d8d99c5d1fdbb3ede5a834ea42689ad0122b8f7",
+        "state_hash": "d285c85baff40168ccdafc28c3f2c38f3d7ec45d05caaa59a60218fbbd5521e1",
+        "policy_id": "sandbox-policy",
+        "decision": "ALLOW",
+        "issued_at": 1730000000,
+        "expiry": 1730003630,
+        "kid": "sandbox-sr-1",
+        "alg": "Ed25519",
+        "signature": "HlAVr65SOc2eecCzL8JgBC/lsFmJECQcOyqWf3iO4AMou6RFGBheL1ck2y9ByG6p3JNRwl6hI0r1vZNa5k7MAw=="
+      },
+      "tx_hash": "0x0000000000000000000000000000000000000000000000000000000000000003",
+      "expect": {
+        "verifier_ok": true,
+        "verifier_codes": [],
+        "binding_code": null,
+        "transitions": [
+          "UNSEEN",
+          "LEASED",
+          "RECOVERY_PENDING",
+          "SETTLED"
+        ],
+        "final_state": "SETTLED",
+        "epoch": 2,
+        "recovered_tx_hash": "0x0000000000000000000000000000000000000000000000000000000000000003",
+        "extension_code": null,
+        "http_status": 200
+      }
+    },
+    {
+      "id": "sr-004",
+      "case": "hold-pending",
+      "intent": {
+        "chain": "eip155:8453",
+        "asset": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
+        "payTo": "0x1111111111111111111111111111111111111111",
+        "amountAtomic": "10000",
+        "resource": "https://api.example.org/v1/query"
+      },
+      "authorization": {
+        "auth_id": "sr-004",
+        "issuer": "oxdeai.policy-engine",
+        "audience": "merchant-gateway",
+        "intent_hash": "e7fa1b3fd9ebd9c68963b5f67d8d99c5d1fdbb3ede5a834ea42689ad0122b8f7",
+        "state_hash": "d285c85baff40168ccdafc28c3f2c38f3d7ec45d05caaa59a60218fbbd5521e1",
+        "policy_id": "sandbox-policy",
+        "decision": "ALLOW",
+        "issued_at": 1730000000,
+        "expiry": 1730003630,
+        "kid": "sandbox-sr-1",
+        "alg": "Ed25519",
+        "signature": "gXLQBZrxo5tUWLpAK2PwXE8sCNGY6SVRbThijJR+dDI0y8tPFpIRpMyJ++NxibUbNFtp2T0jtrnsJWahpSNBAg=="
+      },
+      "tx_hash": null,
+      "expect": {
+        "verifier_ok": true,
+        "verifier_codes": [],
+        "binding_code": null,
+        "transitions": [
+          "UNSEEN",
+          "LEASED",
+          "RECOVERY_PENDING"
+        ],
+        "final_state": "RECOVERY_PENDING",
+        "epoch": 2,
+        "recovered_tx_hash": null,
+        "extension_code": "SETTLEMENT_UNCERTAIN",
+        "http_status": 504
+      }
+    },
+    {
+      "id": "sr-005",
+      "case": "coalesce",
+      "intent": {
+        "chain": "eip155:8453",
+        "asset": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
+        "payTo": "0x1111111111111111111111111111111111111111",
+        "amountAtomic": "10000",
+        "resource": "https://api.example.org/v1/query"
+      },
+      "authorization": {
+        "auth_id": "sr-005",
+        "issuer": "oxdeai.policy-engine",
+        "audience": "merchant-gateway",
+        "intent_hash": "e7fa1b3fd9ebd9c68963b5f67d8d99c5d1fdbb3ede5a834ea42689ad0122b8f7",
+        "state_hash": "d285c85baff40168ccdafc28c3f2c38f3d7ec45d05caaa59a60218fbbd5521e1",
+        "policy_id": "sandbox-policy",
+        "decision": "ALLOW",
+        "issued_at": 1730000000,
+        "expiry": 1730003630,
+        "kid": "sandbox-sr-1",
+        "alg": "Ed25519",
+        "signature": "trqUYt7q2zJflPod1z2prfn7a2bJ7W+YaaFj+PpmyLCJGYMvHX5bE9z39c7/00POAdEZfFlCi3abU2JrwWccAA=="
+      },
+      "tx_hash": "0x0000000000000000000000000000000000000000000000000000000000000005",
+      "expect": {
+        "verifier_ok": true,
+        "verifier_codes": [],
+        "binding_code": null,
+        "transitions": [
+          "UNSEEN",
+          "LEASED",
+          "SETTLED"
+        ],
+        "final_state": "SETTLED",
+        "epoch": 1,
+        "recovered_tx_hash": "0x0000000000000000000000000000000000000000000000000000000000000005",
+        "extension_code": null,
+        "http_status": 200
+      }
+    },
+    {
+      "id": "sr-006",
+      "case": "reject-mutated",
+      "intent": {
+        "chain": "eip155:8453",
+        "asset": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
+        "payTo": "0x1111111111111111111111111111111111111111",
+        "amountAtomic": "10000",
+        "resource": "https://api.example.org/v1/query"
+      },
+      "secondary_intent": {
+        "chain": "eip155:8453",
+        "asset": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
+        "payTo": "0x1111111111111111111111111111111111111111",
+        "amountAtomic": "5000000",
+        "resource": "https://api.example.org/v1/query"
+      },
+      "authorization": {
+        "auth_id": "sr-006",
+        "issuer": "oxdeai.policy-engine",
+        "audience": "merchant-gateway",
+        "intent_hash": "e7fa1b3fd9ebd9c68963b5f67d8d99c5d1fdbb3ede5a834ea42689ad0122b8f7",
+        "state_hash": "d285c85baff40168ccdafc28c3f2c38f3d7ec45d05caaa59a60218fbbd5521e1",
+        "policy_id": "sandbox-policy",
+        "decision": "ALLOW",
+        "issued_at": 1730000000,
+        "expiry": 1730003630,
+        "kid": "sandbox-sr-1",
+        "alg": "Ed25519",
+        "signature": "gCndzoyGIT3pivbkI5imgaemjy7xqnYQNkPVyrCMayEvhWrTC6X+p7rqn6t/7HMPHKLztyBmVwA36D4168N1CQ=="
+      },
+      "tx_hash": "0x0000000000000000000000000000000000000000000000000000000000000006",
+      "expect": {
+        "verifier_ok": true,
+        "verifier_codes": [],
+        "binding_code": null,
+        "secondary_binding_code": "AUTH_INTENT_MISMATCH",
+        "transitions": [
+          "UNSEEN",
+          "LEASED",
+          "SETTLED"
+        ],
+        "final_state": "SETTLED",
+        "epoch": 1,
+        "recovered_tx_hash": "0x0000000000000000000000000000000000000000000000000000000000000006",
+        "extension_code": "AUTH_REPLAYED",
+        "http_status": 409
+      }
+    },
+    {
+      "id": "sr-007",
+      "case": "replay-settled",
+      "intent": {
+        "chain": "eip155:8453",
+        "asset": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
+        "payTo": "0x1111111111111111111111111111111111111111",
+        "amountAtomic": "5000000",
+        "resource": "https://api.example.org/v1/query"
+      },
+      "initial": "SETTLED",
+      "authorization": {
+        "auth_id": "sr-007",
+        "issuer": "oxdeai.policy-engine",
+        "audience": "merchant-gateway",
+        "intent_hash": "e7fa1b3fd9ebd9c68963b5f67d8d99c5d1fdbb3ede5a834ea42689ad0122b8f7",
+        "state_hash": "d285c85baff40168ccdafc28c3f2c38f3d7ec45d05caaa59a60218fbbd5521e1",
+        "policy_id": "sandbox-policy",
+        "decision": "ALLOW",
+        "issued_at": 1730000000,
+        "expiry": 1730003630,
+        "kid": "sandbox-sr-1",
+        "alg": "Ed25519",
+        "signature": "6hFKKd87pMvGxZqCsHpKn+NP5AcSb5B8reE9pwCjR9BxkFk2UK3kJx04rf47lxLDeIa8vhfZpLBdOdKGrzZxBg=="
+      },
+      "tx_hash": "0x0000000000000000000000000000000000000000000000000000000000000007",
+      "expect": {
+        "verifier_ok": true,
+        "verifier_codes": [],
+        "binding_code": "AUTH_INTENT_MISMATCH",
+        "transitions": [
+          "SETTLED"
+        ],
+        "final_state": "SETTLED",
+        "epoch": 1,
+        "recovered_tx_hash": "0x0000000000000000000000000000000000000000000000000000000000000007",
+        "extension_code": "AUTH_REPLAYED",
+        "http_status": 422
+      }
+    },
+    {
+      "id": "sr-008",
+      "case": "fence-epoch",
+      "intent": {
+        "chain": "eip155:8453",
+        "asset": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
+        "payTo": "0x1111111111111111111111111111111111111111",
+        "amountAtomic": "10000",
+        "resource": "https://api.example.org/v1/query"
+      },
+      "authorization": {
+        "auth_id": "sr-008",
+        "issuer": "oxdeai.policy-engine",
+        "audience": "merchant-gateway",
+        "intent_hash": "e7fa1b3fd9ebd9c68963b5f67d8d99c5d1fdbb3ede5a834ea42689ad0122b8f7",
+        "state_hash": "d285c85baff40168ccdafc28c3f2c38f3d7ec45d05caaa59a60218fbbd5521e1",
+        "policy_id": "sandbox-policy",
+        "decision": "ALLOW",
+        "issued_at": 1730000000,
+        "expiry": 1730003630,
+        "kid": "sandbox-sr-1",
+        "alg": "Ed25519",
+        "signature": "xaNsLktznCwec9ay3a7vGEaPUrOirI4LkWOlvj7uD3IB9cLyO+Vq9w5+IMdbrdiHyYl62a8LfyHwkPudbDfIDQ=="
+      },
+      "tx_hash": "0x0000000000000000000000000000000000000000000000000000000000000008",
+      "expect": {
+        "verifier_ok": true,
+        "verifier_codes": [],
+        "binding_code": null,
+        "transitions": [
+          "UNSEEN",
+          "LEASED",
+          "RECOVERY_PENDING",
+          "SETTLED"
+        ],
+        "final_state": "SETTLED",
+        "epoch": 2,
+        "recovered_tx_hash": "0x0000000000000000000000000000000000000000000000000000000000000008",
+        "extension_code": "STALE_LEASE_EPOCH",
+        "http_status": 200
+      }
+    },
+    {
+      "id": "sr-009",
+      "case": "settle-after-short-expiry",
+      "intent": {
+        "chain": "eip155:8453",
+        "asset": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
+        "payTo": "0x1111111111111111111111111111111111111111",
+        "amountAtomic": "10000",
+        "resource": "https://api.example.org/v1/query"
+      },
+      "authorization": {
+        "auth_id": "sr-009",
+        "issuer": "oxdeai.policy-engine",
+        "audience": "merchant-gateway",
+        "intent_hash": "e7fa1b3fd9ebd9c68963b5f67d8d99c5d1fdbb3ede5a834ea42689ad0122b8f7",
+        "state_hash": "d285c85baff40168ccdafc28c3f2c38f3d7ec45d05caaa59a60218fbbd5521e1",
+        "policy_id": "sandbox-policy",
+        "decision": "ALLOW",
+        "issued_at": 1730000000,
+        "expiry": 1730000035,
+        "kid": "sandbox-sr-1",
+        "alg": "Ed25519",
+        "signature": "vYpOAMxfV8W7IE0w4nsqxI3YdQwy+RQ1vV+5/MigixUhIz9iuJKF45lwMIhUT0FhyUpfb9GmzCkbEwziToGrAA=="
+      },
+      "tx_hash": "0x0000000000000000000000000000000000000000000000000000000000000009",
+      "expect": {
+        "verifier_ok": true,
+        "verifier_codes": [],
+        "binding_code": null,
+        "transitions": [
+          "UNSEEN",
+          "LEASED",
+          "RECOVERY_PENDING",
+          "SETTLED"
+        ],
+        "final_state": "SETTLED",
+        "epoch": 2,
+        "recovered_tx_hash": "0x0000000000000000000000000000000000000000000000000000000000000009",
+        "extension_code": null,
+        "http_status": 200
+      }
+    },
+    {
+      "id": "sr-010",
+      "case": "reject-expired",
+      "intent": {
+        "chain": "eip155:8453",
+        "asset": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
+        "payTo": "0x1111111111111111111111111111111111111111",
+        "amountAtomic": "10000",
+        "resource": "https://api.example.org/v1/query"
+      },
+      "authorization": {
+        "auth_id": "sr-010",
+        "issuer": "oxdeai.policy-engine",
+        "audience": "merchant-gateway",
+        "intent_hash": "e7fa1b3fd9ebd9c68963b5f67d8d99c5d1fdbb3ede5a834ea42689ad0122b8f7",
+        "state_hash": "d285c85baff40168ccdafc28c3f2c38f3d7ec45d05caaa59a60218fbbd5521e1",
+        "policy_id": "sandbox-policy",
+        "decision": "ALLOW",
+        "issued_at": 1730000000,
+        "expiry": 1730000029,
+        "kid": "sandbox-sr-1",
+        "alg": "Ed25519",
+        "signature": "nsu4a63+nRQyWjJKW3xzlBtaAJi+zIZWBeAm+X+Y4dUnxMoEpr3eES552b/EM+C2D/LBHmEJznGV/KBHefD4Bw=="
+      },
+      "tx_hash": null,
+      "expect": {
+        "verifier_ok": false,
+        "verifier_codes": [
+          "AUTH_EXPIRED"
+        ],
+        "binding_code": null,
+        "transitions": [
+          "UNSEEN"
+        ],
+        "final_state": "UNSEEN",
+        "epoch": 0,
+        "recovered_tx_hash": null,
+        "extension_code": null,
+        "http_status": 422
+      }
+    },
+    {
+      "id": "sr-011",
+      "case": "block-after-verify",
+      "intent": {
+        "chain": "eip155:8453",
+        "asset": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
+        "payTo": "0x1111111111111111111111111111111111111111",
+        "amountAtomic": "10000",
+        "resource": "https://api.example.org/v1/query"
+      },
+      "authorization": {
+        "auth_id": "sr-011",
+        "issuer": "oxdeai.policy-engine",
+        "audience": "merchant-gateway",
+        "intent_hash": "e7fa1b3fd9ebd9c68963b5f67d8d99c5d1fdbb3ede5a834ea42689ad0122b8f7",
+        "state_hash": "d285c85baff40168ccdafc28c3f2c38f3d7ec45d05caaa59a60218fbbd5521e1",
+        "policy_id": "sandbox-policy",
+        "decision": "ALLOW",
+        "issued_at": 1730000000,
+        "expiry": 1730003630,
+        "kid": "sandbox-sr-1",
+        "alg": "Ed25519",
+        "signature": "vMLTac+6W8p4oy8NQxeH7SeVyYO+hFSLebCuSHxf/MbKzdWHfGVogUPeZWehgBev8iU7wfaN3/tLJy5HH0vkBg=="
+      },
+      "tx_hash": null,
+      "expect": {
+        "verifier_ok": true,
+        "verifier_codes": [],
+        "binding_code": null,
+        "transitions": [
+          "UNSEEN",
+          "LEASED",
+          "FAILED_FINAL"
+        ],
+        "final_state": "FAILED_FINAL",
+        "epoch": 1,
+        "recovered_tx_hash": null,
+        "extension_code": "COMPLIANCE_BLOCKED",
+        "http_status": 403
+      }
+    },
+    {
+      "id": "sr-012",
+      "case": "hold-partial",
+      "intent": {
+        "chain": "eip155:8453",
+        "asset": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
+        "payTo": "0x1111111111111111111111111111111111111111",
+        "amountAtomic": "10000",
+        "resource": "https://api.example.org/v1/query"
+      },
+      "authorization": {
+        "auth_id": "sr-012",
+        "issuer": "oxdeai.policy-engine",
+        "audience": "merchant-gateway",
+        "intent_hash": "e7fa1b3fd9ebd9c68963b5f67d8d99c5d1fdbb3ede5a834ea42689ad0122b8f7",
+        "state_hash": "d285c85baff40168ccdafc28c3f2c38f3d7ec45d05caaa59a60218fbbd5521e1",
+        "policy_id": "sandbox-policy",
+        "decision": "ALLOW",
+        "issued_at": 1730000000,
+        "expiry": 1730003630,
+        "kid": "sandbox-sr-1",
+        "alg": "Ed25519",
+        "signature": "0KIL7bUb2BfAdUyG5Q0+p9H9S5Qf3o1fKEY277ZMqlct+Q/5k89J91L7DmLrCCrzqvEuTCJAMxQpk6w9vuoBCw=="
+      },
+      "tx_hash": "0x000000000000000000000000000000000000000000000000000000000000000c",
+      "expect": {
+        "verifier_ok": true,
+        "verifier_codes": [],
+        "binding_code": null,
+        "transitions": [
+          "UNSEEN",
+          "LEASED",
+          "RECOVERY_PENDING"
+        ],
+        "final_state": "RECOVERY_PENDING",
+        "epoch": 2,
+        "recovered_tx_hash": "0x000000000000000000000000000000000000000000000000000000000000000c",
+        "extension_code": "PARTIAL_SETTLEMENT_DRIFT",
+        "http_status": 502
+      }
+    }
+  ]
+}

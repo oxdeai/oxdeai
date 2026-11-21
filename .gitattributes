@@ -7,3 +7,5 @@
 # file is diffed/stored.
 packages/core/etc/core.api.md whitespace=cr-at-eol
 packages/core/temp/core.api.md whitespace=cr-at-eol
+docs/spec/test-vectors/** text eol=lf
+examples/settlement-recovery/*.json text eol=lf
