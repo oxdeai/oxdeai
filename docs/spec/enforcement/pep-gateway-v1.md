@@ -263,7 +263,9 @@ The gateway **MUST NOT** execute an action unless it matches the authorization b
 
 ### 10.1 Mandatory Checks
 
-The gateway **MUST** verify:
+The gateway **MUST** verify the following. The list is not ordered: the gateway
+**MUST** perform these checks in the order of the reference sequence in
+`verification-v1.md` §5, with replay consumption last.
 
 * Artifact structure validity
 * Signature validity
@@ -317,8 +319,11 @@ The gateway **MUST** enforce replay resistance.
 * Atomic consumption tracking in a declared/configured replay domain
 * Retention of consumed IDs while their authorizations could otherwise still be accepted
 
-The gateway MUST authenticate/verify before authoritative replay mutation and
-consume before the protected side effect. Unauthenticated input MUST NOT mutate
+The gateway MUST complete every check of `verification-v1.md` §5 steps 1 to 15
+before authoritative replay mutation, and MUST consume before the protected side
+effect. Those steps include the signature, trust, audience, expiry, intent-hash
+binding and, when applicable, state binding. A request whose action does not
+match `authorization.intent_hash` MUST NOT consume the `auth_id`. Unauthenticated input MUST NOT mutate
 trusted replay state. Required replay-state failure, unavailability or an
 indeterminate consume result MUST block execution; it MUST NOT become permissive
 success. The [store contract](../verification/verification-v1.md#43-replay-store-contract-and-deployment-boundary)

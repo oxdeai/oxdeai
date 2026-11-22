@@ -1,7 +1,16 @@
 # OxDeAI AuthorizationV1 Specification
 
-**Version:** v1.1
+**Version:** v1.2
 **Status:** Stable (Normative Specification)
+
+**Changes in v1.2.** Wire-compatible; verification diagnostic precedence
+clarified. The verification order is now the single reference sequence of
+`verification-v1.md` §5 (§10). The verifier codes are registered in §10.1.
+Conformance compares the verdict and the determining code
+(`verification-v1.md` §9.1). Replay consumption comes after every other check
+(§11). No wire field, encoding or signing preimage changes. For artifacts with
+several defects, the determining code can differ from the first code that an
+implementation reported before v1.2.
 
 ---
 
@@ -399,22 +408,38 @@ Any condition fails → reject
 
 ## 10. Verification Procedure
 
-A conforming verifier **MUST**:
+A conforming verifier **MUST** perform every step of the reference sequence in
+`verification-v1.md` §5, in that order. That sequence is exhaustive for
+AuthorizationV1. It includes the checks defined in §5, §6 and §9 of this
+document (closed field set, `decision`, key validity, issuer, audience, policy,
+expiry, `issued_at`, replay). For an invalid artifact, the result is identified
+by its determining code (`verification-v1.md` §9.1).
 
-1. Parse artifact
-2. Validate all required fields are present
-3. Identify wire encoding from `alg` value
-4. Resolve effective expiry (`expiry` or `expires_at` per §5)
-5. Check expiration: `now >= effectiveExpiry` → reject
-6. Check `issued_at` future-plausibility: `issued_at > verificationTime + maxFutureIssuedAtSkewSeconds` → reject (`AUTH_ISSUED_AT_IMPLAUSIBLE`; see §6 `issued_at`)
-7. Reconstruct signing preimage per §5
-8. Resolve `kid` in trusted key sets for the artifact's issuer
-9. Verify signature
-10. Validate issuer against expected issuer
-11. Validate audience against expected audience
-12. Check replay: `auth_id` previously consumed → reject
-13. Recompute `intent_hash` and compare
-14. Reject ambiguous or unsupported encodings deterministically
+### 10.1 Verifier code registry
+
+These are the normative `AUTH_*` verifier codes. Each code is bound to the step
+of `verification-v1.md` §5 at which it is produced.
+
+| Code | Step(s) | Meaning |
+|---|---|---|
+| `AUTH_MISSING_FIELD` | 1, 2, 5 | Not an object; required field absent or of the wrong type; unresolvable expiry (§5) |
+| `AUTH_SIGNATURE_INVALID` | 2, 5, 10 | Field-integrity violation that §5 assigns to this code (unknown field, conflicting expiry fields, `authorization_id` ≠ `auth_id`), or signature verification failure |
+| `AUTH_ID_NONCANONICAL` | 3 | `auth_id` is not Unicode NFC-normalized |
+| `AUTH_DECISION_INVALID` | 4 | `decision` is not `"ALLOW"` |
+| `AUTH_ALG_UNSUPPORTED` | 5 | Unrecognized `alg`, rejected encoding (§13), or ambiguous encoding |
+| `AUTH_ISSUER_MISMATCH` | 6 | `issuer` differs from the configured `expectedIssuer` |
+| `AUTH_ISSUER_POLICY_NOT_AUTHORIZED` | 7 | `(issuer, policy_id)` is not a configured trusted authority pair |
+| `AUTH_KID_UNKNOWN` | 8 | No trusted key set for the artifact's `issuer`, or `kid` not found in it |
+| `AUTH_KEY_INACTIVE` | 9 | The resolved key is not valid at the verification time |
+| `AUTH_EXPIRED` | 11 | `now >= effectiveExpiry` |
+| `AUTH_ISSUED_AT_IMPLAUSIBLE` | 12 | `issued_at` is beyond the allowed future skew |
+| `AUTH_AUDIENCE_MISMATCH` | 13 | `audience` differs from the expected audience |
+| `AUTH_POLICY_ID_MISMATCH` | 14 | `policy_id` differs from the configured `expectedPolicyId` |
+| `AUTH_REPLAY` | 16 | `auth_id` already consumed |
+
+Verifier configuration errors (no trusted `now`; no `trustedKeySets` in strict
+mode) fail closed but are not artifact verification results. They have no code
+in this registry.
 
 ### Failure rule
 
@@ -425,6 +450,9 @@ A conforming verifier **MUST**:
 ## 11. Replay Protection
 
 * `auth_id` **MUST** be single-use
+* Consumption **MUST** be atomic and **MUST** be the last verification step
+  (`verification-v1.md` §5 step 16). A request that fails any other step,
+  including the intent-hash binding, **MUST NOT** consume the `auth_id`.
 
 If reused:
 
@@ -508,7 +536,9 @@ Conformance is verified by `packages/conformance`. The following vector groups c
 | `authorization-sig-007` | — | Expired → AUTH_EXPIRED |
 | `authorization-sig-008` | — | Replay → AUTH_REPLAY |
 
-Wire-encoding separation fixtures are committed as `docs/spec/test-vectors/authorization-wire-encoding-v1.json`, generated reproducibly (test key only, `node:crypto` only) by `scripts/repro/authorization-wire-encoding-fixtures.mjs` (`--check` fails on drift, `--write` regenerates byte-identically), and asserted by `packages/core/src/test/verify.authorization-wire-encoding.test.ts`. `expected.codes` is the **exact** set of distinct normative `AUTH_*` violation codes a conforming verifier returns for that case (order not significant); a verifier that returns additional codes does not match the vector.
+Wire-encoding separation fixtures are committed as `docs/spec/test-vectors/authorization-wire-encoding-v1.json`, generated reproducibly (test key only, `node:crypto` only) by `scripts/repro/authorization-wire-encoding-fixtures.mjs` (`--check` fails on drift, `--write` regenerates byte-identically), and asserted by `packages/core/src/test/verify.authorization-wire-encoding.test.ts`. `expected.codes` holds the **determining code** of the case (`verification-v1.md` §9.1). Every current case has exactly one. A conforming verifier matches a case when its verdict equals `expected.status` and its determining code equals `expected.codes[0]`. Additional diagnostic codes do not affect the match.
+
+Overlapping-defect fixtures are committed as `docs/spec/test-vectors/authorization-precedence-v1.json`, generated reproducibly by `scripts/repro/authorization-precedence-fixtures.mjs` (same test key, `node:crypto` only). Each case combines two or more defects. Its `expected.determining_code` is fixed by the step order of `verification-v1.md` §5, and its `expected.step` names the deciding step.
 
 | Vector | Proves |
 |---|---|
@@ -523,7 +553,7 @@ Wire-encoding separation fixtures are committed as `docs/spec/test-vectors/autho
 
 The locked corpus `docs/spec/test-vectors/authorization-v1.json` is Core-native (domain-prefixed) and is regenerated reproducibly by `scripts/generate-authorization-v1-vectors.mjs`.
 
-**Error vocabulary of the locked corpus.** `authorization-v1.json` records the outcome at the enforcement point (`expected.decision` / `expected.error`), which combines artifact verification with the PEP's intent and state binding checks. Its `expected.error` values are a PEP decision vocabulary, kept for compatibility with existing consumers; they are **not** verifier codes. The normative verifier codes are the `AUTH_*` codes used throughout this specification, and conformance claims about artifact verification **MUST** be stated in `AUTH_*` codes. The correspondence below gives the code that determines each corpus outcome; a verifier may report further codes for the same artifact (for example `auth-expiry-wins-over-expires-at` also yields `AUTH_SIGNATURE_INVALID` under *Expiry field resolution* rule 5). Exact code sets are asserted only by the wire-encoding corpus above.
+**Error vocabulary of the locked corpus.** `authorization-v1.json` records the outcome at the enforcement point (`expected.decision` / `expected.error`), which combines artifact verification with the PEP's intent and state binding checks. Its `expected.error` values are a PEP decision vocabulary, kept for compatibility with existing consumers; they are **not** verifier codes. The normative verifier codes are the `AUTH_*` codes registered in §10.1, and conformance claims about artifact verification **MUST** be stated in `AUTH_*` codes. The correspondence below gives the code that determines each corpus outcome; a verifier may report further codes for the same artifact (for example `auth-expiry-wins-over-expires-at` also yields `AUTH_SIGNATURE_INVALID` under *Expiry field resolution* rule 5). Conformance on these corpora compares the verdict and the determining code (`verification-v1.md` §9.1).
 
 | `expected.error` (locked corpus) | Determining verifier code | Where it is decided |
 |---|---|---|

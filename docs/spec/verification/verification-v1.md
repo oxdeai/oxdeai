@@ -1,7 +1,7 @@
 # Verification Specification v1
 
 **Status:** Stable (Normative Specification for verification semantics; artifact statuses defined in their respective specs)  
-**Version:** v1.0.0  
+**Version:** v1.1.0
 **Non-normative sources of truth:** None - this file is normative for verification behavior. Canonical artifact definitions remain in `docs/spec/authorization-v1.md`, `delegation-v1.md`, `pep-gateway-v1.md`, and `canonicalization-v1.md`.
 
 ## 1. Scope
@@ -71,9 +71,10 @@ this request, including a write to an in-memory store; it does not assert restar
 persistence or require a particular persistence technology.
 
 This rule constrains **the ordering of side effects relative to authentication**.
-It does **NOT** make any store operation mandatory, does **NOT** prescribe a store
-implementation, and does **NOT** dictate the ordering of checks *within*
-verification — that is a separate question.
+It does **NOT** make any store operation mandatory and does **NOT** prescribe a
+store implementation. The ordering of checks *within* AuthorizationV1
+verification, including the requirement that replay consumption comes after
+every other check, is fixed by §5.
 
 The operative consequence is that unauthenticated input MUST NOT leave trusted
 replay state that can deny a later legitimate presentation. Where a boundary both authenticates and consumes
@@ -120,17 +121,46 @@ history is unavailable or indeterminate.
 
 ## 5. AuthorizationV1 Verification (Required Ordering)
 
-1. Structural validation (required fields, types).
-2. Algorithm support (`alg` == `Ed25519`).
-3. Key resolution via `issuer`, `kid`, `alg` in `trustedKeySets` (strict mode).
-4. Signature check over canonicalized payload excluding `signature` (canonicalization-v1).
-5. Expiry: `now < expiry` (**strict zero tolerance** — `now >= expiry` → `AUTH_EXPIRED`, no grace period; see `authorization-v1.md §17`).
-6. `issued_at` future-plausibility: `issued_at <= verificationTime + maxFutureIssuedAtSkewSeconds` → else `AUTH_ISSUED_AT_IMPLAUSIBLE`; compared only against the trusted `verificationTime`, never `Intent.timestamp` (see `authorization-v1.md §17.2`).
-7. Audience match.
-8. Intent hash match to the proposed action (`intent_hash`).
-9. Replay check on `auth_id` (if replay store present).
+This section is the **single reference sequence** for AuthorizationV1
+verification. `authorization-v1.md` §10, `pep-gateway-v1.md` §10.1 and §12.2,
+and `conformance-v1.md` §9 refer to it. Where another normative document lists
+these checks in a different order, this section governs the order.
 
-Any failure **MUST** yield `DENY` with the corresponding reason code.
+**Preconditions (verifier configuration, not artifact properties).** A trusted
+`now` MUST be supplied. In strict mode, `trustedKeySets` MUST be supplied. If a
+precondition is not met, the verifier MUST fail closed. This is a configuration
+error, not an artifact verification result: it carries no determining code
+(§9), and its reason code is not normative.
+
+| Step | Check | Code on failure |
+|---|---|---|
+| 1 | Parse: the artifact is a JSON object | `AUTH_MISSING_FIELD` |
+| 2 | Field integrity: closed field set, required fields and their types (`authorization-v1.md` §5 "Signed field set", §6), except the expiry fields, which are resolved at step 5 | `AUTH_MISSING_FIELD`, or `AUTH_SIGNATURE_INVALID` where `authorization-v1.md` §5 assigns it (unknown field, `authorization_id` ≠ `auth_id`) |
+| 3 | `auth_id` is Unicode NFC-normalized | `AUTH_ID_NONCANONICAL` |
+| 4 | `decision` equals `"ALLOW"` | `AUTH_DECISION_INVALID` |
+| 5 | Wire encoding and algorithm: identify the encoding from `alg`; apply the signature-shape and ambiguity rules; resolve the effective expiry, which depends on the signature shape (`authorization-v1.md` §5 "Expiry field resolution", §13) | `AUTH_ALG_UNSUPPORTED`, `AUTH_MISSING_FIELD` or `AUTH_SIGNATURE_INVALID`, as `authorization-v1.md` §5 assigns |
+| 6 | Expected issuer, when `expectedIssuer` is configured | `AUTH_ISSUER_MISMATCH` |
+| 7 | Issuer authority, when trusted `(issuer, policy_id)` pairs are configured: the artifact's pair MUST be one of them | `AUTH_ISSUER_POLICY_NOT_AUTHORIZED` |
+| 8 | Key resolution: `kid` is resolved **only within the key sets of the artifact's `issuer`**. An issuer with no trusted key set, or a `kid` absent from that issuer's key sets, fails this step | `AUTH_KID_UNKNOWN` |
+| 9 | Key validity at the verification time (status and validity window of the resolved key) | `AUTH_KEY_INACTIVE` |
+| 10 | Signature over the preimage defined in `authorization-v1.md` §5 | `AUTH_SIGNATURE_INVALID` |
+| 11 | Expiry: valid iff `now < effectiveExpiry` (**strict zero tolerance**, `authorization-v1.md` §17) | `AUTH_EXPIRED` |
+| 12 | `issued_at` future-plausibility: `issued_at <= verificationTime + maxFutureIssuedAtSkewSeconds`, compared only against the trusted `verificationTime`, never `Intent.timestamp` (`authorization-v1.md` §17.2) | `AUTH_ISSUED_AT_IMPLAUSIBLE` |
+| 13 | Audience matches the verifier's expected audience | `AUTH_AUDIENCE_MISMATCH` |
+| 14 | Policy, when `expectedPolicyId` is configured | `AUTH_POLICY_ID_MISMATCH` |
+| 15 | Boundary binding, at an enforcement boundary: `intent_hash` equals `SHA-256(canonicalization-v1(action))`; state binding when applicable | as defined in `pep-gateway-v1.md` |
+| 16 | Replay: the `auth_id` is not already consumed; at an enforcement boundary, it is consumed atomically (§4.2, §4.3) | `AUTH_REPLAY` |
+
+Recognizing the issuer (steps 6 to 8) does not authenticate the artifact. No
+field is authenticated before step 10 passes. Step 8 MUST NOT search the key
+sets of any other issuer.
+
+Step 16 MUST be the last step. An enforcement boundary MUST NOT consume the
+`auth_id` unless every preceding step, including the boundary binding of step
+15, has passed. A request whose action does not match `intent_hash` MUST
+therefore leave the authorization unconsumed.
+
+Any failure **MUST** yield `DENY`. Execution **MUST NOT** occur.
 
 ## 6. Delegation Verification (Chain)
 
@@ -177,9 +207,47 @@ Until a dedicated envelope spec is finalized:
 
 ## 9. Determinism and Ordering
 
-- Check ordering **MUST** follow the sequences in §§5–6 to ensure deterministic results across implementations.
-- Implementations MUST NOT short-circuit in ways that alter observable reason ordering from these lists.
-- Any ambiguity (missing inputs, unresolved keys, absent `now`, absent `trustedKeySets` in strict mode) **MUST** fail closed (DENY).
+### 9.1 Verdict and determining code
+
+For an invalid AuthorizationV1, the **determining code** is the code of the
+first step of §5 that fails, taken in step order.
+
+The normative outputs of AuthorizationV1 verification are the **verdict**
+(valid or invalid, and therefore `ALLOW` or `DENY`) and, for an invalid
+artifact, the **determining code**. Two conforming implementations MUST produce
+the same verdict and the same determining code for identical inputs.
+
+An implementation MAY stop at the first failing step. An implementation MAY
+also evaluate further steps and report additional codes.
+
+A conforming implementation MUST be able to identify the determining code of
+any invalid result. It MAY do so either as the first entry of an ordered report,
+or in a dedicated field (for example `primary_reason_code`). It MAY expose the
+dedicated field only when the caller requests it. Where a dedicated field is
+used, the order of the reported codes is not normative, and the first reported
+code is not necessarily the determining code.
+
+Additional codes are diagnostics. Their presence, multiplicity and order are
+not normative, and they MUST NOT be presented as the determining code.
+
+Verifier configuration errors (§5 "Preconditions", reported at no step) have no
+determining code. An invalid result caused only by such errors carries none.
+
+This section changes no ordering of side effects: §4.2 still forbids any
+durable mutation before authentication, and §5 step 16 keeps replay
+consumption last.
+
+The determining code is defined by step, not by code value. The same code can
+arise at more than one step (for example `AUTH_SIGNATURE_INVALID` at step 2 and
+at step 10).
+
+### 9.2 Delegation
+
+Delegation verification (§6) MUST follow the order of §6.
+
+### 9.3 Fail closed
+
+Any ambiguity (missing inputs, unresolved keys, absent `now`, absent `trustedKeySets` in strict mode) **MUST** fail closed (DENY).
 
 ## 10. Conformance and Vectors
 
@@ -188,7 +256,10 @@ Until a dedicated envelope spec is finalized:
   - `docs/spec/test-vectors/authorization-v1.json`
   - `docs/spec/test-vectors/pep-vectors-v1.json`
   - `docs/spec/test-vectors/delegation-vectors-v1.json`
+  - `docs/spec/test-vectors/authorization-wire-encoding-v1.json`
+  - `docs/spec/test-vectors/authorization-precedence-v1.json`
 - Additional verification vectors MAY be added in future versions; passing official vectors is required for conformance.
+- For AuthorizationV1 vectors, conformance is assessed on the verdict and the determining code (§9.1). Additional diagnostic codes are not compared.
 
 ## 11. Non-Bypassability
 

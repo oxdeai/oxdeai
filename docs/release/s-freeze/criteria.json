@@ -40,13 +40,11 @@
       "exitConditionState": "unresolved",
       "exitCondition": null,
       "evidenceStages": [],
-      "boundary": "The normative verification sequences conflict; no resolved sequence or maintainer resolution is established.",
+      "boundary": "The conflicting normative sequences are resolved in the specification (verification-v1 §5 single reference sequence, §9.1 determining code). The exit condition is not yet established: the reference verifier does not yet report the determining code first or in a dedicated field.",
       "sources": [
         {"path": "docs/verification/spec-claims/claims.json", "claimId": "VERIFY-ORDER-001", "role": "registry-state"},
-        {"path": "docs/spec/verification/verification-v1.md", "section": "## 9. Determinism and Ordering", "quote": "- Check ordering **MUST** follow the sequences in §§5–6 to ensure deterministic results across implementations.", "role": "normative"},
-        {"path": "docs/spec/verification/verification-v1.md", "section": "## 5. AuthorizationV1 Verification (Required Ordering)", "quote": "4. Signature check over canonicalized payload excluding `signature` (canonicalization-v1).", "role": "conflicting-sequence"},
-        {"path": "docs/spec/artifacts/authorization-v1.md", "section": "## 10. Verification Procedure", "quote": "5. Check expiration: `now >= effectiveExpiry` → reject", "role": "conflicting-sequence"},
-        {"path": "docs/spec/artifacts/authorization-v1.md", "section": "## 10. Verification Procedure", "quote": "9. Verify signature", "role": "conflicting-sequence"}
+        {"path": "docs/spec/verification/verification-v1.md", "section": "## 5. AuthorizationV1 Verification (Required Ordering)", "quote": "This section is the **single reference sequence** for AuthorizationV1", "role": "normative"},
+        {"path": "docs/spec/verification/verification-v1.md", "section": "## 9. Determinism and Ordering", "quote": "For an invalid AuthorizationV1, the **determining code** is the code of the", "role": "normative"}
       ]
     },
     {

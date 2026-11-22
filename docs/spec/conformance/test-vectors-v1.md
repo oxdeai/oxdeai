@@ -39,6 +39,8 @@ Locked, normative vectors currently published:
 - canonicalization: `canonicalization-v1.json`
 - authorization: `authorization-v1.json`
 - PEP gateway: `pep-vectors-v1.json`
+- authorization wire encoding: `authorization-wire-encoding-v1.json`
+- authorization verification precedence: `authorization-precedence-v1.json`
 
 Delegation vectors are not yet published; conformance for Delegation remains harness-based until vectors are added.
 

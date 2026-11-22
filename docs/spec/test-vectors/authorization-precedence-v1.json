@@ -1,0 +1,550 @@
+{
+  "version": 1,
+  "note": "TEST KEY ONLY - never funded. expected.determining_code is the code of the first failing step of verification-v1.md §5 (expected.step). Conformance compares the verdict and the determining code only (verification-v1.md §9.1); additional diagnostic codes are not compared. options are merged over verifier_options; a null value removes the option.",
+  "verifier_options": {
+    "now": 1730000010,
+    "mode": "strict",
+    "requireSignatureVerification": true,
+    "expectedIssuer": "oxdeai.policy-engine",
+    "expectedAudience": "merchant-gateway",
+    "trustedKeySets": [
+      {
+        "issuer": "oxdeai.policy-engine",
+        "version": "1",
+        "keys": [
+          {
+            "kid": "2026-01",
+            "alg": "Ed25519",
+            "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAWiMMGTYK7zzHwZXLzDpCshxAH6Lgx8gVsJaixePuY7g=\n-----END PUBLIC KEY-----\n"
+          }
+        ]
+      }
+    ]
+  },
+  "vectors": [
+    {
+      "id": "p-001",
+      "description": "Issuer recognized, kid unknown",
+      "defects": [
+        "kid-unknown"
+      ],
+      "artifact": {
+        "auth_id": "1111111111111111111111111111111111111111111111111111111111111111",
+        "issuer": "oxdeai.policy-engine",
+        "audience": "merchant-gateway",
+        "decision": "ALLOW",
+        "intent_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "state_hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "policy_id": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "issued_at": 1730000000,
+        "expiry": 1730000060,
+        "alg": "Ed25519",
+        "kid": "k-unknown",
+        "signature": {
+          "alg": "Ed25519",
+          "kid": "k-unknown",
+          "sig": "DVOr891JErmOPoHdEXmKzi998lgoVNpfi9EcKT0FxVzhV3ysbb/Tnl6ui2ddfbFJTYh0zbQmLiG9yirwz4VfBA=="
+        }
+      },
+      "options": {},
+      "expected": {
+        "status": "invalid",
+        "step": 8,
+        "determining_code": "AUTH_KID_UNKNOWN"
+      }
+    },
+    {
+      "id": "p-002",
+      "description": "Issuer differs from expectedIssuer and has no trusted key set: expectedIssuer decides before any kid lookup",
+      "defects": [
+        "issuer-mismatch",
+        "kid-unknown"
+      ],
+      "artifact": {
+        "auth_id": "2222222222222222222222222222222222222222222222222222222222222222",
+        "issuer": "other.issuer",
+        "audience": "merchant-gateway",
+        "decision": "ALLOW",
+        "intent_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "state_hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "policy_id": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "issued_at": 1730000000,
+        "expiry": 1730000060,
+        "alg": "Ed25519",
+        "kid": "2026-01",
+        "signature": {
+          "alg": "Ed25519",
+          "kid": "2026-01",
+          "sig": "zI7syogrBjzJEDI8hk78Hy+lPccul+EuBtyPM2JQEFkzCaIfn4wQqkijpnVRC/LFosPhWoUzaQYdLj7Vk+DeCw=="
+        }
+      },
+      "options": {},
+      "expected": {
+        "status": "invalid",
+        "step": 6,
+        "determining_code": "AUTH_ISSUER_MISMATCH"
+      }
+    },
+    {
+      "id": "p-003",
+      "description": "Issuer absent from trust configuration, no expectedIssuer configured",
+      "defects": [
+        "issuer-unrecognized"
+      ],
+      "artifact": {
+        "auth_id": "3333333333333333333333333333333333333333333333333333333333333333",
+        "issuer": "other.issuer",
+        "audience": "merchant-gateway",
+        "decision": "ALLOW",
+        "intent_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "state_hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "policy_id": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "issued_at": 1730000000,
+        "expiry": 1730000060,
+        "alg": "Ed25519",
+        "kid": "2026-01",
+        "signature": {
+          "alg": "Ed25519",
+          "kid": "2026-01",
+          "sig": "J2X1YHpVX6WN4w8ZzwVjBINNGupOAKMcb9ARbpRsXxL2uitmXVA+7tyW7d0DFO4w4UNrLLetqMaYzXKaE85kAw=="
+        }
+      },
+      "options": {
+        "expectedIssuer": null
+      },
+      "expected": {
+        "status": "invalid",
+        "step": 8,
+        "determining_code": "AUTH_KID_UNKNOWN"
+      }
+    },
+    {
+      "id": "p-004",
+      "description": "kid unknown and signature cannot verify: step 8 decides, not step 10",
+      "defects": [
+        "kid-unknown",
+        "signature-invalid"
+      ],
+      "artifact": {
+        "auth_id": "4444444444444444444444444444444444444444444444444444444444444444",
+        "issuer": "oxdeai.policy-engine",
+        "audience": "merchant-gateway",
+        "decision": "ALLOW",
+        "intent_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "state_hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "policy_id": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "issued_at": 1730000000,
+        "expiry": 1730000060,
+        "alg": "Ed25519",
+        "kid": "k-unknown",
+        "signature": {
+          "alg": "Ed25519",
+          "kid": "k-unknown",
+          "sig": "A2BTIOzDclRmpKAVwUAxqD46Aap1cy9XfS8abhH7rsbPhLxaOgj8FkXMsi4OXTX7ZG1n3sM/e7AfOTK4dY+uBg=="
+        }
+      },
+      "options": {},
+      "expected": {
+        "status": "invalid",
+        "step": 8,
+        "determining_code": "AUTH_KID_UNKNOWN"
+      }
+    },
+    {
+      "id": "p-005",
+      "description": "decision DENY and audience mismatch",
+      "defects": [
+        "decision-invalid",
+        "audience-mismatch"
+      ],
+      "artifact": {
+        "auth_id": "5555555555555555555555555555555555555555555555555555555555555555",
+        "issuer": "oxdeai.policy-engine",
+        "audience": "merchant-gateway",
+        "decision": "DENY",
+        "intent_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "state_hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "policy_id": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "issued_at": 1730000000,
+        "expiry": 1730000060,
+        "alg": "Ed25519",
+        "kid": "2026-01",
+        "signature": {
+          "alg": "Ed25519",
+          "kid": "2026-01",
+          "sig": "BjZO5r9ZH2hPjJcO6qut+O7+gxTtOO7l0LH0tVX5MFqPPo2M/NxRspPzVGHjOqK4v0CIdfbEpRu5tJ6AWnMoAQ=="
+        }
+      },
+      "options": {
+        "expectedAudience": "other-gateway"
+      },
+      "expected": {
+        "status": "invalid",
+        "step": 4,
+        "determining_code": "AUTH_DECISION_INVALID"
+      }
+    },
+    {
+      "id": "p-006",
+      "description": "Unknown top-level field and expired: the step-2 AUTH_SIGNATURE_INVALID decides",
+      "defects": [
+        "unknown-field",
+        "expired"
+      ],
+      "artifact": {
+        "auth_id": "6666666666666666666666666666666666666666666666666666666666666666",
+        "issuer": "oxdeai.policy-engine",
+        "audience": "merchant-gateway",
+        "decision": "ALLOW",
+        "intent_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "state_hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "policy_id": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "issued_at": 1729999910,
+        "expiry": 1729999960,
+        "alg": "Ed25519",
+        "kid": "2026-01",
+        "memo": "x",
+        "signature": {
+          "alg": "Ed25519",
+          "kid": "2026-01",
+          "sig": "Fq/gA+TWV9sbP/bRy5dLiQ/esAgnikHLZzbv/QK1IWKXBriM2U5BO3CW4OkVFYkvXf3MnTaPXbHOFnLDajRLCQ=="
+        }
+      },
+      "options": {},
+      "expected": {
+        "status": "invalid",
+        "step": 2,
+        "determining_code": "AUTH_SIGNATURE_INVALID"
+      }
+    },
+    {
+      "id": "p-007",
+      "description": "Issuer/policy pair not authorized and expired",
+      "defects": [
+        "authority-not-authorized",
+        "expired"
+      ],
+      "artifact": {
+        "auth_id": "7777777777777777777777777777777777777777777777777777777777777777",
+        "issuer": "oxdeai.policy-engine",
+        "audience": "merchant-gateway",
+        "decision": "ALLOW",
+        "intent_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "state_hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "policy_id": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "issued_at": 1729999910,
+        "expiry": 1729999960,
+        "alg": "Ed25519",
+        "kid": "2026-01",
+        "signature": {
+          "alg": "Ed25519",
+          "kid": "2026-01",
+          "sig": "KNYQ85aJlPnUSdxpzQuGlBEANq4DjvfzsKJuC4n/a8MYTsHq3WbLRBMgelSAUNbkMkovytpiipdSlTaSvVfWCQ=="
+        }
+      },
+      "options": {
+        "trustedAuthorizationAuthorities": [
+          {
+            "issuer": "oxdeai.policy-engine",
+            "policyId": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+          }
+        ]
+      },
+      "expected": {
+        "status": "invalid",
+        "step": 7,
+        "determining_code": "AUTH_ISSUER_POLICY_NOT_AUTHORIZED"
+      }
+    },
+    {
+      "id": "p-008",
+      "description": "Key inactive and audience mismatch",
+      "defects": [
+        "key-inactive",
+        "audience-mismatch"
+      ],
+      "artifact": {
+        "auth_id": "8888888888888888888888888888888888888888888888888888888888888888",
+        "issuer": "oxdeai.policy-engine",
+        "audience": "merchant-gateway",
+        "decision": "ALLOW",
+        "intent_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "state_hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "policy_id": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "issued_at": 1730000000,
+        "expiry": 1730000060,
+        "alg": "Ed25519",
+        "kid": "2026-01",
+        "signature": {
+          "alg": "Ed25519",
+          "kid": "2026-01",
+          "sig": "eWJltcLLkmAToCnTIg+zgEyLIwD985+jAil8Q6HV4Amd5tOdmLXLE7JsJYjy23s/esk5br0meuK2Mxpp8vaOCw=="
+        }
+      },
+      "options": {
+        "trustedKeySets": [
+          {
+            "issuer": "oxdeai.policy-engine",
+            "version": "1",
+            "keys": [
+              {
+                "kid": "2026-01",
+                "alg": "Ed25519",
+                "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAWiMMGTYK7zzHwZXLzDpCshxAH6Lgx8gVsJaixePuY7g=\n-----END PUBLIC KEY-----\n",
+                "not_after": 1730000005
+              }
+            ]
+          }
+        ],
+        "expectedAudience": "other-gateway"
+      },
+      "expected": {
+        "status": "invalid",
+        "step": 9,
+        "determining_code": "AUTH_KEY_INACTIVE"
+      }
+    },
+    {
+      "id": "p-009",
+      "description": "Tampered signature and expired",
+      "defects": [
+        "signature-invalid",
+        "expired"
+      ],
+      "artifact": {
+        "auth_id": "9999999999999999999999999999999999999999999999999999999999999999",
+        "issuer": "oxdeai.policy-engine",
+        "audience": "merchant-gateway",
+        "decision": "ALLOW",
+        "intent_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "state_hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "policy_id": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "issued_at": 1729999910,
+        "expiry": 1729999960,
+        "alg": "Ed25519",
+        "kid": "2026-01",
+        "signature": {
+          "alg": "Ed25519",
+          "kid": "2026-01",
+          "sig": "AeWxjxjlJzUgmlQJ3rlrtgPnINLrIftKceGbdj6xMlirmpA61Ci4bNKHa66p3btMDW1fq2Sky9fYZuZTonylDQ=="
+        }
+      },
+      "options": {},
+      "expected": {
+        "status": "invalid",
+        "step": 10,
+        "determining_code": "AUTH_SIGNATURE_INVALID"
+      }
+    },
+    {
+      "id": "p-010",
+      "description": "Tampered signature and already consumed",
+      "defects": [
+        "signature-invalid",
+        "replayed"
+      ],
+      "artifact": {
+        "auth_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "issuer": "oxdeai.policy-engine",
+        "audience": "merchant-gateway",
+        "decision": "ALLOW",
+        "intent_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "state_hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "policy_id": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "issued_at": 1730000000,
+        "expiry": 1730000060,
+        "alg": "Ed25519",
+        "kid": "2026-01",
+        "signature": {
+          "alg": "Ed25519",
+          "kid": "2026-01",
+          "sig": "Af5eRVCul7WkikwUdXybaEWgAYBmt3ILlpyPIF94+Y40eCWNdGZuTgWRC+jMfKQrZ9DSeBrsBrqMi6C7fiLnAw=="
+        }
+      },
+      "options": {
+        "consumedAuthIds": [
+          "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        ]
+      },
+      "expected": {
+        "status": "invalid",
+        "step": 10,
+        "determining_code": "AUTH_SIGNATURE_INVALID"
+      }
+    },
+    {
+      "id": "p-011",
+      "description": "Tampered signature and audience mismatch",
+      "defects": [
+        "signature-invalid",
+        "audience-mismatch"
+      ],
+      "artifact": {
+        "auth_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "issuer": "oxdeai.policy-engine",
+        "audience": "merchant-gateway",
+        "decision": "ALLOW",
+        "intent_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "state_hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "policy_id": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "issued_at": 1730000000,
+        "expiry": 1730000060,
+        "alg": "Ed25519",
+        "kid": "2026-01",
+        "signature": {
+          "alg": "Ed25519",
+          "kid": "2026-01",
+          "sig": "Aux/yww4df44UR26H6MtytiAiZBB/sD5nGvzyy0QMfLmjRrCTB80eVzkdmNqelK2VOOAsn0957a7ZfdvXR+yDw=="
+        }
+      },
+      "options": {
+        "expectedAudience": "other-gateway"
+      },
+      "expected": {
+        "status": "invalid",
+        "step": 10,
+        "determining_code": "AUTH_SIGNATURE_INVALID"
+      }
+    },
+    {
+      "id": "p-012",
+      "description": "Expired and audience mismatch",
+      "defects": [
+        "expired",
+        "audience-mismatch"
+      ],
+      "artifact": {
+        "auth_id": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "issuer": "oxdeai.policy-engine",
+        "audience": "merchant-gateway",
+        "decision": "ALLOW",
+        "intent_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "state_hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "policy_id": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "issued_at": 1729999910,
+        "expiry": 1729999960,
+        "alg": "Ed25519",
+        "kid": "2026-01",
+        "signature": {
+          "alg": "Ed25519",
+          "kid": "2026-01",
+          "sig": "n1Ey1SpN8e3sDWR8KRCNa7A+3Vz8hlg5nFSq6Z74TR3Zlki5MXMMvaIxfQBaBTnrlegRqTJ7xDRMNKAY45uHDw=="
+        }
+      },
+      "options": {
+        "expectedAudience": "other-gateway"
+      },
+      "expected": {
+        "status": "invalid",
+        "step": 11,
+        "determining_code": "AUTH_EXPIRED"
+      }
+    },
+    {
+      "id": "p-013",
+      "description": "issued_at implausible and audience mismatch",
+      "defects": [
+        "issued-at-implausible",
+        "audience-mismatch"
+      ],
+      "artifact": {
+        "auth_id": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "issuer": "oxdeai.policy-engine",
+        "audience": "merchant-gateway",
+        "decision": "ALLOW",
+        "intent_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "state_hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "policy_id": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "issued_at": 1730100010,
+        "expiry": 1730200010,
+        "alg": "Ed25519",
+        "kid": "2026-01",
+        "signature": {
+          "alg": "Ed25519",
+          "kid": "2026-01",
+          "sig": "6uV44grjum062bVEqE+rGmjRs6fc6DOs6fiiCNGSKP0x3EiX6hu2OkMxvLAFOIkJKt7s079emsAPYAA4VVA2BQ=="
+        }
+      },
+      "options": {
+        "expectedAudience": "other-gateway"
+      },
+      "expected": {
+        "status": "invalid",
+        "step": 12,
+        "determining_code": "AUTH_ISSUED_AT_IMPLAUSIBLE"
+      }
+    },
+    {
+      "id": "p-014",
+      "description": "Audience mismatch and policy mismatch",
+      "defects": [
+        "audience-mismatch",
+        "policy-mismatch"
+      ],
+      "artifact": {
+        "auth_id": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "issuer": "oxdeai.policy-engine",
+        "audience": "merchant-gateway",
+        "decision": "ALLOW",
+        "intent_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "state_hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "policy_id": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "issued_at": 1730000000,
+        "expiry": 1730000060,
+        "alg": "Ed25519",
+        "kid": "2026-01",
+        "signature": {
+          "alg": "Ed25519",
+          "kid": "2026-01",
+          "sig": "yHeNwGIQDk08yUY035wEopzvRzri3x3C3YeNIkXNLA+LpbDPzGg2lHKY2RE9SIa3d9UZSyTvSO3i5CzH2ObkBQ=="
+        }
+      },
+      "options": {
+        "expectedAudience": "other-gateway",
+        "expectedPolicyId": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+      },
+      "expected": {
+        "status": "invalid",
+        "step": 13,
+        "determining_code": "AUTH_AUDIENCE_MISMATCH"
+      }
+    },
+    {
+      "id": "p-015",
+      "description": "Policy mismatch and already consumed: replay is the last step",
+      "defects": [
+        "policy-mismatch",
+        "replayed"
+      ],
+      "artifact": {
+        "auth_id": "0000000000000000000000000000000000000000000000000000000000000000",
+        "issuer": "oxdeai.policy-engine",
+        "audience": "merchant-gateway",
+        "decision": "ALLOW",
+        "intent_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "state_hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "policy_id": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "issued_at": 1730000000,
+        "expiry": 1730000060,
+        "alg": "Ed25519",
+        "kid": "2026-01",
+        "signature": {
+          "alg": "Ed25519",
+          "kid": "2026-01",
+          "sig": "ueMX4qaFByBlmlKXLDxcDbp5/RUsX2wiuY1BJ/Ua+UYbgGVEputV4Pej/c2ezDy9401JDmw2S/7MK5Uk/1n9DA=="
+        }
+      },
+      "options": {
+        "expectedPolicyId": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "consumedAuthIds": [
+          "0000000000000000000000000000000000000000000000000000000000000000"
+        ]
+      },
+      "expected": {
+        "status": "invalid",
+        "step": 14,
+        "determining_code": "AUTH_POLICY_ID_MISMATCH"
+      }
+    }
+  ]
+}

@@ -237,9 +237,11 @@ Known gaps and ambiguities:
 - `DELEGATION-AUDIT-001`: no direct mapping found for the specified
   `DELEGATION_EXECUTION`/`DELEGATION_DENIED` hash-chained PEP events. General
   boundary callbacks are not equivalent evidence.
-- `VERIFY-ORDER-001`: verification §5 requires signature before expiry;
-  AuthorizationV1 §10 requires expiry before signature. Core accumulates/sorts
-  violations, so its ordering tests cannot prove both normative sequences.
+- `VERIFY-ORDER-001`: resolved in the specification on 2026-11-22.
+  verification-v1 §5 is the single reference sequence, and conformance compares
+  the verdict and the determining code (§9.1). The evidence gap remains: Core
+  accumulates violations and does not yet report the determining code first
+  (`verify.authorization-precedence.test.ts`, `REPORT_ORDER_PENDING`).
 - `ETA-SIGNING-001`: ETA excludes the entire signature field; AuthorizationV1
   specifies nested alg/kid retention and encoding-specific domain separation.
 - `PEP-DEPLOY-001` and `STATE-TRUST-001`: real deployment non-bypassability and
