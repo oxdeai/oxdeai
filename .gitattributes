@@ -30,3 +30,4 @@ packages/core/API_FINGERPRINT text eol=lf
 # file is diffed/stored.
 packages/core/etc/core.api.md whitespace=cr-at-eol
 packages/core/temp/core.api.md whitespace=cr-at-eol
+examples/settlement-recovery/*.json text eol=lf

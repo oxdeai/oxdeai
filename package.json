@@ -41,6 +41,7 @@
     "test:vectors:delegation": "node scripts/conformance/run.mjs delegation",
     "test:vectors:trusted-time": "pnpm -C packages/conformance validate:trusted-time",
     "test:vectors:all": "pnpm test:vectors:ts && pnpm test:vectors:auth && pnpm test:vectors:pep && pnpm test:vectors:delegation && pnpm test:vectors:trusted-time && pnpm test:vectors:go && pnpm test:vectors:py",
+    "test:settlement-recovery": "pnpm --filter @oxdeai/core build && node --test examples/settlement-recovery/run.mjs",
     "verify:spec-claims": "node scripts/spec-claims/verify.mjs",
     "test:spec-claims": "node --test scripts/spec-claims/verify.test.mjs",
     "project:profile-c": "node scripts/corpus/profile-c.mjs --write",
