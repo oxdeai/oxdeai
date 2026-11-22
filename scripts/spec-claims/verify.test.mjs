@@ -120,7 +120,9 @@ test('non-required gaps remain visible without changing structural exit semantic
   const result = verify(r);
   assert.deepEqual(result.issues, []);
   assert.match(report(result), /NO EXECUTABLE MAPPING/);
-  assert.match(report(result), /REVIEW VERIFY-ORDER-001/);
+  assert.match(report(result), /REVIEW DELEGATION-AUDIT-001/);
+  // VERIFY-ORDER-001 is mapped (2026-11-22) and must not be filtered in as a gap.
+  assert.equal(r.claims.some(c => c.id === 'VERIFY-ORDER-001'), false);
 });
 
 

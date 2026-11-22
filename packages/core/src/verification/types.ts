@@ -167,12 +167,27 @@ export type VerificationResult = {
  * the engine HMAC helper (`PolicyEngine.verifyAuthorization`). Consumers must
  * not assume every verifier can produce every coverage level.
  *
+ * `violations` is ordered deterministically by code, NOT by the normative
+ * verification sequence: `violations[0]` is not necessarily the determining
+ * code of verification-v1.md §9.1. Request `reportPrimaryReasonCode: true` and
+ * read `primaryReasonCode` for that.
+ *
  * @public
  */
 export type AuthorizationVerificationResult = VerificationResult & {
   signatureVerified: boolean;
   verificationMode: VerificationMode;
   verificationCoverage: VerificationCoverage;
+  /**
+   * Determining code of an invalid result (verification-v1.md §9.1): the code
+   * of the first failing step of the normative sequence (verification-v1.md
+   * §5). Present only when `reportPrimaryReasonCode: true` was requested and
+   * the result is invalid because of an artifact defect. Absent when the only
+   * failures are verifier-configuration errors, which have no determining code.
+   * `violations` keeps its own deterministic order, which is not the
+   * precedence order.
+   */
+  primaryReasonCode?: VerificationViolationCode;
 };
 
 /** @public */

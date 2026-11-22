@@ -164,7 +164,7 @@
           "runtime": "TypeScript",
           "execution": "default-ci",
           "role": "verifier",
-          "notes": "Core verifyAuthorization over all 15 cases: verdict and presence of the determining code in the report; cases where the reference report does not yet identify it are pinned exactly in REPORT_ORDER_PENDING. Also asserts byte-identity with the generator. TypeScript reference only."
+          "notes": "Core verifyAuthorization over all 15 cases: verdict, determining code present in the report, and primaryReasonCode (reportPrimaryReasonCode: true) equal to expected.determining_code; REPORT_ORDER_PENDING pinned at zero. Also asserts byte-identity with the generator. TypeScript reference only."
         },
         {
           "representation": "docs/spec/test-vectors/authorization-precedence-v1.json",

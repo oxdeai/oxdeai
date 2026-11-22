@@ -255,3 +255,16 @@ test("a rejected real AuthorizationVerificationResult (tampered) validates again
   assert.deepEqual(errs, [], `real rejected result should still conform to the schema; errors: ${errs.join("; ")}`);
   assert.ok(result.violations.every((v) => codeEnum.includes(v.code)), "every emitted violation code must be in the schema enum");
 });
+test("a rejected real result with reportPrimaryReasonCode validates; the field is an AUTH_* registry code", () => {
+  const bad = signed("ALLOW");
+  (bad as { intent_hash: string }).intent_hash = "e".repeat(64);
+  const result = verifyAuthorization(bad, { ...vopts, reportPrimaryReasonCode: true } as never);
+  assert.equal(result.primaryReasonCode, "AUTH_SIGNATURE_INVALID", "fixture precondition: tampered binding is a signature failure");
+  const errs = validate(schema, result);
+  assert.deepEqual(errs, [], `opt-in result should conform; errors: ${errs.join("; ")}`);
+  const primaryEnum = (schema as { properties: { primaryReasonCode: { enum: string[] } } }).properties.primaryReasonCode.enum;
+  assert.ok(primaryEnum.every((c) => c.startsWith("AUTH_") && codeEnum.includes(c)), "primaryReasonCode enum must be a subset of the AUTH_* violation codes");
+  assert.equal(errs.length, 0);
+  const unknown = validate(schema, { ...result, primaryReasonCode: "TRUSTED_KEYSETS_REQUIRED" });
+  assert.ok(unknown.length > 0, "a configuration code is not a determining code and must be rejected");
+});

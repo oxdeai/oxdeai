@@ -9,6 +9,31 @@ This project follows Semantic Versioning.
 
 ## [Unreleased]
 
+### Added (planned for 2.1.0; additive, off by default)
+
+- `verifyAuthorization` option `reportPrimaryReasonCode` and result field
+  `AuthorizationVerificationResult.primaryReasonCode`. When requested, an
+  invalid result names its determining code: the code of the first failing step
+  of the normative sequence (verification-v1.md §5, §9.1). Verifier
+  configuration errors (`TRUSTED_KEYSETS_REQUIRED`, `AUTH_TRUST_MISSING`) have
+  no determining code, and a valid result carries none.
+- `schemas/verification-result.schema.json`: optional `primaryReasonCode`
+  (the 14 registered `AUTH_*` codes).
+
+### Compatibility
+
+- Default results are unchanged, byte for byte. Without the option, no key is
+  added, and `violations` keeps the same content and the same order. The gateway
+  `reason`, the guard errors and the CLI output are unaffected.
+- `violations` is sorted by code, not by verification precedence:
+  `violations[0]` is not necessarily the determining code. Consumers that need
+  the determining code should request `primaryReasonCode` rather than read
+  `violations[0]`.
+- A result produced with the option has one extra key. It does not validate
+  against `verification-result.schema.json` from 2.0.x or earlier, which has
+  `additionalProperties: false` at the root. Opt in only with the updated
+  schema.
+
 ### Security (breaking for non-conforming artifacts)
 
 - R-03: AuthorizationV1 validity no longer derives from an unsigned expiry.

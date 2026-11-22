@@ -128,7 +128,7 @@ it does not override protocol specifications or supply a maintainer resolution.
 | Blocker | Existing source and audit outcome |
 |---|---|
 | CANON-003 | canonicalization-v1 §5 and registry CANON-003: duplicate keys must be detected during parsing. No additional unconditional rejection rule is created. |
-| VERIFY-ORDER-001 | verification-v1 §5 (single reference sequence) and §9.1 (determining code), recorded by the registry: the specification conflict is resolved; the reference verifier does not yet report the determining code first, so the exact exit remains unresolved/null. |
+| VERIFY-ORDER-001 | verification-v1 §5 (single reference sequence) and §9.1 (determining code), recorded by the registry: the specification conflict is resolved and TypeScript reference evidence is mapped; no exit condition or disposition is established, so the exact exit remains unresolved/null. |
 | DELEGATION-AUDIT-001 | delegation-v1 §7 and registry: both delegation execution/denial events belong in the hash-chained log. |
 | ETA-SIGNING-001 | eta-core-v1 §5 versus authorization-v1 signing preimage, recorded by the registry: conflicting preimages; exact exit remains unresolved/null. |
 | PEP-DEPLOY-001 | pep-gateway-v1 §4.1 and registry: sole protected execution boundary. Verification §4.3 limits evidence for any separately claimed replay deployment guarantees; those are not blanket new exit obligations. |
@@ -155,8 +155,10 @@ disposition with direct evidence for its exact exit condition and stage.
 `deferred-with-rationale` records a reviewed deferral and leaves the blocker in the
 blocking set. `included-in-review-scope` likewise does not discharge it. A text-only
 disposition never establishes closure. The maintainer resolution of the
-conflicting normative sequences for VERIFY-ORDER-001 is recorded; the blocker
-remains unresolved until the reference verifier meets verification-v1 §9.1.
+conflicting normative sequences for VERIFY-ORDER-001 is recorded, and the
+registry maps TypeScript reference evidence; the blocker remains unresolved
+until an exit condition, its evidence stages and a candidate disposition are
+established.
 
 Finding states remain REPORTED, REPRODUCED, FIXED_AND_RETESTED and
 DEFERRED_WITH_RATIONALE. A successful retest must identify the original
