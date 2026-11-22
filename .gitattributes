@@ -1,3 +1,26 @@
+# Byte-exact conformance inputs: always check out with LF, whatever
+# core.autocrlf says (Windows defaults to true). These files are compared
+# byte-for-byte or hashed raw, so a CRLF working copy fails CI checks and
+# changes evidence digests even though the JSON content is identical:
+# - authorization-wire-encoding-v1.json must equal its generator's output
+#   (packages/core wire-encoding test, fixtures --check);
+# - packages/conformance/vectors/profile-c-state-verification.json must be the
+#   exact projection of its docs/spec authority (verify:corpus-authority);
+# - every corpus representation plus corpus-authority.json and
+#   corpus-provenance-audit.md are raw-hashed into conformance evidence
+#   metadata and S_freeze snapshots (packages/conformance/src/evidenceScope.mjs).
+# All of these are already stored as LF, so no renormalization is needed.
+docs/spec/test-vectors/** text eol=lf
+packages/conformance/vectors/** text eol=lf
+docs/conformance/corpus-authority.json text eol=lf
+docs/conformance/corpus-provenance-audit.md text eol=lf
+
+# pnpm -C packages/core api:fingerprint:check under WSL or Git Bash: a CRLF
+# shebang fails with "/usr/bin/env: 'bash\r'", and a CRLF API_FINGERPRINT
+# makes `$(cat API_FINGERPRINT)` carry a trailing \r, so the comparison fails.
+*.sh text eol=lf
+packages/core/API_FINGERPRINT text eol=lf
+
 # API Extractor generates its committed report and temporary comparison report
 # with CRLF line endings (their pre-existing convention). Without this,
 # `git diff --check` flags every added line's trailing \r as a whitespace error.
