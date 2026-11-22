@@ -40,7 +40,7 @@
       "exitConditionState": "unresolved",
       "exitCondition": null,
       "evidenceStages": [],
-      "boundary": "The conflicting normative sequences are resolved in the specification (verification-v1 §5 single reference sequence, §9.1 determining code). The exit condition is not yet established: the reference verifier does not yet report the determining code first or in a dedicated field.",
+      "boundary": "The conflicting normative sequences are resolved in the specification (verification-v1 §5 single reference sequence, §9.1 determining code), and the registry maps TypeScript reference evidence (primaryReasonCode, opt-in). No exit condition, evidence stage or candidate disposition is established here; no independent-runtime evidence exists.",
       "sources": [
         {"path": "docs/verification/spec-claims/claims.json", "claimId": "VERIFY-ORDER-001", "role": "registry-state"},
         {"path": "docs/spec/verification/verification-v1.md", "section": "## 5. AuthorizationV1 Verification (Required Ordering)", "quote": "This section is the **single reference sequence** for AuthorizationV1", "role": "normative"},

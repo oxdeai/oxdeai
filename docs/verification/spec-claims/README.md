@@ -239,9 +239,12 @@ Known gaps and ambiguities:
   boundary callbacks are not equivalent evidence.
 - `VERIFY-ORDER-001`: resolved in the specification on 2026-11-22.
   verification-v1 §5 is the single reference sequence, and conformance compares
-  the verdict and the determining code (§9.1). The evidence gap remains: Core
-  accumulates violations and does not yet report the determining code first
-  (`verify.authorization-precedence.test.ts`, `REPORT_ORDER_PENDING`).
+  the verdict and the determining code (§9.1). Mapped to TypeScript reference
+  evidence: `verifyAuthorization` with `reportPrimaryReasonCode` names the
+  determining code in all 15 precedence-corpus cases and all 54 independent
+  defect pairs, and the HTTP PEP consumes no replay state on a denied
+  authorization. No independent-runtime (Go/Python) evidence: not
+  `CONFORMANCE_TESTED`.
 - `ETA-SIGNING-001`: ETA excludes the entire signature field; AuthorizationV1
   specifies nested alg/kid retention and encoding-specific domain separation.
 - `PEP-DEPLOY-001` and `STATE-TRUST-001`: real deployment non-bypassability and

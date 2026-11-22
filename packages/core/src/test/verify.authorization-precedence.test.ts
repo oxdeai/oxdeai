@@ -5,14 +5,11 @@
 // fixes the determining code of overlapping-defect cases by step order. It
 // must be byte-identical to the output of its independent generator.
 //
-// The reference verifier collects violations. What it is required to do today,
-// and is asserted here, is to return the same verdict and to include the
-// determining code. Presenting the determining code FIRST (or in a dedicated
-// field) is what verification-v1.md §9.1 requires of a multi-code report; the
-// reference verifier does not do that yet. The cases where it does not are
-// pinned EXACTLY in REPORT_ORDER_PENDING, so a fix (or a regression) changes
-// this test and cannot pass unnoticed. Follow-up: order the reference report
-// per §9.1.
+// The reference verifier collects violations. With `reportPrimaryReasonCode`
+// it identifies the determining code in a dedicated field
+// (`primaryReasonCode`), as verification-v1.md §9.1 allows; `violations` keeps
+// its historical order. Every corpus case must report the determining code,
+// so REPORT_ORDER_PENDING is empty and the final test pins it at zero.
 import assert from "node:assert/strict";
 import test from "node:test";
 import { execFileSync } from "node:child_process";
@@ -28,7 +25,7 @@ const corpusPath = resolve(repoRoot, "docs/spec/test-vectors/authorization-prece
 const committed = readFileSync(corpusPath, "utf8");
 const fixtures = JSON.parse(committed);
 
-const REPORT_ORDER_PENDING = ["p-005", "p-006", "p-007", "p-008", "p-009", "p-010", "p-011", "p-012", "p-013"];
+const REPORT_ORDER_PENDING: string[] = [];
 
 function optionsFor(v: { options: Record<string, unknown> }) {
   const o: Record<string, unknown> = { ...fixtures.verifier_options };
@@ -44,17 +41,18 @@ test("precedence corpus is byte-identical to its independent generator", () => {
   assert.equal(regenerated, committed, "run: node scripts/repro/authorization-precedence-fixtures.mjs --write");
 });
 
-const notFirst: string[] = [];
+const notDetermined: string[] = [];
 for (const v of fixtures.vectors) {
   test(`precedence ${v.id}: ${v.description}`, () => {
-    const r = verifyAuthorization(structuredClone(v.artifact), optionsFor(v) as never);
+    const r = verifyAuthorization(structuredClone(v.artifact), { ...optionsFor(v), reportPrimaryReasonCode: true } as never);
     assert.equal(r.status, v.expected.status, JSON.stringify(r.violations));
     const codes = r.violations.map((x: { code: string }) => x.code);
     assert.ok(codes.includes(v.expected.determining_code), `${v.id}: determining code ${v.expected.determining_code} missing from ${codes.join(",")}`);
-    if (codes[0] !== v.expected.determining_code) notFirst.push(v.id);
+    if (r.primaryReasonCode !== v.expected.determining_code) notDetermined.push(v.id);
   });
 }
 
-test("reference report order: pending cases are exactly the pinned set", () => {
-  assert.deepEqual([...notFirst].sort(), [...REPORT_ORDER_PENDING].sort());
+test("reference verifier identifies the determining code in every corpus case (REPORT_ORDER_PENDING is empty)", () => {
+  assert.deepEqual([...notDetermined].sort(), [...REPORT_ORDER_PENDING].sort());
+  assert.equal(REPORT_ORDER_PENDING.length, 0);
 });

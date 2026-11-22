@@ -127,6 +127,25 @@
         "permissive"
       ]
     },
+    "primaryReasonCode": {
+      "type": "string",
+      "enum": [
+        "AUTH_MISSING_FIELD",
+        "AUTH_SIGNATURE_INVALID",
+        "AUTH_ID_NONCANONICAL",
+        "AUTH_DECISION_INVALID",
+        "AUTH_ALG_UNSUPPORTED",
+        "AUTH_ISSUER_MISMATCH",
+        "AUTH_ISSUER_POLICY_NOT_AUTHORIZED",
+        "AUTH_KID_UNKNOWN",
+        "AUTH_KEY_INACTIVE",
+        "AUTH_EXPIRED",
+        "AUTH_ISSUED_AT_IMPLAUSIBLE",
+        "AUTH_AUDIENCE_MISMATCH",
+        "AUTH_POLICY_ID_MISMATCH",
+        "AUTH_REPLAY"
+      ]
+    },
     "verificationCoverage": {
       "type": "string",
       "enum": [

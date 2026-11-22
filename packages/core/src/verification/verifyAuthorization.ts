@@ -62,6 +62,16 @@ export type VerifyAuthorizationOptions = {
    */
   trustedAuthorizationAuthorities?: readonly AuthorizationAuthority[];
   consumedAuthIds?: readonly string[];
+  /**
+   * When `true`, an invalid result carries `primaryReasonCode`: the code of the
+   * first failing step of the normative verification sequence
+   * (verification-v1.md §5, §9.1). `violations` is unaffected: same content,
+   * same order.
+   *
+   * Opt-in so that existing results stay byte-identical: the published
+   * `verification-result.schema.json` before 2.1 rejects unknown properties.
+   */
+  reportPrimaryReasonCode?: boolean;
   trustedKeySets?: KeySet | readonly KeySet[];
   requireSignatureVerification?: boolean;
   /**
@@ -84,6 +94,28 @@ export type VerifyAuthorizationOptions = {
    */
   legacyHmacSecret?: string;
 };
+
+/**
+ * The violation of the earliest verification-v1.md §5 step, in insertion order
+ * among violations of that step. Step 0 (verifier configuration) never
+ * determines (verification-v1.md §5 "Preconditions").
+ */
+function determiningViolation(
+  violations: readonly VerificationViolation[],
+  stepOf: ReadonlyMap<VerificationViolation, number>
+): VerificationViolation | undefined {
+  let best: VerificationViolation | undefined;
+  let bestStep = Number.POSITIVE_INFINITY;
+  for (const v of violations) {
+    const step = stepOf.get(v);
+    if (step === undefined || step === 0) continue;
+    if (step < bestStep) {
+      best = v;
+      bestStep = step;
+    }
+  }
+  return best;
+}
 
 function sortViolations(violations: VerificationViolation[]): VerificationViolation[] {
   return [...violations].sort((a, b) => {
@@ -342,6 +374,15 @@ export function verifyAuthorization(
   opts?: VerifyAuthorizationOptions
 ): AuthorizationVerificationResult {
   const violations: VerificationViolation[] = [];
+  // Each violation is tagged with the verification-v1.md §5 step that produced
+  // it (0 = verifier configuration, outside the determining-code rule). The
+  // tag never affects `violations` (content or order); it only feeds the
+  // opt-in `primaryReasonCode` (verification-v1.md §9.1).
+  const stepOf = new Map<VerificationViolation, number>();
+  const add = (step: number, v: VerificationViolation): void => {
+    violations.push(v);
+    stepOf.set(v, step);
+  };
   const now = nowOrThrow(opts?.now);
   // Verification-surface descriptors (#172). These make it impossible to
   // mistake a merely-structural result for a cryptographically verified one,
@@ -364,25 +405,25 @@ export function verifyAuthorization(
   const consumed = new Set(opts?.consumedAuthIds ?? []);
 
   if (!hasText(auth.decision) || auth.decision !== "ALLOW") {
-    violations.push({ code: "AUTH_DECISION_INVALID", message: "authorization decision must be ALLOW" });
+    add(4, { code: "AUTH_DECISION_INVALID", message: "authorization decision must be ALLOW" });
   }
   if (!hasText(auth.intent_hash)) {
-    violations.push({ code: "AUTH_MISSING_FIELD", message: "intent_hash is required" });
+    add(2, { code: "AUTH_MISSING_FIELD", message: "intent_hash is required" });
   }
   if (!hasText(auth.state_hash)) {
-    violations.push({ code: "AUTH_MISSING_FIELD", message: "state_hash is required" });
+    add(2, { code: "AUTH_MISSING_FIELD", message: "state_hash is required" });
   }
   if (!hasText(auth.policy_id)) {
-    violations.push({ code: "AUTH_MISSING_FIELD", message: "policy_id is required" });
+    add(2, { code: "AUTH_MISSING_FIELD", message: "policy_id is required" });
   }
   if (!hasText(auth.issuer)) {
-    violations.push({ code: "AUTH_MISSING_FIELD", message: "issuer is required" });
+    add(2, { code: "AUTH_MISSING_FIELD", message: "issuer is required" });
   }
   if (!hasText(auth.audience)) {
-    violations.push({ code: "AUTH_MISSING_FIELD", message: "audience is required" });
+    add(2, { code: "AUTH_MISSING_FIELD", message: "audience is required" });
   }
   if (!hasText(auth.auth_id)) {
-    violations.push({ code: "AUTH_MISSING_FIELD", message: "auth_id is required" });
+    add(2, { code: "AUTH_MISSING_FIELD", message: "auth_id is required" });
   } else if (auth.auth_id !== auth.auth_id.normalize("NFC")) {
     // S2: identifiers participate in signature verification via canonicalJson,
     // which NFC-normalizes strings, but replay protection keys on the raw
@@ -391,10 +432,10 @@ export function verifyAuthorization(
     // replayed. Require a single canonical (NFC) representation at this trust
     // boundary and reject anything else - never silently normalize an
     // attacker-controlled identifier.
-    violations.push({ code: "AUTH_ID_NONCANONICAL", message: "auth_id must be Unicode NFC-normalized" });
+    add(3, { code: "AUTH_ID_NONCANONICAL", message: "auth_id must be Unicode NFC-normalized" });
   }
   if (!Number.isInteger(auth.issued_at)) {
-    violations.push({ code: "AUTH_MISSING_FIELD", message: "issued_at must be integer unix seconds" });
+    add(2, { code: "AUTH_MISSING_FIELD", message: "issued_at must be integer unix seconds" });
   } else if (
     !Number.isSafeInteger(auth.issued_at) ||
     auth.issued_at > now + maxFutureIssuedAtSkewSeconds
@@ -404,7 +445,7 @@ export function verifyAuthorization(
     // which this function does not receive. An unsafe-magnitude issued_at
     // (e.g. beyond Number.MAX_SAFE_INTEGER) is inherently implausible and
     // rejected without arithmetic that could overflow.
-    violations.push({
+    add(12, {
       code: "AUTH_ISSUED_AT_IMPLAUSIBLE",
       message: `issued_at must not be more than ${maxFutureIssuedAtSkewSeconds}s ahead of verification time`
     });
@@ -417,7 +458,7 @@ export function verifyAuthorization(
   // signed top-level alg differ from the alg that selects the wire encoding.
   if (sig.nested && (auth.alg !== undefined || auth.kid !== undefined)) {
     if (auth.alg !== sig.alg || auth.kid !== sig.kid) {
-      violations.push({
+      add(5, {
         code: "AUTH_ALG_UNSUPPORTED",
         message: "ambiguous signature encoding: top-level alg/kid conflict with signature.alg/kid"
       });
@@ -425,13 +466,13 @@ export function verifyAuthorization(
   }
 
   if (!hasText(sig.alg)) {
-    violations.push({ code: "AUTH_MISSING_FIELD", message: "alg is required" });
+    add(2, { code: "AUTH_MISSING_FIELD", message: "alg is required" });
   }
   if (!hasText(sig.kid)) {
-    violations.push({ code: "AUTH_MISSING_FIELD", message: "kid is required" });
+    add(2, { code: "AUTH_MISSING_FIELD", message: "kid is required" });
   }
   if (!hasText(sig.sig)) {
-    violations.push({ code: "AUTH_MISSING_FIELD", message: "signature is required" });
+    add(2, { code: "AUTH_MISSING_FIELD", message: "signature is required" });
   }
 
   // R-04 (authorization-v1.md §5 "Signed field set"): the artifact is a CLOSED
@@ -444,7 +485,7 @@ export function verifyAuthorization(
     (k) => !AUTHORIZATION_SIGNED_FIELDS.has(k) && !AUTHORIZATION_LEGACY_ENGINE_FIELDS.has(k)
   );
   if (unsignedFields.length > 0) {
-    violations.push({
+    add(2, {
       code: "AUTH_SIGNATURE_INVALID",
       message: `field(s) not covered by the signature: ${unsignedFields.slice(0, 5).map((k) => JSON.stringify(k).slice(0, 64)).join(", ")}`
     });
@@ -454,15 +495,15 @@ export function verifyAuthorization(
       (k) => !NESTED_SIGNATURE_FIELDS.has(k)
     );
     if (unsignedSigFields.length > 0) {
-      violations.push({ code: "AUTH_SIGNATURE_INVALID", message: "signature object carries fields other than alg, kid, sig" });
+      add(2, { code: "AUTH_SIGNATURE_INVALID", message: "signature object carries fields other than alg, kid, sig" });
     }
   }
   if (isPresent(rawAuth, "authorization_id") && rawAuth.authorization_id !== auth.auth_id) {
-    violations.push({ code: "AUTH_SIGNATURE_INVALID", message: "unsigned authorization_id must equal the signed auth_id" });
+    add(2, { code: "AUTH_SIGNATURE_INVALID", message: "unsigned authorization_id must equal the signed auth_id" });
   }
   for (const k of ["policy_version", "state_snapshot_hash", "engine_signature"] as const) {
     if (isPresent(rawAuth, k) && typeof rawAuth[k] !== "string") {
-      violations.push({ code: "AUTH_SIGNATURE_INVALID", message: `legacy field ${k} must be a string` });
+      add(2, { code: "AUTH_SIGNATURE_INVALID", message: `legacy field ${k} must be a string` });
     }
   }
 
@@ -475,20 +516,20 @@ export function verifyAuthorization(
   const expiryOk = expiryPresent && Number.isSafeInteger(rawAuth.expiry);
   const expiresAtOk = expiresAtPresent && Number.isSafeInteger(rawAuth.expires_at);
   if (expiryPresent && !expiryOk) {
-    violations.push({ code: "AUTH_MISSING_FIELD", message: "expiry must be integer unix seconds" });
+    add(5, { code: "AUTH_MISSING_FIELD", message: "expiry must be integer unix seconds" });
   }
   if (expiresAtPresent && !expiresAtOk) {
-    violations.push({ code: "AUTH_MISSING_FIELD", message: "expires_at must be integer unix seconds" });
+    add(5, { code: "AUTH_MISSING_FIELD", message: "expires_at must be integer unix seconds" });
   }
   if (!expiryPresent && !expiresAtPresent) {
-    violations.push({ code: "AUTH_MISSING_FIELD", message: "expiry must be integer unix seconds" });
+    add(5, { code: "AUTH_MISSING_FIELD", message: "expiry must be integer unix seconds" });
   } else if (!sig.nested && !expiryPresent) {
-    violations.push({ code: "AUTH_MISSING_FIELD", message: "flat signature requires signed expiry (expires_at is not signed in this encoding)" });
+    add(5, { code: "AUTH_MISSING_FIELD", message: "flat signature requires signed expiry (expires_at is not signed in this encoding)" });
   }
   if (expiryOk && expiresAtOk && rawAuth.expiry !== rawAuth.expires_at) {
     // Same classification as PolicyEngine.verifyAuthorization for a conflicting
     // expiry alias: data outside (or beside) the signature contradicts it.
-    violations.push({ code: "AUTH_SIGNATURE_INVALID", message: "expiry and expires_at conflict" });
+    add(5, { code: "AUTH_SIGNATURE_INVALID", message: "expiry and expires_at conflict" });
   }
   // `expiry` takes precedence; `expires_at` is used only by the nested encoding
   // (where it is signed) and only when `expiry` is absent.
@@ -498,17 +539,17 @@ export function verifyAuthorization(
     ? (rawAuth.expires_at as number)
     : undefined;
   if (effectiveExpiry !== undefined && now >= effectiveExpiry) {
-    violations.push({ code: "AUTH_EXPIRED", message: "authorization has expired" });
+    add(11, { code: "AUTH_EXPIRED", message: "authorization has expired" });
   }
 
   if (opts?.expectedIssuer !== undefined && auth.issuer !== opts.expectedIssuer) {
-    violations.push({ code: "AUTH_ISSUER_MISMATCH", message: "issuer does not match expectedIssuer" });
+    add(6, { code: "AUTH_ISSUER_MISMATCH", message: "issuer does not match expectedIssuer" });
   }
   if (opts?.expectedAudience !== undefined && auth.audience !== opts.expectedAudience) {
-    violations.push({ code: "AUTH_AUDIENCE_MISMATCH", message: "audience does not match expectedAudience" });
+    add(13, { code: "AUTH_AUDIENCE_MISMATCH", message: "audience does not match expectedAudience" });
   }
   if (opts?.expectedPolicyId !== undefined && auth.policy_id !== opts.expectedPolicyId) {
-    violations.push({ code: "AUTH_POLICY_ID_MISMATCH", message: "policy_id does not match expectedPolicyId" });
+    add(14, { code: "AUTH_POLICY_ID_MISMATCH", message: "policy_id does not match expectedPolicyId" });
   }
   // Independent issuer-policy authority. Deliberately a distinct code from the
   // scalar mismatches above: those mean "a supplied expectation did not match",
@@ -517,14 +558,14 @@ export function verifyAuthorization(
   // authority rejection as a configuration mismatch.
   if (opts?.trustedAuthorizationAuthorities !== undefined) {
     if (!isTrustedAuthorizationAuthority(opts.trustedAuthorizationAuthorities, auth.issuer, auth.policy_id)) {
-      violations.push({
+      add(7, {
         code: "AUTH_ISSUER_POLICY_NOT_AUTHORIZED",
         message: "issuer is not authorized for this policy_id",
       });
     }
   }
   if (hasText(auth.auth_id) && consumed.has(auth.auth_id)) {
-    violations.push({ code: "AUTH_REPLAY", message: "auth_id has already been consumed" });
+    add(16, { code: "AUTH_REPLAY", message: "auth_id has already been consumed" });
   }
 
   const payload = authorizationSigningPayload(auth);
@@ -564,18 +605,18 @@ export function verifyAuthorization(
     const sigValue = sig.sig as string;
     if (sigAlg === "ed25519" && !sig.nested) {
       // Encoding B is defined only with a nested { alg, kid, sig } object.
-      violations.push({ code: "AUTH_ALG_UNSUPPORTED", message: "unsupported signature algorithm" });
+      add(5, { code: "AUTH_ALG_UNSUPPORTED", message: "unsupported signature algorithm" });
     } else if (sigAlg === "Ed25519" || sigAlg === "ed25519") {
       if (trusted.length === 0) {
         if (requireSig) {
-          violations.push({ code: "AUTH_TRUST_MISSING", message: "trustedKeySets required for Ed25519 verification" });
+          add(0, { code: "AUTH_TRUST_MISSING", message: "trustedKeySets required for Ed25519 verification" });
         }
       } else {
         const key = findKeyInKeySets(trusted, auth.issuer, sigKid, "Ed25519");
         if (!key) {
-          violations.push({ code: "AUTH_KID_UNKNOWN", message: "kid not found for issuer/alg" });
+          add(8, { code: "AUTH_KID_UNKNOWN", message: "kid not found for issuer/alg" });
         } else if (!keyIsActiveAt(key, now)) {
-          violations.push({ code: "AUTH_KEY_INACTIVE", message: "key is not active at verification time" });
+          add(9, { code: "AUTH_KEY_INACTIVE", message: "key is not active at verification time" });
         } else {
           // A cryptographic check is actually performed here (pass or fail).
           // Coverage records the surface evaluated and is set the moment the
@@ -590,7 +631,7 @@ export function verifyAuthorization(
             ? verifyEd25519(SIGNING_DOMAINS.AUTH_V1, payload, sigValue, key.public_key)
             : verifyEd25519SiftCompatible(payload, sigValue, key.public_key);
           if (!cryptoOk) {
-            violations.push({ code: "AUTH_SIGNATURE_INVALID", message: "signature verification failed" });
+            add(10, { code: "AUTH_SIGNATURE_INVALID", message: "signature verification failed" });
           } else {
             signatureVerified = true;
           }
@@ -603,15 +644,15 @@ export function verifyAuthorization(
         // and is set once the check is engaged, independent of the outcome.
         verificationCoverage = "authorization-v1-full";
         if (!verifyHmacDomain(SIGNING_DOMAINS.AUTH_V1, payload, sigValue, opts.legacyHmacSecret)) {
-          violations.push({ code: "AUTH_SIGNATURE_INVALID", message: "legacy HMAC signature verification failed" });
+          add(10, { code: "AUTH_SIGNATURE_INVALID", message: "legacy HMAC signature verification failed" });
         } else {
           signatureVerified = true;
         }
       } else if (requireSig) {
-        violations.push({ code: "AUTH_TRUST_MISSING", message: "legacyHmacSecret required for HMAC verification" });
+        add(0, { code: "AUTH_TRUST_MISSING", message: "legacyHmacSecret required for HMAC verification" });
       }
     } else {
-      violations.push({ code: "AUTH_ALG_UNSUPPORTED", message: "unsupported signature algorithm" });
+      add(5, { code: "AUTH_ALG_UNSUPPORTED", message: "unsupported signature algorithm" });
     }
   }
 
@@ -622,7 +663,7 @@ export function verifyAuthorization(
   const verificationMode: VerificationMode = opts?.mode === "strict" ? "strict" : "permissive";
 
   if (violations.length > 0) {
-    return {
+    const result: AuthorizationVerificationResult = {
       ok: false,
       status: "invalid",
       violations: sortViolations(violations),
@@ -632,6 +673,11 @@ export function verifyAuthorization(
       verificationMode,
       verificationCoverage
     };
+    if (opts?.reportPrimaryReasonCode === true) {
+      const primary = determiningViolation(violations, stepOf);
+      if (primary) result.primaryReasonCode = primary.code;
+    }
+    return result;
   }
 
   return {

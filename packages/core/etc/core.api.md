@@ -65,6 +65,7 @@ export type AuthorizationVerificationResult = VerificationResult & {
     signatureVerified: boolean;
     verificationMode: VerificationMode;
     verificationCoverage: VerificationCoverage;
+    primaryReasonCode?: VerificationViolationCode;
 };
 
 // @public (undocumented)
