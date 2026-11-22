@@ -9,6 +9,18 @@ This project follows Semantic Versioning.
 
 ## [Unreleased]
 
+### Changed
+
+- Specification (no package code change): AuthorizationV1 verification
+  diagnostic precedence clarified. Wire-compatible. `verification-v1.md` §5 is
+  the single reference sequence; conformance compares the verdict and the
+  determining code (`verification-v1.md` §9.1); verifier codes are registered in
+  `authorization-v1.md` §10.1; replay consumption is the last step. New normative
+  corpus `docs/spec/test-vectors/authorization-precedence-v1.json`. For artifacts
+  with several defects, the determining code can differ from the first code an
+  implementation reported before; consumers that branch on the first reported
+  code should re-check.
+
 ### Added
 
 - `@oxdeai/conformance/deployment`: `runDeploymentChecks(probes, context)`,

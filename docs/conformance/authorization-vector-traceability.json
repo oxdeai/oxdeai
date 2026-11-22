@@ -1,0 +1,471 @@
+{
+  "version": 1,
+  "base": "72b7f2a",
+  "purpose": "SA-002 pre-promotion traceability: every expected value of a vector proposed for normative status must trace to a normative clause, and its inputs must be consumable without the reference implementation.",
+  "blockers": {
+    "T-UNSIGNED": "Artifact has no alg, kid or signature and the options carry no trustedKeySets or mode. The expected verdict relies on a non-strict verification mode that no normative document defines (authorization-v1 \u00a79 defines strict mode only). Materialize as signed strict-mode artifacts before promotion. Applies to authorization-verification and clock-semantics-verification.",
+    "T-NOT-MATERIALIZED": "The vector carries a mode name, not an artifact. The artifact is built at run time by packages/conformance/src/validate.ts, so an independent implementation cannot consume the vector without the TypeScript generator. Materialize artifacts and options, as the wire-encoding corpus does. Applies to authorization-signature-verification and key-lifecycle-verification.",
+    "T-PROJECTION-UNSPECIFIED": "The expected hash is the PolicyEngine INTENT_BINDING_FIELDS projection (signature and _internal_trace_id excluded). external-provider-profile.md:119 names the projection but no normative document lists its fields; sha256(canonical(input)) does not match (checked). Issuer-side behavior, not verifier behavior. Applies to intent-hash."
+  },
+  "summary": {
+    "vectors": 40,
+    "expectation_traceable": 40,
+    "promotable_as_is": 0
+  },
+  "vectors": [
+    {
+      "corpus": "packages/conformance/vectors/authorization-verification.json",
+      "id": "authorization-verify-001",
+      "expected": "ok",
+      "codes": [],
+      "clause": "verification-v1.md \u00a75 steps 1-16 (all pass)",
+      "expectation_traceable": true,
+      "promotable_as_is": false,
+      "blocker": "T-UNSIGNED"
+    },
+    {
+      "corpus": "packages/conformance/vectors/authorization-verification.json",
+      "id": "authorization-verify-002",
+      "expected": "invalid",
+      "codes": [
+        "AUTH_EXPIRED"
+      ],
+      "clause": "verification-v1.md \u00a75 step 11 (AUTH_EXPIRED); authorization-v1.md \u00a710.1",
+      "expectation_traceable": true,
+      "promotable_as_is": false,
+      "blocker": "T-UNSIGNED"
+    },
+    {
+      "corpus": "packages/conformance/vectors/authorization-verification.json",
+      "id": "authorization-verify-003",
+      "expected": "invalid",
+      "codes": [
+        "AUTH_MISSING_FIELD",
+        "AUTH_MISSING_FIELD"
+      ],
+      "clause": "verification-v1.md \u00a75 step 1,2,5 (AUTH_MISSING_FIELD); authorization-v1.md \u00a710.1",
+      "expectation_traceable": true,
+      "promotable_as_is": false,
+      "blocker": "T-UNSIGNED"
+    },
+    {
+      "corpus": "packages/conformance/vectors/authorization-verification.json",
+      "id": "authorization-verify-004",
+      "expected": "invalid",
+      "codes": [
+        "AUTH_DECISION_INVALID"
+      ],
+      "clause": "verification-v1.md \u00a75 step 4 (AUTH_DECISION_INVALID); authorization-v1.md \u00a710.1",
+      "expectation_traceable": true,
+      "promotable_as_is": false,
+      "blocker": "T-UNSIGNED"
+    },
+    {
+      "corpus": "packages/conformance/vectors/authorization-verification.json",
+      "id": "authorization-verify-005",
+      "expected": "invalid",
+      "codes": [
+        "AUTH_REPLAY"
+      ],
+      "clause": "verification-v1.md \u00a75 step 16 (AUTH_REPLAY); authorization-v1.md \u00a710.1",
+      "expectation_traceable": true,
+      "promotable_as_is": false,
+      "blocker": "T-UNSIGNED"
+    },
+    {
+      "corpus": "packages/conformance/vectors/authorization-verification.json",
+      "id": "authorization-verify-006",
+      "expected": "invalid",
+      "codes": [
+        "AUTH_AUDIENCE_MISMATCH"
+      ],
+      "clause": "verification-v1.md \u00a75 step 13 (AUTH_AUDIENCE_MISMATCH); authorization-v1.md \u00a710.1",
+      "expectation_traceable": true,
+      "promotable_as_is": false,
+      "blocker": "T-UNSIGNED"
+    },
+    {
+      "corpus": "packages/conformance/vectors/authorization-verification.json",
+      "id": "authorization-verify-007",
+      "expected": "invalid",
+      "codes": [
+        "AUTH_ISSUER_MISMATCH"
+      ],
+      "clause": "verification-v1.md \u00a75 step 6 (AUTH_ISSUER_MISMATCH); authorization-v1.md \u00a710.1",
+      "expectation_traceable": true,
+      "promotable_as_is": false,
+      "blocker": "T-UNSIGNED"
+    },
+    {
+      "corpus": "packages/conformance/vectors/authorization-verification.json",
+      "id": "authorization-verify-008",
+      "expected": "invalid",
+      "codes": [
+        "AUTH_POLICY_ID_MISMATCH"
+      ],
+      "clause": "verification-v1.md \u00a75 step 14 (AUTH_POLICY_ID_MISMATCH); authorization-v1.md \u00a710.1",
+      "expectation_traceable": true,
+      "promotable_as_is": false,
+      "blocker": "T-UNSIGNED"
+    },
+    {
+      "corpus": "packages/conformance/vectors/authorization-verification.json",
+      "id": "authorization-verify-009",
+      "expected": "ok",
+      "codes": [],
+      "clause": "verification-v1.md \u00a75 steps 1-16 (all pass)",
+      "expectation_traceable": true,
+      "promotable_as_is": false,
+      "blocker": "T-UNSIGNED"
+    },
+    {
+      "corpus": "packages/conformance/vectors/authorization-verification.json",
+      "id": "authorization-verify-010",
+      "expected": "invalid",
+      "codes": [
+        "AUTH_EXPIRED"
+      ],
+      "clause": "verification-v1.md \u00a75 step 11 (AUTH_EXPIRED); authorization-v1.md \u00a710.1",
+      "expectation_traceable": true,
+      "promotable_as_is": false,
+      "blocker": "T-UNSIGNED"
+    },
+    {
+      "corpus": "packages/conformance/vectors/clock-semantics-verification.json",
+      "id": "clock-001",
+      "expected": "ok",
+      "codes": [],
+      "clause": "verification-v1.md \u00a75 steps 1-16 (all pass)",
+      "expectation_traceable": true,
+      "promotable_as_is": false,
+      "blocker": "T-UNSIGNED"
+    },
+    {
+      "corpus": "packages/conformance/vectors/clock-semantics-verification.json",
+      "id": "clock-002",
+      "expected": "invalid",
+      "codes": [
+        "AUTH_EXPIRED"
+      ],
+      "clause": "verification-v1.md \u00a75 step 11 (AUTH_EXPIRED); authorization-v1.md \u00a710.1",
+      "expectation_traceable": true,
+      "promotable_as_is": false,
+      "blocker": "T-UNSIGNED"
+    },
+    {
+      "corpus": "packages/conformance/vectors/clock-semantics-verification.json",
+      "id": "clock-003",
+      "expected": "ok",
+      "codes": [],
+      "clause": "verification-v1.md \u00a75 steps 1-16 (all pass)",
+      "expectation_traceable": true,
+      "promotable_as_is": false,
+      "blocker": "T-UNSIGNED"
+    },
+    {
+      "corpus": "packages/conformance/vectors/clock-semantics-verification.json",
+      "id": "clock-004",
+      "expected": "ok",
+      "codes": [],
+      "clause": "verification-v1.md \u00a75 steps 1-16 (all pass)",
+      "expectation_traceable": true,
+      "promotable_as_is": false,
+      "blocker": "T-UNSIGNED"
+    },
+    {
+      "corpus": "packages/conformance/vectors/clock-semantics-verification.json",
+      "id": "clock-005",
+      "expected": "ok",
+      "codes": [],
+      "clause": "verification-v1.md \u00a75 steps 1-16 (all pass)",
+      "expectation_traceable": true,
+      "promotable_as_is": false,
+      "blocker": "T-UNSIGNED"
+    },
+    {
+      "corpus": "packages/conformance/vectors/authorization-signature-verification.json",
+      "id": "authorization-sig-001",
+      "expected": "ok",
+      "codes": [],
+      "clause": "verification-v1.md \u00a75 steps 1-16 (all pass)",
+      "expectation_traceable": true,
+      "promotable_as_is": false,
+      "blocker": "T-NOT-MATERIALIZED"
+    },
+    {
+      "corpus": "packages/conformance/vectors/authorization-signature-verification.json",
+      "id": "authorization-sig-002",
+      "expected": "invalid",
+      "codes": [
+        "AUTH_SIGNATURE_INVALID"
+      ],
+      "clause": "verification-v1.md \u00a75 step 2,5,10 (AUTH_SIGNATURE_INVALID); authorization-v1.md \u00a710.1",
+      "expectation_traceable": true,
+      "promotable_as_is": false,
+      "blocker": "T-NOT-MATERIALIZED"
+    },
+    {
+      "corpus": "packages/conformance/vectors/authorization-signature-verification.json",
+      "id": "authorization-sig-003",
+      "expected": "invalid",
+      "codes": [
+        "AUTH_KID_UNKNOWN"
+      ],
+      "clause": "verification-v1.md \u00a75 step 8 (AUTH_KID_UNKNOWN); authorization-v1.md \u00a710.1",
+      "expectation_traceable": true,
+      "promotable_as_is": false,
+      "blocker": "T-NOT-MATERIALIZED"
+    },
+    {
+      "corpus": "packages/conformance/vectors/authorization-signature-verification.json",
+      "id": "authorization-sig-004",
+      "expected": "invalid",
+      "codes": [
+        "AUTH_ISSUER_MISMATCH",
+        "AUTH_KID_UNKNOWN"
+      ],
+      "clause": "verification-v1.md \u00a75 step 6 (AUTH_ISSUER_MISMATCH); authorization-v1.md \u00a710.1",
+      "expectation_traceable": true,
+      "promotable_as_is": false,
+      "blocker": "T-NOT-MATERIALIZED"
+    },
+    {
+      "corpus": "packages/conformance/vectors/authorization-signature-verification.json",
+      "id": "authorization-sig-005",
+      "expected": "invalid",
+      "codes": [
+        "AUTH_AUDIENCE_MISMATCH"
+      ],
+      "clause": "verification-v1.md \u00a75 step 13 (AUTH_AUDIENCE_MISMATCH); authorization-v1.md \u00a710.1",
+      "expectation_traceable": true,
+      "promotable_as_is": false,
+      "blocker": "T-NOT-MATERIALIZED"
+    },
+    {
+      "corpus": "packages/conformance/vectors/authorization-signature-verification.json",
+      "id": "authorization-sig-006",
+      "expected": "invalid",
+      "codes": [
+        "AUTH_SIGNATURE_INVALID"
+      ],
+      "clause": "verification-v1.md \u00a75 step 2,5,10 (AUTH_SIGNATURE_INVALID); authorization-v1.md \u00a710.1",
+      "expectation_traceable": true,
+      "promotable_as_is": false,
+      "blocker": "T-NOT-MATERIALIZED"
+    },
+    {
+      "corpus": "packages/conformance/vectors/authorization-signature-verification.json",
+      "id": "authorization-sig-007",
+      "expected": "invalid",
+      "codes": [
+        "AUTH_EXPIRED"
+      ],
+      "clause": "verification-v1.md \u00a75 step 11 (AUTH_EXPIRED); authorization-v1.md \u00a710.1",
+      "expectation_traceable": true,
+      "promotable_as_is": false,
+      "blocker": "T-NOT-MATERIALIZED"
+    },
+    {
+      "corpus": "packages/conformance/vectors/authorization-signature-verification.json",
+      "id": "authorization-sig-008",
+      "expected": "invalid",
+      "codes": [
+        "AUTH_REPLAY"
+      ],
+      "clause": "verification-v1.md \u00a75 step 16 (AUTH_REPLAY); authorization-v1.md \u00a710.1",
+      "expectation_traceable": true,
+      "promotable_as_is": false,
+      "blocker": "T-NOT-MATERIALIZED"
+    },
+    {
+      "corpus": "packages/conformance/vectors/authorization-signature-verification.json",
+      "id": "authorization-sig-009",
+      "expected": "invalid",
+      "codes": [
+        "AUTH_ALG_UNSUPPORTED"
+      ],
+      "clause": "verification-v1.md \u00a75 step 5 (AUTH_ALG_UNSUPPORTED); authorization-v1.md \u00a710.1",
+      "expectation_traceable": true,
+      "promotable_as_is": false,
+      "blocker": "T-NOT-MATERIALIZED"
+    },
+    {
+      "corpus": "packages/conformance/vectors/authorization-signature-verification.json",
+      "id": "authorization-sig-010",
+      "expected": "ok",
+      "codes": [],
+      "clause": "verification-v1.md \u00a75 steps 1-16 (all pass)",
+      "expectation_traceable": true,
+      "promotable_as_is": false,
+      "blocker": "T-NOT-MATERIALIZED"
+    },
+    {
+      "corpus": "packages/conformance/vectors/authorization-signature-verification.json",
+      "id": "authorization-sig-011",
+      "expected": "invalid",
+      "codes": [
+        "AUTH_ALG_UNSUPPORTED"
+      ],
+      "clause": "verification-v1.md \u00a75 step 5 (AUTH_ALG_UNSUPPORTED); authorization-v1.md \u00a710.1",
+      "expectation_traceable": true,
+      "promotable_as_is": false,
+      "blocker": "T-NOT-MATERIALIZED"
+    },
+    {
+      "corpus": "packages/conformance/vectors/authorization-signature-verification.json",
+      "id": "authorization-sig-012",
+      "expected": "invalid",
+      "codes": [
+        "AUTH_ALG_UNSUPPORTED"
+      ],
+      "clause": "verification-v1.md \u00a75 step 5 (AUTH_ALG_UNSUPPORTED); authorization-v1.md \u00a710.1",
+      "expectation_traceable": true,
+      "promotable_as_is": false,
+      "blocker": "T-NOT-MATERIALIZED"
+    },
+    {
+      "corpus": "packages/conformance/vectors/key-lifecycle-verification.json",
+      "id": "key-lifecycle-001",
+      "expected": "ok",
+      "codes": [],
+      "clause": "verification-v1.md \u00a75 steps 1-16 (all pass)",
+      "expectation_traceable": true,
+      "promotable_as_is": false,
+      "blocker": "T-NOT-MATERIALIZED"
+    },
+    {
+      "corpus": "packages/conformance/vectors/key-lifecycle-verification.json",
+      "id": "key-lifecycle-002",
+      "expected": "invalid",
+      "codes": [
+        "AUTH_KEY_INACTIVE"
+      ],
+      "clause": "verification-v1.md \u00a75 step 9 (AUTH_KEY_INACTIVE); authorization-v1.md \u00a710.1",
+      "expectation_traceable": true,
+      "promotable_as_is": false,
+      "blocker": "T-NOT-MATERIALIZED"
+    },
+    {
+      "corpus": "packages/conformance/vectors/key-lifecycle-verification.json",
+      "id": "key-lifecycle-003",
+      "expected": "invalid",
+      "codes": [
+        "AUTH_KEY_INACTIVE"
+      ],
+      "clause": "verification-v1.md \u00a75 step 9 (AUTH_KEY_INACTIVE); authorization-v1.md \u00a710.1",
+      "expectation_traceable": true,
+      "promotable_as_is": false,
+      "blocker": "T-NOT-MATERIALIZED"
+    },
+    {
+      "corpus": "packages/conformance/vectors/key-lifecycle-verification.json",
+      "id": "key-lifecycle-004",
+      "expected": "invalid",
+      "codes": [
+        "AUTH_KEY_INACTIVE"
+      ],
+      "clause": "verification-v1.md \u00a75 step 9 (AUTH_KEY_INACTIVE); authorization-v1.md \u00a710.1",
+      "expectation_traceable": true,
+      "promotable_as_is": false,
+      "blocker": "T-NOT-MATERIALIZED"
+    },
+    {
+      "corpus": "packages/conformance/vectors/key-lifecycle-verification.json",
+      "id": "key-lifecycle-005",
+      "expected": "ok",
+      "codes": [],
+      "clause": "verification-v1.md \u00a75 steps 1-16 (all pass)",
+      "expectation_traceable": true,
+      "promotable_as_is": false,
+      "blocker": "T-NOT-MATERIALIZED"
+    },
+    {
+      "corpus": "packages/conformance/vectors/key-lifecycle-verification.json",
+      "id": "key-lifecycle-006",
+      "expected": "invalid",
+      "codes": [
+        "AUTH_KEY_INACTIVE"
+      ],
+      "clause": "verification-v1.md \u00a75 step 9 (AUTH_KEY_INACTIVE); authorization-v1.md \u00a710.1",
+      "expectation_traceable": true,
+      "promotable_as_is": false,
+      "blocker": "T-NOT-MATERIALIZED"
+    },
+    {
+      "corpus": "packages/conformance/vectors/key-lifecycle-verification.json",
+      "id": "key-lifecycle-007",
+      "expected": "ok",
+      "codes": [],
+      "clause": "verification-v1.md \u00a75 steps 1-16 (all pass)",
+      "expectation_traceable": true,
+      "promotable_as_is": false,
+      "blocker": "T-NOT-MATERIALIZED"
+    },
+    {
+      "corpus": "packages/conformance/vectors/key-lifecycle-verification.json",
+      "id": "key-lifecycle-008",
+      "expected": "invalid",
+      "codes": [
+        "AUTH_KEY_INACTIVE"
+      ],
+      "clause": "verification-v1.md \u00a75 step 9 (AUTH_KEY_INACTIVE); authorization-v1.md \u00a710.1",
+      "expectation_traceable": true,
+      "promotable_as_is": false,
+      "blocker": "T-NOT-MATERIALIZED"
+    },
+    {
+      "corpus": "packages/conformance/vectors/key-lifecycle-verification.json",
+      "id": "key-lifecycle-009",
+      "expected": "invalid",
+      "codes": [
+        "AUTH_KEY_INACTIVE"
+      ],
+      "clause": "verification-v1.md \u00a75 step 9 (AUTH_KEY_INACTIVE); authorization-v1.md \u00a710.1",
+      "expectation_traceable": true,
+      "promotable_as_is": false,
+      "blocker": "T-NOT-MATERIALIZED"
+    },
+    {
+      "corpus": "packages/conformance/vectors/key-lifecycle-verification.json",
+      "id": "key-lifecycle-010",
+      "expected": "invalid",
+      "codes": [
+        "AUTH_KID_UNKNOWN"
+      ],
+      "clause": "verification-v1.md \u00a75 step 8 (AUTH_KID_UNKNOWN); authorization-v1.md \u00a710.1",
+      "expectation_traceable": true,
+      "promotable_as_is": false,
+      "blocker": "T-NOT-MATERIALIZED"
+    },
+    {
+      "corpus": "packages/conformance/vectors/intent-hash.json",
+      "id": "intent-hash-001",
+      "expected": "hash",
+      "codes": [],
+      "clause": "canonicalization-v1.md + authorization-v1.md \u00a77",
+      "expectation_traceable": true,
+      "promotable_as_is": false,
+      "blocker": "T-PROJECTION-UNSPECIFIED"
+    },
+    {
+      "corpus": "packages/conformance/vectors/intent-hash.json",
+      "id": "intent-hash-002",
+      "expected": "hash",
+      "codes": [],
+      "clause": "canonicalization-v1.md + authorization-v1.md \u00a77",
+      "expectation_traceable": true,
+      "promotable_as_is": false,
+      "blocker": "T-PROJECTION-UNSPECIFIED"
+    },
+    {
+      "corpus": "packages/conformance/vectors/intent-hash.json",
+      "id": "intent-hash-003",
+      "expected": "hash",
+      "codes": [],
+      "clause": "canonicalization-v1.md + authorization-v1.md \u00a77",
+      "expectation_traceable": true,
+      "promotable_as_is": false,
+      "blocker": "T-PROJECTION-UNSPECIFIED"
+    }
+  ]
+}

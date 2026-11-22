@@ -57,7 +57,8 @@ as applicable to the tested surface.
 Requirements:
 
 - the decision MUST be identical
-- deterministic reason-code output MUST be identical
+- deterministic reason-code output MUST be identical across repeated runs of the same implementation
+- across implementations, the determining reason code MUST be identical where the governing specification defines one (for AuthorizationV1, `verification-v1.md` §9.1); additional diagnostic codes are not compared
 - when an artifact is deterministically produced from identical inputs, its canonical representation MUST be byte-identical
 - hashes over identical canonical representations MUST be identical
 
@@ -552,12 +553,15 @@ Verification behavior MUST be deterministic.
 
 Where a governing specification defines a normative verification order, implementations MUST preserve its observable semantics.
 
-Where official vectors define the expected reason code for an overlapping-failure case, a conforming implementation MUST produce that expected result.
+Where official vectors define the expected reason code for an overlapping-failure case, a conforming implementation MUST produce that expected result as its determining code.
+
+Where the governing specification defines a determining code (for AuthorizationV1, `verification-v1.md` §9.1), an implementation MAY stop at the first failing step or MAY report further diagnostic codes. The two strategies are equally conformant if the verdict and the determining code are the same. Only the verdict and the determining code are normative outputs.
 
 Implementations MUST NOT:
 
 - short-circuit inconsistently across identical inputs
-- produce non-deterministic reason sets
+- produce non-deterministic reason sets across repeated runs on identical inputs
+- produce a verdict or determining code that differs from another conforming implementation on identical inputs
 - reorder checks in a way that changes a normative externally observable result
 
 This specification does not invent a verification order for artifacts whose governing specification leaves the order unspecified.

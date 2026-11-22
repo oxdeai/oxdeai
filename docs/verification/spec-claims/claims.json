@@ -1732,8 +1732,8 @@
       "title": "Normative verification ordering",
       "source": {
         "path": "docs/spec/verification/verification-v1.md",
-        "section": "## 9. Determinism and Ordering",
-        "quote": "- Check ordering **MUST** follow the sequences in \u00a7\u00a75\u20136 to ensure deterministic results across implementations.",
+        "section": "## 5. AuthorizationV1 Verification (Required Ordering)",
+        "quote": "This section is the **single reference sequence** for AuthorizationV1",
         "role": "normative"
       },
       "strength": "MUST",
@@ -1745,9 +1745,9 @@
       "negativeRequired": false,
       "classification": "portable",
       "portableRequired": false,
-      "notes": "Verification \u00a75 puts signature before expiry; AuthorizationV1 \u00a710 puts expiry before signature. Core collects/sorts violations. No claim of satisfying both incompatible sequences. #320 is adjacent but does NOT resolve this claim: it constrains the ordering of a durable side effect relative to authentication (verification-v1 \u00a74.2), whereas this claim concerns the ordering of checks within verification and its ambiguity is between two spec sections. #320 does add a constraint any eventual resolution must respect: whichever check sequence is chosen, no durable write may precede authentication.",
+      "notes": "Maintainer resolution (2026-11-22): verification-v1 \u00a75 is the single reference sequence; authorization-v1 \u00a710, pep-gateway-v1 \u00a710.1/\u00a712.2 and conformance-v1 \u00a79 defer to it. Signature (step 10) precedes expiry (step 11); replay consumption is the last step (step 16) and follows intent binding. Conformance compares the verdict and the determining code (verification-v1 \u00a79.1); short-circuit and collect-all are both permitted. Evidence gap: the reference verifier includes the determining code in every precedence case but does not yet report it first or in a dedicated field (packages/core/src/test/verify.authorization-precedence.test.ts, REPORT_ORDER_PENDING). The #320 constraint still holds: no durable write precedes authentication.",
       "recordType": "requirement",
-      "normativeState": "ambiguous",
+      "normativeState": "specified",
       "evidenceState": "gap",
       "scopeDisposition": "in-scope",
       "appliesWhen": [],
@@ -1764,7 +1764,7 @@
           "reason": "Selected executable cases do not establish whole-protocol conformance."
         }
       ],
-      "maintainerDecisionRequired": true
+      "maintainerDecisionRequired": false
     },
     {
       "id": "DELEGATION-AUDIT-001",

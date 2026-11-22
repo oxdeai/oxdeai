@@ -116,7 +116,7 @@
         }
       ],
       "status": "normative",
-      "semanticScope": "AuthorizationV1 wire-encoding separation (authorization-v1.md §5, §13): Core-native vs Sift-compatible preimage and alphabet binding, nested alg/kid preimage and ambiguity rule. Expected codes are the exact set of normative AUTH_* codes.",
+      "semanticScope": "AuthorizationV1 wire-encoding separation (authorization-v1.md §5, §13): Core-native vs Sift-compatible preimage and alphabet binding, nested alg/kid preimage and ambiguity rule. expected.codes holds the determining code of each case (verification-v1.md §9.1); every current case has exactly one.",
       "spec": "docs/spec/artifacts/authorization-v1.md",
       "consumers": [
         {
@@ -134,6 +134,43 @@
           "path": "scripts/repro/authorization-wire-encoding-fixtures.mjs",
           "binding": "authorization-wire-encoding-v1.json",
           "command": "node scripts/repro/authorization-wire-encoding-fixtures.mjs --check",
+          "runtime": "JavaScript",
+          "execution": "manual",
+          "role": "maintenance",
+          "notes": "Independent node:crypto-only generator; --check fails on drift, --write regenerates. Drift is enforced in default CI by the Core consumer's byte-identity test. Generation is not verification."
+        }
+      ],
+      "supportFiles": []
+    },
+    {
+      "id": "docs-authorization-precedence-v1",
+      "authority": "docs/spec/test-vectors/authorization-precedence-v1.json",
+      "representations": [
+        {
+          "path": "docs/spec/test-vectors/authorization-precedence-v1.json",
+          "format": "vectors",
+          "generated": false
+        }
+      ],
+      "status": "normative",
+      "semanticScope": "AuthorizationV1 verification precedence (verification-v1.md §5 reference sequence, §9.1 determining code): 15 cases with overlapping defects plus single-defect issuer/kid cases; expected.determining_code and expected.step are fixed by step order. Conformance compares the verdict and the determining code only.",
+      "spec": "docs/spec/verification/verification-v1.md",
+      "consumers": [
+        {
+          "representation": "docs/spec/test-vectors/authorization-precedence-v1.json",
+          "path": "packages/core/src/test/verify.authorization-precedence.test.ts",
+          "binding": "authorization-precedence-v1.json",
+          "command": "pnpm --filter @oxdeai/core test",
+          "runtime": "TypeScript",
+          "execution": "default-ci",
+          "role": "verifier",
+          "notes": "Core verifyAuthorization over all 15 cases: verdict and presence of the determining code in the report; cases where the reference report does not yet identify it are pinned exactly in REPORT_ORDER_PENDING. Also asserts byte-identity with the generator. TypeScript reference only."
+        },
+        {
+          "representation": "docs/spec/test-vectors/authorization-precedence-v1.json",
+          "path": "scripts/repro/authorization-precedence-fixtures.mjs",
+          "binding": "authorization-precedence-v1.json",
+          "command": "node scripts/repro/authorization-precedence-fixtures.mjs --check",
           "runtime": "JavaScript",
           "execution": "manual",
           "role": "maintenance",
