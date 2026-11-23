@@ -1,8 +1,8 @@
 # Contributing to OxDeAI
 
-**Status:** Working contribution guide for OxDeAI v1
+**Status:** Working contribution guide for OxDeAI 2.x
 
-**Last updated:** 2026-09-04
+**Last updated:** 2026-11-23
 
 Thank you for considering contributing to OxDeAI.
 
@@ -26,11 +26,13 @@ Core invariant:
 
 ```text
 No valid authorization → no execution path
-````
+```
 
 ---
 
 ## 1. Setup
+
+Prerequisites: Node.js 20 or later, and pnpm as pinned in `package.json` (`packageManager`, currently pnpm 10). `corepack enable` selects the right version.
 
 From the repository root:
 
@@ -111,6 +113,31 @@ By contributing, you certify that you have the right to submit the contribution 
 
 DCO enforcement may be automated through CI. If automation is not present yet, DCO sign-off is still required by project policy.
 
+### 3.1 Signed commits
+
+Every commit in a pull request must also be cryptographically signed (GPG or SSH) and shown as **Verified** on GitHub. Sign-off (`-s`) and signing (`-S`) are two different things; both are required.
+
+One-time setup with an SSH key:
+
+```bash
+git config --global gpg.format ssh
+git config --global user.signingkey ~/.ssh/id_ed25519.pub
+git config --global commit.gpgsign true
+```
+
+Then add the same public key to GitHub as a **Signing key** (Settings, SSH and GPG keys). Commit with:
+
+```bash
+git commit -s -S -m "your message"
+```
+
+To fix commits already pushed without a signature or sign-off:
+
+```bash
+git rebase --exec 'git commit --amend --no-edit -s -S' origin/main
+git push --force-with-lease
+```
+
 ---
 
 ## 4. Before You Start
@@ -130,6 +157,10 @@ This includes:
 * changes to PEP enforcement behavior
 * significant refactors
 * security-sensitive changes
+
+Comment on the issue before you start, so that two people do not work on the same thing.
+
+Looking for something to work on: issues labelled [`good first issue`](https://github.com/oxdeai/oxdeai/labels/good%20first%20issue) are small and self-contained; [`help wanted`](https://github.com/oxdeai/oxdeai/labels/help%20wanted) marks larger work that is open to external contributors.
 
 Small fixes can go directly to a pull request:
 
@@ -167,6 +198,8 @@ Protocol changes must include:
 
 Do not silently redefine protocol behavior in implementation code.
 
+If the specification is unclear, ambiguous or contradictory, record it in the spec-gap register (#430) with the section reference and the fail-closed reading you chose. Gaps are resolved in the spec, never by pointing at code.
+
 ---
 
 ### 5.2 Conformance vector contributions
@@ -201,7 +234,7 @@ A new harness should:
 * fail closed on ambiguity
 * use native cryptographic libraries where possible
 
-Existing Go and Python harnesses are the current template for independent verification.
+Independent verifiers (#426) have a stricter rule: they are written from `docs/spec/**`, `SPEC.md` §11 and the locked vectors only. Their authors do not read `packages/`, `go-harness/`, `python-harness/`, `scripts/`, or any other verifier posted in the repository or its issues, and they declare the inputs they read. A contributor who has worked on the existing harnesses can still contribute, but not as an independent implementer.
 
 ---
 
