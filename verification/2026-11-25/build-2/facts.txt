@@ -1,0 +1,14 @@
+commit=448804a378148cbddd5544bad4dadff41e9f96f6
+tags=10 of 10 annotated tags point to this commit
+commit_signature=[OK] Good "git" signature for docybo69@gmail.com with ED25519 key SHA256:E5dyFP+A6+AzPuTX4ALLPGXBRWGjcUXLCY1GGzJ6nC4
+signer=docybo69@gmail.com ssh-ed25519 SHA256:E5dyFP+A6+AzPuTX4ALLPGXBRWGjcUXLCY1GGzJ6nC4
+script_sha256=4ecd125f0dfc7a198b684fdebbe3414faf2fef33d63a2eb5773db387d6c2a0f9
+helper_sha256=f9a88c2a5077727df50102dd5eb168b08092647f40aa1feb35d254dea7e5feef
+image=sha256:c07736e3c2494b8505205e8f0384fa7fbdd82162ec87f00fb215d7833a4d1f4b
+image_tag=localhost/oxdeai-build-git:20261125
+base_image=sha256:3ef798d5f15a0b81f3a2fb7cfdd5bc8274bf48aa562c5862410b0637754712a7
+node_sha256=94efd062ed066c1a0b332e18249859c905e920eeada5df55d24c99b919629a90
+pnpm_sha256=0379640d85555dc5099c657809fcea63197198e4f48861e9dee36e8e1098211e
+lockfile_sha256=f9c0d1d429d47bbbaaae051e8ccdb2964e679bc4a98d9aaade67d799e83eb191
+store=/home/dannybuntu/code/other-projects/0xdeai/pnpm-store/v10 (178M)
+elapsed=3m 1s

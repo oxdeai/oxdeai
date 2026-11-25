@@ -1,0 +1,61 @@
+
+HASH LEGEND
+  published   sha256 of the tarball the npm registry serves (also checked against Ange's list).
+  rebuilt     sha256 of the tarball `pnpm pack` produced in this build.
+  scriptHash  sha256 of reproduce-oxdeai-release.sh; helperHash of release-evidence.py.
+
+===== Begin Results =====
+project:        oxdeai (https://github.com/oxdeai/oxdeai)
+packages:       10 @oxdeai packages, 10 identical
+verdict:        reproducible
+commit:         448804a378148cbddd5544bad4dadff41e9f96f6
+scriptHash:     4ecd125f0dfc7a198b684fdebbe3414faf2fef33d63a2eb5773db387d6c2a0f9
+helperHash:     f9a88c2a5077727df50102dd5eb168b08092647f40aa1feb35d254dea7e5feef
+
+Diff:
+@oxdeai/core 2.0.3: identical (8fca13954d697e72a0dee217cd39af6107f85fb34c49ac74a8b8897be1307d90)
+@oxdeai/guard 2.0.5: identical (6a26b597789b506f041f5e4ab792482aa7116e956359d84c514e982f6e5662fa)
+@oxdeai/sdk 2.0.3: identical (e387ac22dbc086d34a96b37d75d9789215ae70f1d1b91cf65c019bbbe7740333)
+@oxdeai/cli 0.3.3: identical (9007cb43ea5f5a7c4c9f3cb5012a4b06ace06422a297a5e93adacb01edf0f79e)
+@oxdeai/conformance 2.0.4: identical (fab6c618c40b96bba726d56d418998954b0f5676cf40cb4585c90f1ae6eacbaa)
+@oxdeai/langgraph 2.0.1: identical (ba1736d34ef039e7fc2fca5743c6edd4e403302e6968bc966d7d5edb7d0acf87)
+@oxdeai/openai-agents 2.0.1: identical (a529ac0a68ce573fd573289f14d84d2b97b3d141c509864227ceddd35808f094)
+@oxdeai/crewai 2.0.1: identical (b1a12db7f336de3f6c81bf3bc16793cf01ffd07fab9554c4faf272b195726e3e)
+@oxdeai/autogen 2.0.1: identical (5cfc71090a0262bee023a3c1b4d06d0652e7ad823d161da1cb408405201a3607)
+@oxdeai/openclaw 2.0.1: identical (c1c39f3fe1c5a3f8c73d69e83a0e717dfbe3763b6658848d166020e3cff4989c)
+
+Revision, tags (and their signatures):
+commit:         448804a378148cbddd5544bad4dadff41e9f96f6
+tags:           10 of 10 annotated tags point to this commit
+
+Signature Summary:
+[OK] Good "git" signature for docybo69@gmail.com with ED25519 key SHA256:E5dyFP+A6+AzPuTX4ALLPGXBRWGjcUXLCY1GGzJ6nC4
+[WARNING] Tags are annotated but not signed; only the commit signature is checked
+
+Published packages:
+[OK] 10 of 10 registry tarballs match the supplied sha256 and the registry's sha512 integrity
+
+Keys used:
+Commit signed with: docybo69@gmail.com ssh-ed25519 SHA256:E5dyFP+A6+AzPuTX4ALLPGXBRWGjcUXLCY1GGzJ6nC4 (key supplied by Ange)
+===== End Results =====
+
+Build environment:
+image:          localhost/oxdeai-build-git:20261125 sha256:c07736e3c2494b8505205e8f0384fa7fbdd82162ec87f00fb215d7833a4d1f4b
+                base sha256:3ef798d5f15a0b81f3a2fb7cfdd5bc8274bf48aa562c5862410b0637754712a7 (eclipse-temurin:17-jre, Ubuntu 26.04) + git from Ubuntu's apt
+node:           v22.23.4, sha256 94efd062ed066c1a0b332e18249859c905e920eeada5df55d24c99b919629a90
+pnpm:           10.34.5, package tree sha256 0379640d85555dc5099c657809fcea63197198e4f48861e9dee36e8e1098211e
+lockfile:       pnpm-lock.yaml sha256 f9c0d1d429d47bbbaaae051e8ccdb2964e679bc4a98d9aaade67d799e83eb191
+store:          /home/dannybuntu/code/other-projects/0xdeai/pnpm-store/v10 (178M)
+container:      rootless Podman, no network, read-only root, uid 65534, no capabilities,
+                no-new-privileges, 3 GB memory, 2 CPUs, 160 processes, 10-minute limit,
+                no writable host mount (packs return as a size-limited tar stream)
+elapsed:        3m 1s
+
+Limitations:
+- Node and pnpm are the npm packages node-linux-x64 and pnpm in OXDEAI_TOOLS; the script checks
+  their versions and prints their hashes, but does not verify them against upstream signatures.
+- Dependencies come from the npm registry via stage-oxdeai-store.sh, checked by pnpm against the
+  sha512 values in the signed commit's lockfile. Dependency install scripts did not run.
+- Built once on Linux x64 under Ubuntu 26.04; the release machine's environment is not recorded.
+- Both packs come from the same build, so matching packs show pack stability, not build stability.
+

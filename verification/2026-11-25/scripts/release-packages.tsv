@@ -1,0 +1,11 @@
+package	version	tag	directory	sha256	integrity
+@oxdeai/core	2.0.3	core-v2.0.3	packages/core	8fca13954d697e72a0dee217cd39af6107f85fb34c49ac74a8b8897be1307d90	sha512-1Ol9ECBaCrZs8czu6p5lCjTgewAQCgUcq0CeHi84wxG5vibsXreufskQkdLDp1HptYhoWTbJ6t4blgxvLEgP2g==
+@oxdeai/guard	2.0.5	guard-v2.0.5	packages/guard	6a26b597789b506f041f5e4ab792482aa7116e956359d84c514e982f6e5662fa	sha512-I0vHxTgbr4F6rfnEg+vqOoy7AL2bS7xN6PvtBoTLpOWaVAqbP2a/ywhto2UH4oXyDosn0kR0tV4TeHaAZylLHQ==
+@oxdeai/sdk	2.0.3	sdk-v2.0.3	packages/sdk	e387ac22dbc086d34a96b37d75d9789215ae70f1d1b91cf65c019bbbe7740333	sha512-2zjCYFJ4jmxDV4/vxEpi6F5vpuKISzIizL7i85jbXC2vwRWYvNjpG+arVSxT26wT38ZsW+8CniQ6ujoNwKGgcQ==
+@oxdeai/cli	0.3.3	cli-v0.3.3	packages/cli	9007cb43ea5f5a7c4c9f3cb5012a4b06ace06422a297a5e93adacb01edf0f79e	sha512-ESOXzld1xIXoWT4Edll4AkSyc1nsvw/B6hGI3mEtcC/+lm/PUSoHAGhQ2apqpqiZrDGn/w7QUP249g04iNK9lw==
+@oxdeai/conformance	2.0.4	conformance-v2.0.4	packages/conformance	fab6c618c40b96bba726d56d418998954b0f5676cf40cb4585c90f1ae6eacbaa	sha512-DM0+bIGQyveCMdQXsjCIn97FLIfjzEqEfFQSdtZh4abZJ8LQWsgGlLytu0jX+Ky92g6He03/Xd6CiKfxjuh2hA==
+@oxdeai/langgraph	2.0.1	langgraph-v2.0.1	packages/langgraph	ba1736d34ef039e7fc2fca5743c6edd4e403302e6968bc966d7d5edb7d0acf87	sha512-B/L/Mux6kEDds47sZn4TP9eQfS3pwj7UaHWbCGnPlKjERHrzEOP4vPjJLPROGtuYPmBdx7IHfYHLgyYdhf/6aQ==
+@oxdeai/openai-agents	2.0.1	openai-agents-v2.0.1	packages/openai-agents	a529ac0a68ce573fd573289f14d84d2b97b3d141c509864227ceddd35808f094	sha512-YTpiKEBjD/7kLRXBpmf830dkO3qcFKV1+FLH6ybUzkBcfSrWDRMcYD5pgCKytkm8Aa6WIUqB/o4trjNAYMH/VQ==
+@oxdeai/crewai	2.0.1	crewai-v2.0.1	packages/crewai	b1a12db7f336de3f6c81bf3bc16793cf01ffd07fab9554c4faf272b195726e3e	sha512-5PdS7Xt1xUVb6sAeJRhipXKSQ77vU+WyRWw6REGOAUq56jlbDHJtXus/uT3lfm1fRQc/PgOOLhQ+4lPJL5lAOQ==
+@oxdeai/autogen	2.0.1	autogen-v2.0.1	packages/autogen	5cfc71090a0262bee023a3c1b4d06d0652e7ad823d161da1cb408405201a3607	sha512-xagWGRNl89YAFERF4bGMdHnjsu5veKENAopziZwbwafGfWi919vsazcucIvMTFoGkc8wUizOI4Wr0l0SGSnfgQ==
+@oxdeai/openclaw	2.0.1	openclaw-v2.0.1	packages/openclaw	c1c39f3fe1c5a3f8c73d69e83a0e717dfbe3763b6658848d166020e3cff4989c	sha512-7fq/PMpYuHVW5zy5oBcl6Aw0DbQFJiyoACGXcsMdEZ0/L3EnxI7b7wGW5n3dkEo1bAihYQNEvZR+nnY2whXbPw==

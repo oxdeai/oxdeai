@@ -1,0 +1,122 @@
+[
+  {
+    "package": "@oxdeai/core",
+    "version": "2.0.3",
+    "verdict": "MATCH",
+    "packs_agree": true,
+    "published_sha256": "8fca13954d697e72a0dee217cd39af6107f85fb34c49ac74a8b8897be1307d90",
+    "rebuilt_sha256": [
+      "8fca13954d697e72a0dee217cd39af6107f85fb34c49ac74a8b8897be1307d90",
+      "8fca13954d697e72a0dee217cd39af6107f85fb34c49ac74a8b8897be1307d90"
+    ],
+    "notes": []
+  },
+  {
+    "package": "@oxdeai/guard",
+    "version": "2.0.5",
+    "verdict": "MATCH",
+    "packs_agree": true,
+    "published_sha256": "6a26b597789b506f041f5e4ab792482aa7116e956359d84c514e982f6e5662fa",
+    "rebuilt_sha256": [
+      "6a26b597789b506f041f5e4ab792482aa7116e956359d84c514e982f6e5662fa",
+      "6a26b597789b506f041f5e4ab792482aa7116e956359d84c514e982f6e5662fa"
+    ],
+    "notes": []
+  },
+  {
+    "package": "@oxdeai/sdk",
+    "version": "2.0.3",
+    "verdict": "MATCH",
+    "packs_agree": true,
+    "published_sha256": "e387ac22dbc086d34a96b37d75d9789215ae70f1d1b91cf65c019bbbe7740333",
+    "rebuilt_sha256": [
+      "e387ac22dbc086d34a96b37d75d9789215ae70f1d1b91cf65c019bbbe7740333",
+      "e387ac22dbc086d34a96b37d75d9789215ae70f1d1b91cf65c019bbbe7740333"
+    ],
+    "notes": []
+  },
+  {
+    "package": "@oxdeai/cli",
+    "version": "0.3.3",
+    "verdict": "MATCH",
+    "packs_agree": true,
+    "published_sha256": "9007cb43ea5f5a7c4c9f3cb5012a4b06ace06422a297a5e93adacb01edf0f79e",
+    "rebuilt_sha256": [
+      "9007cb43ea5f5a7c4c9f3cb5012a4b06ace06422a297a5e93adacb01edf0f79e",
+      "9007cb43ea5f5a7c4c9f3cb5012a4b06ace06422a297a5e93adacb01edf0f79e"
+    ],
+    "notes": []
+  },
+  {
+    "package": "@oxdeai/conformance",
+    "version": "2.0.4",
+    "verdict": "MATCH",
+    "packs_agree": true,
+    "published_sha256": "fab6c618c40b96bba726d56d418998954b0f5676cf40cb4585c90f1ae6eacbaa",
+    "rebuilt_sha256": [
+      "fab6c618c40b96bba726d56d418998954b0f5676cf40cb4585c90f1ae6eacbaa",
+      "fab6c618c40b96bba726d56d418998954b0f5676cf40cb4585c90f1ae6eacbaa"
+    ],
+    "notes": []
+  },
+  {
+    "package": "@oxdeai/langgraph",
+    "version": "2.0.1",
+    "verdict": "MATCH",
+    "packs_agree": true,
+    "published_sha256": "ba1736d34ef039e7fc2fca5743c6edd4e403302e6968bc966d7d5edb7d0acf87",
+    "rebuilt_sha256": [
+      "ba1736d34ef039e7fc2fca5743c6edd4e403302e6968bc966d7d5edb7d0acf87",
+      "ba1736d34ef039e7fc2fca5743c6edd4e403302e6968bc966d7d5edb7d0acf87"
+    ],
+    "notes": []
+  },
+  {
+    "package": "@oxdeai/openai-agents",
+    "version": "2.0.1",
+    "verdict": "MATCH",
+    "packs_agree": true,
+    "published_sha256": "a529ac0a68ce573fd573289f14d84d2b97b3d141c509864227ceddd35808f094",
+    "rebuilt_sha256": [
+      "a529ac0a68ce573fd573289f14d84d2b97b3d141c509864227ceddd35808f094",
+      "a529ac0a68ce573fd573289f14d84d2b97b3d141c509864227ceddd35808f094"
+    ],
+    "notes": []
+  },
+  {
+    "package": "@oxdeai/crewai",
+    "version": "2.0.1",
+    "verdict": "MATCH",
+    "packs_agree": true,
+    "published_sha256": "b1a12db7f336de3f6c81bf3bc16793cf01ffd07fab9554c4faf272b195726e3e",
+    "rebuilt_sha256": [
+      "b1a12db7f336de3f6c81bf3bc16793cf01ffd07fab9554c4faf272b195726e3e",
+      "b1a12db7f336de3f6c81bf3bc16793cf01ffd07fab9554c4faf272b195726e3e"
+    ],
+    "notes": []
+  },
+  {
+    "package": "@oxdeai/autogen",
+    "version": "2.0.1",
+    "verdict": "MATCH",
+    "packs_agree": true,
+    "published_sha256": "5cfc71090a0262bee023a3c1b4d06d0652e7ad823d161da1cb408405201a3607",
+    "rebuilt_sha256": [
+      "5cfc71090a0262bee023a3c1b4d06d0652e7ad823d161da1cb408405201a3607",
+      "5cfc71090a0262bee023a3c1b4d06d0652e7ad823d161da1cb408405201a3607"
+    ],
+    "notes": []
+  },
+  {
+    "package": "@oxdeai/openclaw",
+    "version": "2.0.1",
+    "verdict": "MATCH",
+    "packs_agree": true,
+    "published_sha256": "c1c39f3fe1c5a3f8c73d69e83a0e717dfbe3763b6658848d166020e3cff4989c",
+    "rebuilt_sha256": [
+      "c1c39f3fe1c5a3f8c73d69e83a0e717dfbe3763b6658848d166020e3cff4989c",
+      "c1c39f3fe1c5a3f8c73d69e83a0e717dfbe3763b6658848d166020e3cff4989c"
+    ],
+    "notes": []
+  }
+]
