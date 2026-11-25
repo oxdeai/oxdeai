@@ -1,0 +1,1120 @@
+Source: clean checkout of 448804a378148cbddd5544bad4dadff41e9f96f6, git 2.53.0
+Scope: all 33 workspace projects
+Lockfile is up to date, resolution step is skipped
+Progress: resolved 1, reused 0, downloaded 0, added 0
+Packages: +170
+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+Progress: resolved 170, reused 170, downloaded 0, added 91
+Progress: resolved 170, reused 170, downloaded 0, added 170, done
+
+devDependencies:
++ @oxdeai/core 2.0.3 <- packages/core
++ @types/node 22.19.17
++ puppeteer 25.17.0
++ tsx 4.23.1
++ typescript 5.9.3
+
+╭ Warning ─────────────────────────────────────────────────────────────────────╮
+│                                                                              │
+│   Ignored build scripts: canvas@3.2.1, esbuild@0.28.1, puppeteer@25.17.0.    │
+│   Run "pnpm approve-builds" to pick which dependencies should be allowed     │
+│   to run scripts.                                                            │
+│                                                                              │
+╰──────────────────────────────────────────────────────────────────────────────╯
+Done in 1.7s using pnpm v10.34.5
+
+> oxdeai@ build /scratch/src
+> pnpm -r build
+
+Scope: 32 of 33 workspace projects
+packages/core build$ tsc -p tsconfig.json
+packages/sift build$ tsc -p tsconfig.json
+packages/sift build: Done
+packages/core build: Done
+examples/delegation build$ tsc -p tsconfig.json
+examples/openai-tools build$ tsc -p tsconfig.json
+examples/delegation build: Done
+examples/sift prebuild$ pnpm -C ../../packages/sift build
+examples/openai-tools build: Done
+examples/sift-boundary-demo prebuild$ pnpm -C ../../packages/sift build
+examples/sift prebuild: > @oxdeai/sift@0.0.1 build /scratch/src/packages/sift
+examples/sift prebuild: > tsc -p tsconfig.json
+examples/sift-boundary-demo prebuild: > @oxdeai/sift@0.0.1 build /scratch/src/packages/sift
+examples/sift-boundary-demo prebuild: > tsc -p tsconfig.json
+examples/sift prebuild: Done
+examples/sift build$ tsc -p tsconfig.json
+examples/sift-boundary-demo prebuild: Done
+examples/sift-boundary-demo build$ tsc -p tsconfig.json
+examples/sift build: Done
+packages/cli build$ rm -rf dist && tsc -p tsconfig.json && node scripts/postbuild.mjs
+examples/sift-boundary-demo build: Done
+packages/conformance build$ tsc -p tsconfig.json && node scripts/build-evidence-metadata.mjs
+packages/cli build: Done
+packages/sdk build$ rm -rf dist && tsc -p tsconfig.json
+packages/conformance build: Done
+tests build$ tsc -p tsconfig.json
+packages/sdk build: Done
+tests build: Done
+packages/guard build$ rm -rf dist && tsc -p tsconfig.json
+packages/guard build: Done
+examples/delegation-demo build$ tsc -p tsconfig.json
+examples/execution-boundary-demo build$ tsc -p tsconfig.json
+examples/execution-boundary-demo build: Done
+examples/lgf-frappe-pep build$ tsc -p tsconfig.json
+examples/delegation-demo build: Done
+examples/reference-sift-oxdeai build$ tsc -p tsconfig.json
+examples/reference-sift-oxdeai build: Done
+packages/autogen build$ rm -rf dist && tsc -p tsconfig.json
+examples/lgf-frappe-pep build: Done
+packages/crewai build$ rm -rf dist && tsc -p tsconfig.json
+packages/autogen build: Done
+packages/langgraph build$ rm -rf dist && tsc -p tsconfig.json
+packages/crewai build: Done
+packages/openai-agents build$ rm -rf dist && tsc -p tsconfig.json
+packages/langgraph build: Done
+packages/openclaw build$ rm -rf dist && tsc -p tsconfig.json
+packages/openai-agents build: Done
+packages/openclaw build: Done
+examples/autogen build$ tsc -p tsconfig.json
+examples/crewai build$ tsc -p tsconfig.json
+examples/crewai build: Done
+examples/langgraph build$ tsc -p tsconfig.json
+examples/autogen build: Done
+examples/openai-agents-sdk build$ tsc -p tsconfig.json
+examples/openai-agents-sdk build: Done
+examples/openclaw build$ tsc -p tsconfig.json
+examples/langgraph build: Done
+packages/compat build$ rm -rf dist && tsc -p tsconfig.json
+examples/openclaw build: Done
+packages/compat build: Done
+
+> @oxdeai/core@2.0.3 prepack /scratch/src/packages/core
+> rm -rf dist && pnpm build
+
+
+> @oxdeai/core@2.0.3 build /scratch/src/packages/core
+> tsc -p tsconfig.json
+
+📦  @oxdeai/core@2.0.3
+Tarball Contents
+CHANGELOG.md
+dist/adapters/File.d.ts
+dist/adapters/File.js
+dist/adapters/File.js.map
+dist/adapters/index.d.ts
+dist/adapters/index.js
+dist/adapters/index.js.map
+dist/adapters/InMemory.d.ts
+dist/adapters/InMemory.js
+dist/adapters/InMemory.js.map
+dist/adapters/types.d.ts
+dist/adapters/types.js
+dist/adapters/types.js.map
+dist/audit/auditGenesis.d.ts
+dist/audit/auditGenesis.js
+dist/audit/auditGenesis.js.map
+dist/audit/AuditLog.d.ts
+dist/audit/AuditLog.js
+dist/audit/AuditLog.js.map
+dist/audit/HashChainedLog.d.ts
+dist/audit/HashChainedLog.js
+dist/audit/HashChainedLog.js.map
+dist/crypto/hashes.d.ts
+dist/crypto/hashes.js
+dist/crypto/hashes.js.map
+dist/crypto/sign.d.ts
+dist/crypto/sign.js
+dist/crypto/sign.js.map
+dist/crypto/signatures.d.ts
+dist/crypto/signatures.js
+dist/crypto/signatures.js.map
+dist/crypto/verify.d.ts
+dist/crypto/verify.js
+dist/crypto/verify.js.map
+dist/delegation/createDelegation.d.ts
+dist/delegation/createDelegation.js
+dist/delegation/createDelegation.js.map
+dist/delegation/index.d.ts
+dist/delegation/index.js
+dist/delegation/index.js.map
+dist/determinism/index.d.ts
+dist/determinism/index.js
+dist/determinism/index.js.map
+dist/determinism/StrictDeterminism.d.ts
+dist/determinism/StrictDeterminism.js
+dist/determinism/StrictDeterminism.js.map
+dist/index.d.ts
+dist/index.js
+dist/index.js.map
+dist/policy/decision/index.d.ts
+dist/policy/decision/index.js
+dist/policy/decision/index.js.map
+dist/policy/decision/runDecisionModules.d.ts
+dist/policy/decision/runDecisionModules.js
+dist/policy/decision/runDecisionModules.js.map
+dist/policy/decision/types.d.ts
+dist/policy/decision/types.js
+dist/policy/decision/types.js.map
+dist/policy/modules/_codec.d.ts
+dist/policy/modules/_codec.js
+dist/policy/modules/_codec.js.map
+dist/policy/modules/AllowlistModule.d.ts
+dist/policy/modules/AllowlistModule.js
+dist/policy/modules/AllowlistModule.js.map
+dist/policy/modules/BudgetModule.d.ts
+dist/policy/modules/BudgetModule.js
+dist/policy/modules/BudgetModule.js.map
+dist/policy/modules/ConcurrencyModule.d.ts
+dist/policy/modules/ConcurrencyModule.js
+dist/policy/modules/ConcurrencyModule.js.map
+dist/policy/modules/KillSwitchModule.d.ts
+dist/policy/modules/KillSwitchModule.js
+dist/policy/modules/KillSwitchModule.js.map
+dist/policy/modules/RecursionDepthModule.d.ts
+dist/policy/modules/RecursionDepthModule.js
+dist/policy/modules/RecursionDepthModule.js.map
+dist/policy/modules/registry.d.ts
+dist/policy/modules/registry.js
+dist/policy/modules/registry.js.map
+dist/policy/modules/ReplayModule.d.ts
+dist/policy/modules/ReplayModule.js
+dist/policy/modules/ReplayModule.js.map
+dist/policy/modules/ToolAmplificationModule.d.ts
+dist/policy/modules/ToolAmplificationModule.js
+dist/policy/modules/ToolAmplificationModule.js.map
+dist/policy/modules/VelocityModule.d.ts
+dist/policy/modules/VelocityModule.js
+dist/policy/modules/VelocityModule.js.map
+dist/policy/PolicyEngine.d.ts
+dist/policy/PolicyEngine.js
+dist/policy/PolicyEngine.js.map
+dist/policy/stateGuards.d.ts
+dist/policy/stateGuards.js
+dist/policy/stateGuards.js.map
+dist/policy/trustedTimeProfile.d.ts
+dist/policy/trustedTimeProfile.js
+dist/policy/trustedTimeProfile.js.map
+dist/policy/trustedTimeValidation.d.ts
+dist/policy/trustedTimeValidation.js
+dist/policy/trustedTimeValidation.js.map
+dist/policy/verifyTrustedTime.d.ts
+dist/policy/verifyTrustedTime.js
+dist/policy/verifyTrustedTime.js.map
+dist/replay/index.d.ts
+dist/replay/index.js
+dist/replay/index.js.map
+dist/replay/ReplayEngine.d.ts
+dist/replay/ReplayEngine.js
+dist/replay/ReplayEngine.js.map
+dist/replay/verify.d.ts
+dist/replay/verify.js
+dist/replay/verify.js.map
+dist/schemas/index.d.ts
+dist/schemas/index.js
+dist/schemas/index.js.map
+dist/schemas/validate.d.ts
+dist/schemas/validate.js
+dist/schemas/validate.js.map
+dist/snapshot/CanonicalCodec.d.ts
+dist/snapshot/CanonicalCodec.js
+dist/snapshot/CanonicalCodec.js.map
+dist/snapshot/CanonicalState.d.ts
+dist/snapshot/CanonicalState.js
+dist/snapshot/CanonicalState.js.map
+dist/snapshot/index.d.ts
+dist/snapshot/index.js
+dist/snapshot/index.js.map
+dist/types/authorization.d.ts
+dist/types/authorization.js
+dist/types/authorization.js.map
+dist/types/delegation.d.ts
+dist/types/delegation.js
+dist/types/delegation.js.map
+dist/types/intent.d.ts
+dist/types/intent.js
+dist/types/intent.js.map
+dist/types/keyset.d.ts
+dist/types/keyset.js
+dist/types/keyset.js.map
+dist/types/policy.d.ts
+dist/types/policy.js
+dist/types/policy.js.map
+dist/types/signed-krl.d.ts
+dist/types/signed-krl.js
+dist/types/signed-krl.js.map
+dist/types/state.d.ts
+dist/types/state.js
+dist/types/state.js.map
+dist/utils/deepMerge.d.ts
+dist/utils/deepMerge.js
+dist/utils/deepMerge.js.map
+dist/utils/index.d.ts
+dist/utils/index.js
+dist/utils/index.js.map
+dist/utils/stableSort.d.ts
+dist/utils/stableSort.js
+dist/utils/stableSort.js.map
+dist/utils/stableStringify.d.ts
+dist/utils/stableStringify.js
+dist/utils/stableStringify.js.map
+dist/verification/authorizationAuthority.d.ts
+dist/verification/authorizationAuthority.js
+dist/verification/authorizationAuthority.js.map
+dist/verification/createVerifier.d.ts
+dist/verification/createVerifier.js
+dist/verification/createVerifier.js.map
+dist/verification/envelope.d.ts
+dist/verification/envelope.js
+dist/verification/envelope.js.map
+dist/verification/index.d.ts
+dist/verification/index.js
+dist/verification/index.js.map
+dist/verification/types.d.ts
+dist/verification/types.js
+dist/verification/types.js.map
+dist/verification/verifyAuditEvents.d.ts
+dist/verification/verifyAuditEvents.js
+dist/verification/verifyAuditEvents.js.map
+dist/verification/verifyAuthorization.d.ts
+dist/verification/verifyAuthorization.js
+dist/verification/verifyAuthorization.js.map
+dist/verification/verifyDelegation.d.ts
+dist/verification/verifyDelegation.js
+dist/verification/verifyDelegation.js.map
+dist/verification/verifyEnvelope.d.ts
+dist/verification/verifyEnvelope.js
+dist/verification/verifyEnvelope.js.map
+dist/verification/verifySignedKrl.d.ts
+dist/verification/verifySignedKrl.js
+dist/verification/verifySignedKrl.js.map
+dist/verification/verifySnapshot.d.ts
+dist/verification/verifySnapshot.js
+dist/verification/verifySnapshot.js.map
+LICENSE
+package.json
+README.md
+schemas/api-extractor.schema.json
+schemas/audit-event.schema.json
+schemas/audit-log.schema.json
+schemas/authorization.schema.json
+schemas/canonical-state.schema.json
+schemas/intent.schema.json
+schemas/keyset.schema.json
+schemas/README.md
+schemas/snapshot.schema.json
+schemas/verification-envelope-v1.schema.json
+schemas/verification-envelope.schema.json
+schemas/verification-result.schema.json
+Tarball Details
+/scratch/export/1/core/oxdeai-core-2.0.3.tgz
+
+> @oxdeai/core@2.0.3 prepack /scratch/src/packages/core
+> rm -rf dist && pnpm build
+
+
+> @oxdeai/core@2.0.3 build /scratch/src/packages/core
+> tsc -p tsconfig.json
+
+📦  @oxdeai/core@2.0.3
+Tarball Contents
+CHANGELOG.md
+dist/adapters/File.d.ts
+dist/adapters/File.js
+dist/adapters/File.js.map
+dist/adapters/index.d.ts
+dist/adapters/index.js
+dist/adapters/index.js.map
+dist/adapters/InMemory.d.ts
+dist/adapters/InMemory.js
+dist/adapters/InMemory.js.map
+dist/adapters/types.d.ts
+dist/adapters/types.js
+dist/adapters/types.js.map
+dist/audit/auditGenesis.d.ts
+dist/audit/auditGenesis.js
+dist/audit/auditGenesis.js.map
+dist/audit/AuditLog.d.ts
+dist/audit/AuditLog.js
+dist/audit/AuditLog.js.map
+dist/audit/HashChainedLog.d.ts
+dist/audit/HashChainedLog.js
+dist/audit/HashChainedLog.js.map
+dist/crypto/hashes.d.ts
+dist/crypto/hashes.js
+dist/crypto/hashes.js.map
+dist/crypto/sign.d.ts
+dist/crypto/sign.js
+dist/crypto/sign.js.map
+dist/crypto/signatures.d.ts
+dist/crypto/signatures.js
+dist/crypto/signatures.js.map
+dist/crypto/verify.d.ts
+dist/crypto/verify.js
+dist/crypto/verify.js.map
+dist/delegation/createDelegation.d.ts
+dist/delegation/createDelegation.js
+dist/delegation/createDelegation.js.map
+dist/delegation/index.d.ts
+dist/delegation/index.js
+dist/delegation/index.js.map
+dist/determinism/index.d.ts
+dist/determinism/index.js
+dist/determinism/index.js.map
+dist/determinism/StrictDeterminism.d.ts
+dist/determinism/StrictDeterminism.js
+dist/determinism/StrictDeterminism.js.map
+dist/index.d.ts
+dist/index.js
+dist/index.js.map
+dist/policy/decision/index.d.ts
+dist/policy/decision/index.js
+dist/policy/decision/index.js.map
+dist/policy/decision/runDecisionModules.d.ts
+dist/policy/decision/runDecisionModules.js
+dist/policy/decision/runDecisionModules.js.map
+dist/policy/decision/types.d.ts
+dist/policy/decision/types.js
+dist/policy/decision/types.js.map
+dist/policy/modules/_codec.d.ts
+dist/policy/modules/_codec.js
+dist/policy/modules/_codec.js.map
+dist/policy/modules/AllowlistModule.d.ts
+dist/policy/modules/AllowlistModule.js
+dist/policy/modules/AllowlistModule.js.map
+dist/policy/modules/BudgetModule.d.ts
+dist/policy/modules/BudgetModule.js
+dist/policy/modules/BudgetModule.js.map
+dist/policy/modules/ConcurrencyModule.d.ts
+dist/policy/modules/ConcurrencyModule.js
+dist/policy/modules/ConcurrencyModule.js.map
+dist/policy/modules/KillSwitchModule.d.ts
+dist/policy/modules/KillSwitchModule.js
+dist/policy/modules/KillSwitchModule.js.map
+dist/policy/modules/RecursionDepthModule.d.ts
+dist/policy/modules/RecursionDepthModule.js
+dist/policy/modules/RecursionDepthModule.js.map
+dist/policy/modules/registry.d.ts
+dist/policy/modules/registry.js
+dist/policy/modules/registry.js.map
+dist/policy/modules/ReplayModule.d.ts
+dist/policy/modules/ReplayModule.js
+dist/policy/modules/ReplayModule.js.map
+dist/policy/modules/ToolAmplificationModule.d.ts
+dist/policy/modules/ToolAmplificationModule.js
+dist/policy/modules/ToolAmplificationModule.js.map
+dist/policy/modules/VelocityModule.d.ts
+dist/policy/modules/VelocityModule.js
+dist/policy/modules/VelocityModule.js.map
+dist/policy/PolicyEngine.d.ts
+dist/policy/PolicyEngine.js
+dist/policy/PolicyEngine.js.map
+dist/policy/stateGuards.d.ts
+dist/policy/stateGuards.js
+dist/policy/stateGuards.js.map
+dist/policy/trustedTimeProfile.d.ts
+dist/policy/trustedTimeProfile.js
+dist/policy/trustedTimeProfile.js.map
+dist/policy/trustedTimeValidation.d.ts
+dist/policy/trustedTimeValidation.js
+dist/policy/trustedTimeValidation.js.map
+dist/policy/verifyTrustedTime.d.ts
+dist/policy/verifyTrustedTime.js
+dist/policy/verifyTrustedTime.js.map
+dist/replay/index.d.ts
+dist/replay/index.js
+dist/replay/index.js.map
+dist/replay/ReplayEngine.d.ts
+dist/replay/ReplayEngine.js
+dist/replay/ReplayEngine.js.map
+dist/replay/verify.d.ts
+dist/replay/verify.js
+dist/replay/verify.js.map
+dist/schemas/index.d.ts
+dist/schemas/index.js
+dist/schemas/index.js.map
+dist/schemas/validate.d.ts
+dist/schemas/validate.js
+dist/schemas/validate.js.map
+dist/snapshot/CanonicalCodec.d.ts
+dist/snapshot/CanonicalCodec.js
+dist/snapshot/CanonicalCodec.js.map
+dist/snapshot/CanonicalState.d.ts
+dist/snapshot/CanonicalState.js
+dist/snapshot/CanonicalState.js.map
+dist/snapshot/index.d.ts
+dist/snapshot/index.js
+dist/snapshot/index.js.map
+dist/types/authorization.d.ts
+dist/types/authorization.js
+dist/types/authorization.js.map
+dist/types/delegation.d.ts
+dist/types/delegation.js
+dist/types/delegation.js.map
+dist/types/intent.d.ts
+dist/types/intent.js
+dist/types/intent.js.map
+dist/types/keyset.d.ts
+dist/types/keyset.js
+dist/types/keyset.js.map
+dist/types/policy.d.ts
+dist/types/policy.js
+dist/types/policy.js.map
+dist/types/signed-krl.d.ts
+dist/types/signed-krl.js
+dist/types/signed-krl.js.map
+dist/types/state.d.ts
+dist/types/state.js
+dist/types/state.js.map
+dist/utils/deepMerge.d.ts
+dist/utils/deepMerge.js
+dist/utils/deepMerge.js.map
+dist/utils/index.d.ts
+dist/utils/index.js
+dist/utils/index.js.map
+dist/utils/stableSort.d.ts
+dist/utils/stableSort.js
+dist/utils/stableSort.js.map
+dist/utils/stableStringify.d.ts
+dist/utils/stableStringify.js
+dist/utils/stableStringify.js.map
+dist/verification/authorizationAuthority.d.ts
+dist/verification/authorizationAuthority.js
+dist/verification/authorizationAuthority.js.map
+dist/verification/createVerifier.d.ts
+dist/verification/createVerifier.js
+dist/verification/createVerifier.js.map
+dist/verification/envelope.d.ts
+dist/verification/envelope.js
+dist/verification/envelope.js.map
+dist/verification/index.d.ts
+dist/verification/index.js
+dist/verification/index.js.map
+dist/verification/types.d.ts
+dist/verification/types.js
+dist/verification/types.js.map
+dist/verification/verifyAuditEvents.d.ts
+dist/verification/verifyAuditEvents.js
+dist/verification/verifyAuditEvents.js.map
+dist/verification/verifyAuthorization.d.ts
+dist/verification/verifyAuthorization.js
+dist/verification/verifyAuthorization.js.map
+dist/verification/verifyDelegation.d.ts
+dist/verification/verifyDelegation.js
+dist/verification/verifyDelegation.js.map
+dist/verification/verifyEnvelope.d.ts
+dist/verification/verifyEnvelope.js
+dist/verification/verifyEnvelope.js.map
+dist/verification/verifySignedKrl.d.ts
+dist/verification/verifySignedKrl.js
+dist/verification/verifySignedKrl.js.map
+dist/verification/verifySnapshot.d.ts
+dist/verification/verifySnapshot.js
+dist/verification/verifySnapshot.js.map
+LICENSE
+package.json
+README.md
+schemas/api-extractor.schema.json
+schemas/audit-event.schema.json
+schemas/audit-log.schema.json
+schemas/authorization.schema.json
+schemas/canonical-state.schema.json
+schemas/intent.schema.json
+schemas/keyset.schema.json
+schemas/README.md
+schemas/snapshot.schema.json
+schemas/verification-envelope-v1.schema.json
+schemas/verification-envelope.schema.json
+schemas/verification-result.schema.json
+Tarball Details
+/scratch/export/2/core/oxdeai-core-2.0.3.tgz
+
+> @oxdeai/guard@2.0.5 prepack /scratch/src/packages/guard
+> pnpm build
+
+
+> @oxdeai/guard@2.0.5 build /scratch/src/packages/guard
+> rm -rf dist && tsc -p tsconfig.json
+
+📦  @oxdeai/guard@2.0.5
+Tarball Contents
+CHANGELOG.md
+dist/boundaryEvent.d.ts
+dist/boundaryEvent.js
+dist/boundaryEvent.js.map
+dist/delegationSnapshot.d.ts
+dist/delegationSnapshot.js
+dist/delegationSnapshot.js.map
+dist/errors.d.ts
+dist/errors.js
+dist/errors.js.map
+dist/gateway.d.ts
+dist/gateway.js
+dist/gateway.js.map
+dist/guard.d.ts
+dist/guard.js
+dist/guard.js.map
+dist/index.d.ts
+dist/index.js
+dist/index.js.map
+dist/normalizeAction.d.ts
+dist/normalizeAction.js
+dist/normalizeAction.js.map
+dist/provenance.d.ts
+dist/provenance.js
+dist/provenance.js.map
+dist/replayStore.d.ts
+dist/replayStore.js
+dist/replayStore.js.map
+dist/replayStore.redis.d.ts
+dist/replayStore.redis.js
+dist/replayStore.redis.js.map
+dist/secureGuard.d.ts
+dist/secureGuard.js
+dist/secureGuard.js.map
+dist/trustedContext.d.ts
+dist/trustedContext.js
+dist/trustedContext.js.map
+dist/types.d.ts
+dist/types.js
+dist/types.js.map
+LICENSE
+package.json
+README.md
+Tarball Details
+/scratch/export/1/guard/oxdeai-guard-2.0.5.tgz
+
+> @oxdeai/guard@2.0.5 prepack /scratch/src/packages/guard
+> pnpm build
+
+
+> @oxdeai/guard@2.0.5 build /scratch/src/packages/guard
+> rm -rf dist && tsc -p tsconfig.json
+
+📦  @oxdeai/guard@2.0.5
+Tarball Contents
+CHANGELOG.md
+dist/boundaryEvent.d.ts
+dist/boundaryEvent.js
+dist/boundaryEvent.js.map
+dist/delegationSnapshot.d.ts
+dist/delegationSnapshot.js
+dist/delegationSnapshot.js.map
+dist/errors.d.ts
+dist/errors.js
+dist/errors.js.map
+dist/gateway.d.ts
+dist/gateway.js
+dist/gateway.js.map
+dist/guard.d.ts
+dist/guard.js
+dist/guard.js.map
+dist/index.d.ts
+dist/index.js
+dist/index.js.map
+dist/normalizeAction.d.ts
+dist/normalizeAction.js
+dist/normalizeAction.js.map
+dist/provenance.d.ts
+dist/provenance.js
+dist/provenance.js.map
+dist/replayStore.d.ts
+dist/replayStore.js
+dist/replayStore.js.map
+dist/replayStore.redis.d.ts
+dist/replayStore.redis.js
+dist/replayStore.redis.js.map
+dist/secureGuard.d.ts
+dist/secureGuard.js
+dist/secureGuard.js.map
+dist/trustedContext.d.ts
+dist/trustedContext.js
+dist/trustedContext.js.map
+dist/types.d.ts
+dist/types.js
+dist/types.js.map
+LICENSE
+package.json
+README.md
+Tarball Details
+/scratch/export/2/guard/oxdeai-guard-2.0.5.tgz
+
+> @oxdeai/sdk@2.0.3 prepack /scratch/src/packages/sdk
+> pnpm build
+
+
+> @oxdeai/sdk@2.0.3 build /scratch/src/packages/sdk
+> rm -rf dist && tsc -p tsconfig.json
+
+📦  @oxdeai/sdk@2.0.3
+Tarball Contents
+CHANGELOG.md
+dist/adapters.d.ts
+dist/adapters.js
+dist/adapters.js.map
+dist/builders.d.ts
+dist/builders.js
+dist/builders.js.map
+dist/client.d.ts
+dist/client.js
+dist/client.js.map
+dist/guard.d.ts
+dist/guard.js
+dist/guard.js.map
+dist/index.d.ts
+dist/index.js
+dist/index.js.map
+dist/types.d.ts
+dist/types.js
+dist/types.js.map
+package.json
+README.md
+Tarball Details
+/scratch/export/1/sdk/oxdeai-sdk-2.0.3.tgz
+
+> @oxdeai/sdk@2.0.3 prepack /scratch/src/packages/sdk
+> pnpm build
+
+
+> @oxdeai/sdk@2.0.3 build /scratch/src/packages/sdk
+> rm -rf dist && tsc -p tsconfig.json
+
+📦  @oxdeai/sdk@2.0.3
+Tarball Contents
+CHANGELOG.md
+dist/adapters.d.ts
+dist/adapters.js
+dist/adapters.js.map
+dist/builders.d.ts
+dist/builders.js
+dist/builders.js.map
+dist/client.d.ts
+dist/client.js
+dist/client.js.map
+dist/guard.d.ts
+dist/guard.js
+dist/guard.js.map
+dist/index.d.ts
+dist/index.js
+dist/index.js.map
+dist/types.d.ts
+dist/types.js
+dist/types.js.map
+package.json
+README.md
+Tarball Details
+/scratch/export/2/sdk/oxdeai-sdk-2.0.3.tgz
+
+> @oxdeai/cli@0.3.3 prepack /scratch/src/packages/cli
+> pnpm build
+
+
+> @oxdeai/cli@0.3.3 build /scratch/src/packages/cli
+> rm -rf dist && tsc -p tsconfig.json && node scripts/postbuild.mjs
+
+📦  @oxdeai/cli@0.3.3
+Tarball Contents
+CHANGELOG.md
+dist/main.d.ts
+dist/main.js
+dist/main.js.map
+dist/store.d.ts
+dist/store.js
+dist/store.js.map
+package.json
+README.md
+Tarball Details
+/scratch/export/1/cli/oxdeai-cli-0.3.3.tgz
+
+> @oxdeai/cli@0.3.3 prepack /scratch/src/packages/cli
+> pnpm build
+
+
+> @oxdeai/cli@0.3.3 build /scratch/src/packages/cli
+> rm -rf dist && tsc -p tsconfig.json && node scripts/postbuild.mjs
+
+📦  @oxdeai/cli@0.3.3
+Tarball Contents
+CHANGELOG.md
+dist/main.d.ts
+dist/main.js
+dist/main.js.map
+dist/store.d.ts
+dist/store.js
+dist/store.js.map
+package.json
+README.md
+Tarball Details
+/scratch/export/2/cli/oxdeai-cli-0.3.3.tgz
+
+> @oxdeai/conformance@2.0.4 prepack /scratch/src/packages/conformance
+> rm -rf dist && pnpm build
+
+
+> @oxdeai/conformance@2.0.4 build /scratch/src/packages/conformance
+> tsc -p tsconfig.json && node scripts/build-evidence-metadata.mjs
+
+📦  @oxdeai/conformance@2.0.4
+Tarball Contents
+CHANGELOG.md
+dist/evidence-metadata.json
+dist/scripts/build-evidence-metadata.d.mts
+dist/scripts/build-evidence-metadata.mjs
+dist/scripts/build-evidence-metadata.mjs.map
+dist/scripts/extract-vectors.d.ts
+dist/scripts/extract-vectors.js
+dist/scripts/extract-vectors.js.map
+dist/src/evidenceScope.d.mts
+dist/src/evidenceScope.mjs
+dist/src/evidenceScope.mjs.map
+dist/src/fixtures/conformance-engine-secret.fixture.d.ts
+dist/src/fixtures/conformance-engine-secret.fixture.js
+dist/src/fixtures/conformance-engine-secret.fixture.js.map
+dist/src/fixtures/ed25519.test-only.fixture.d.ts
+dist/src/fixtures/ed25519.test-only.fixture.js
+dist/src/fixtures/ed25519.test-only.fixture.js.map
+dist/src/fixtures/krl-ed25519.test-only.fixture.d.ts
+dist/src/fixtures/krl-ed25519.test-only.fixture.js
+dist/src/fixtures/krl-ed25519.test-only.fixture.js.map
+dist/src/trustedTimeConformance.d.ts
+dist/src/trustedTimeConformance.js
+dist/src/trustedTimeConformance.js.map
+dist/src/validate-trusted-time.d.ts
+dist/src/validate-trusted-time.js
+dist/src/validate-trusted-time.js.map
+dist/src/validate.d.ts
+dist/src/validate.js
+dist/src/validate.js.map
+package.json
+README.md
+vectors/audit-chain.json
+vectors/audit-verification.json
+vectors/authorization-payload.json
+vectors/authorization-signature-verification.json
+vectors/authorization-verification.json
+vectors/clock-semantics-verification.json
+vectors/delegation-chain-verification.json
+vectors/delegation-parent-hash.json
+vectors/delegation-signature-verification.json
+vectors/delegation-verification.json
+vectors/envelope-signature-verification.json
+vectors/envelope-verification.json
+vectors/intent-hash.json
+vectors/key-lifecycle-verification.json
+vectors/profile-c-state-verification.json
+vectors/signed-krl-verification.json
+vectors/snapshot-hash.json
+vectors/trusted-time.json
+Tarball Details
+/scratch/export/1/conformance/oxdeai-conformance-2.0.4.tgz
+
+> @oxdeai/conformance@2.0.4 prepack /scratch/src/packages/conformance
+> rm -rf dist && pnpm build
+
+
+> @oxdeai/conformance@2.0.4 build /scratch/src/packages/conformance
+> tsc -p tsconfig.json && node scripts/build-evidence-metadata.mjs
+
+📦  @oxdeai/conformance@2.0.4
+Tarball Contents
+CHANGELOG.md
+dist/evidence-metadata.json
+dist/scripts/build-evidence-metadata.d.mts
+dist/scripts/build-evidence-metadata.mjs
+dist/scripts/build-evidence-metadata.mjs.map
+dist/scripts/extract-vectors.d.ts
+dist/scripts/extract-vectors.js
+dist/scripts/extract-vectors.js.map
+dist/src/evidenceScope.d.mts
+dist/src/evidenceScope.mjs
+dist/src/evidenceScope.mjs.map
+dist/src/fixtures/conformance-engine-secret.fixture.d.ts
+dist/src/fixtures/conformance-engine-secret.fixture.js
+dist/src/fixtures/conformance-engine-secret.fixture.js.map
+dist/src/fixtures/ed25519.test-only.fixture.d.ts
+dist/src/fixtures/ed25519.test-only.fixture.js
+dist/src/fixtures/ed25519.test-only.fixture.js.map
+dist/src/fixtures/krl-ed25519.test-only.fixture.d.ts
+dist/src/fixtures/krl-ed25519.test-only.fixture.js
+dist/src/fixtures/krl-ed25519.test-only.fixture.js.map
+dist/src/trustedTimeConformance.d.ts
+dist/src/trustedTimeConformance.js
+dist/src/trustedTimeConformance.js.map
+dist/src/validate-trusted-time.d.ts
+dist/src/validate-trusted-time.js
+dist/src/validate-trusted-time.js.map
+dist/src/validate.d.ts
+dist/src/validate.js
+dist/src/validate.js.map
+package.json
+README.md
+vectors/audit-chain.json
+vectors/audit-verification.json
+vectors/authorization-payload.json
+vectors/authorization-signature-verification.json
+vectors/authorization-verification.json
+vectors/clock-semantics-verification.json
+vectors/delegation-chain-verification.json
+vectors/delegation-parent-hash.json
+vectors/delegation-signature-verification.json
+vectors/delegation-verification.json
+vectors/envelope-signature-verification.json
+vectors/envelope-verification.json
+vectors/intent-hash.json
+vectors/key-lifecycle-verification.json
+vectors/profile-c-state-verification.json
+vectors/signed-krl-verification.json
+vectors/snapshot-hash.json
+vectors/trusted-time.json
+Tarball Details
+/scratch/export/2/conformance/oxdeai-conformance-2.0.4.tgz
+
+> @oxdeai/langgraph@2.0.1 prepack /scratch/src/packages/langgraph
+> pnpm build
+
+
+> @oxdeai/langgraph@2.0.1 build /scratch/src/packages/langgraph
+> rm -rf dist && tsc -p tsconfig.json
+
+📦  @oxdeai/langgraph@2.0.1
+Tarball Contents
+CHANGELOG.md
+dist/adapter.d.ts
+dist/adapter.js
+dist/adapter.js.map
+dist/index.d.ts
+dist/index.js
+dist/index.js.map
+dist/types.d.ts
+dist/types.js
+dist/types.js.map
+LICENSE
+package.json
+README.md
+Tarball Details
+/scratch/export/1/langgraph/oxdeai-langgraph-2.0.1.tgz
+
+> @oxdeai/langgraph@2.0.1 prepack /scratch/src/packages/langgraph
+> pnpm build
+
+
+> @oxdeai/langgraph@2.0.1 build /scratch/src/packages/langgraph
+> rm -rf dist && tsc -p tsconfig.json
+
+📦  @oxdeai/langgraph@2.0.1
+Tarball Contents
+CHANGELOG.md
+dist/adapter.d.ts
+dist/adapter.js
+dist/adapter.js.map
+dist/index.d.ts
+dist/index.js
+dist/index.js.map
+dist/types.d.ts
+dist/types.js
+dist/types.js.map
+LICENSE
+package.json
+README.md
+Tarball Details
+/scratch/export/2/langgraph/oxdeai-langgraph-2.0.1.tgz
+
+> @oxdeai/openai-agents@2.0.1 prepack /scratch/src/packages/openai-agents
+> pnpm build
+
+
+> @oxdeai/openai-agents@2.0.1 build /scratch/src/packages/openai-agents
+> rm -rf dist && tsc -p tsconfig.json
+
+📦  @oxdeai/openai-agents@2.0.1
+Tarball Contents
+CHANGELOG.md
+dist/adapter.d.ts
+dist/adapter.js
+dist/adapter.js.map
+dist/index.d.ts
+dist/index.js
+dist/index.js.map
+dist/types.d.ts
+dist/types.js
+dist/types.js.map
+LICENSE
+package.json
+README.md
+Tarball Details
+/scratch/export/1/openai-agents/oxdeai-openai-agents-2.0.1.tgz
+
+> @oxdeai/openai-agents@2.0.1 prepack /scratch/src/packages/openai-agents
+> pnpm build
+
+
+> @oxdeai/openai-agents@2.0.1 build /scratch/src/packages/openai-agents
+> rm -rf dist && tsc -p tsconfig.json
+
+📦  @oxdeai/openai-agents@2.0.1
+Tarball Contents
+CHANGELOG.md
+dist/adapter.d.ts
+dist/adapter.js
+dist/adapter.js.map
+dist/index.d.ts
+dist/index.js
+dist/index.js.map
+dist/types.d.ts
+dist/types.js
+dist/types.js.map
+LICENSE
+package.json
+README.md
+Tarball Details
+/scratch/export/2/openai-agents/oxdeai-openai-agents-2.0.1.tgz
+
+> @oxdeai/crewai@2.0.1 prepack /scratch/src/packages/crewai
+> pnpm build
+
+
+> @oxdeai/crewai@2.0.1 build /scratch/src/packages/crewai
+> rm -rf dist && tsc -p tsconfig.json
+
+📦  @oxdeai/crewai@2.0.1
+Tarball Contents
+CHANGELOG.md
+dist/adapter.d.ts
+dist/adapter.js
+dist/adapter.js.map
+dist/index.d.ts
+dist/index.js
+dist/index.js.map
+dist/types.d.ts
+dist/types.js
+dist/types.js.map
+LICENSE
+package.json
+README.md
+Tarball Details
+/scratch/export/1/crewai/oxdeai-crewai-2.0.1.tgz
+
+> @oxdeai/crewai@2.0.1 prepack /scratch/src/packages/crewai
+> pnpm build
+
+
+> @oxdeai/crewai@2.0.1 build /scratch/src/packages/crewai
+> rm -rf dist && tsc -p tsconfig.json
+
+📦  @oxdeai/crewai@2.0.1
+Tarball Contents
+CHANGELOG.md
+dist/adapter.d.ts
+dist/adapter.js
+dist/adapter.js.map
+dist/index.d.ts
+dist/index.js
+dist/index.js.map
+dist/types.d.ts
+dist/types.js
+dist/types.js.map
+LICENSE
+package.json
+README.md
+Tarball Details
+/scratch/export/2/crewai/oxdeai-crewai-2.0.1.tgz
+
+> @oxdeai/autogen@2.0.1 prepack /scratch/src/packages/autogen
+> pnpm build
+
+
+> @oxdeai/autogen@2.0.1 build /scratch/src/packages/autogen
+> rm -rf dist && tsc -p tsconfig.json
+
+📦  @oxdeai/autogen@2.0.1
+Tarball Contents
+CHANGELOG.md
+dist/adapter.d.ts
+dist/adapter.js
+dist/adapter.js.map
+dist/index.d.ts
+dist/index.js
+dist/index.js.map
+dist/types.d.ts
+dist/types.js
+dist/types.js.map
+LICENSE
+package.json
+README.md
+Tarball Details
+/scratch/export/1/autogen/oxdeai-autogen-2.0.1.tgz
+
+> @oxdeai/autogen@2.0.1 prepack /scratch/src/packages/autogen
+> pnpm build
+
+
+> @oxdeai/autogen@2.0.1 build /scratch/src/packages/autogen
+> rm -rf dist && tsc -p tsconfig.json
+
+📦  @oxdeai/autogen@2.0.1
+Tarball Contents
+CHANGELOG.md
+dist/adapter.d.ts
+dist/adapter.js
+dist/adapter.js.map
+dist/index.d.ts
+dist/index.js
+dist/index.js.map
+dist/types.d.ts
+dist/types.js
+dist/types.js.map
+LICENSE
+package.json
+README.md
+Tarball Details
+/scratch/export/2/autogen/oxdeai-autogen-2.0.1.tgz
+
+> @oxdeai/openclaw@2.0.1 prepack /scratch/src/packages/openclaw
+> pnpm build
+
+
+> @oxdeai/openclaw@2.0.1 build /scratch/src/packages/openclaw
+> rm -rf dist && tsc -p tsconfig.json
+
+📦  @oxdeai/openclaw@2.0.1
+Tarball Contents
+CHANGELOG.md
+dist/adapter.d.ts
+dist/adapter.js
+dist/adapter.js.map
+dist/index.d.ts
+dist/index.js
+dist/index.js.map
+dist/types.d.ts
+dist/types.js
+dist/types.js.map
+LICENSE
+package.json
+README.md
+Tarball Details
+/scratch/export/1/openclaw/oxdeai-openclaw-2.0.1.tgz
+
+> @oxdeai/openclaw@2.0.1 prepack /scratch/src/packages/openclaw
+> pnpm build
+
+
+> @oxdeai/openclaw@2.0.1 build /scratch/src/packages/openclaw
+> rm -rf dist && tsc -p tsconfig.json
+
+📦  @oxdeai/openclaw@2.0.1
+Tarball Contents
+CHANGELOG.md
+dist/adapter.d.ts
+dist/adapter.js
+dist/adapter.js.map
+dist/index.d.ts
+dist/index.js
+dist/index.js.map
+dist/types.d.ts
+dist/types.js
+dist/types.js.map
+LICENSE
+package.json
+README.md
+Tarball Details
+/scratch/export/2/openclaw/oxdeai-openclaw-2.0.1.tgz
+Working tree after build: 0 changed entries
