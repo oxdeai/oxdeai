@@ -63,13 +63,13 @@ If any step fails, execution MUST NOT occur.
 
 ## Execution and Consumption
 
-On successful verification:
+After successful completion of all preceding verification checks:
 
-1. Execute the side effect.
-2. Persist `auth_id` as consumed.
+1. Atomically consume `auth_id` after boundary binding (step 15), as the last verification step (step 16) in `docs/spec/verification/verification-v1.md` §5.
+2. Execute the side effect only after successful consumption.
 3. Persist execution/audit evidence as required by your environment.
 
-The consumed write SHOULD be durable and atomic relative to execution outcome handling.
+If required consumption fails, is unavailable, or its outcome is indeterminate, execution MUST NOT proceed. Consumed identifiers MUST remain unavailable for reuse throughout the applicable acceptance window, accounting for verifier clocks (`docs/spec/verification/verification-v1.md` §4.3). Restart persistence and backend durability require separate deployment evidence; implementation conformance does not establish them, and no backend technology is mandated. Consumption does not form an atomic transaction with the protected side effect and does not prove execution occurred.
 
 ## Failure Policy
 
@@ -91,7 +91,7 @@ Use `@oxdeai/sdk` guard boundary:
 - PDP: `PolicyEngine.evaluatePure(...)`
 - PEP: `createGuard(...)` callback boundary
 
-The callback executes only on verified `ALLOW`; denied or invalid authorization paths do not execute.
+`createGuard()` gates the callback on the engine's `ALLOW` decision and, by default, an engine-level HMAC binding check (`verifyAuthorization: false` disables that check). It does not itself atomically consume `auth_id`. A deployment requiring replay-resistant execution MUST enforce the required atomic consumption at its execution boundary before the protected side effect.
 
 ## Operational Notes
 

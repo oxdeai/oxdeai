@@ -765,15 +765,15 @@ The relying party MUST NOT require a live call to the PDP to verify a `Delegatio
 
 `AuthorizationV1` MUST be treated as single-use.
 
-After successful execution, the relying party MUST record `auth_id` as consumed in durable or equivalently reliable replay state.
+The `auth_id` MUST be atomically consumed after successful completion of all preceding verification checks, including boundary binding (step 15), and before execution of the protected side effect. Atomic consumption is step 16 and MUST be the last verification step in `docs/spec/verification/verification-v1.md` §5. If required consumption fails, is unavailable, or its outcome is indeterminate, execution MUST NOT proceed. The relying party MUST retain the consumed `auth_id` in durable or equivalently reliable replay state.
 Any subsequent attempt to reuse the same `auth_id` MUST be rejected.
 
 `delegation_id` MUST be treated as single-use.
 
-After successful execution under a `DelegationV1`, the relying party MUST record `delegation_id` as consumed.
+Where the declared artifact/execution profile requires separate `delegation_id` consumption, the relying party MUST atomically consume it after successful delegation verification, including all applicable binding and scope checks, and before execution under a `DelegationV1`, under `docs/spec/artifacts/delegation-v1.md` §4.5 and §6 and the replay-store contract in `docs/spec/verification/verification-v1.md` §§4.2–4.3. If required consumption fails, is unavailable, or its outcome is indeterminate, execution MUST NOT proceed.
 Any subsequent attempt to reuse the same `delegation_id` MUST be rejected.
 
-Single-use consumption is required to prevent replay and reduce time-of-check/time-of-use (TOCTOU) abuse.
+Single-use consumption is required to prevent replay and reduce time-of-check/time-of-use (TOCTOU) abuse. Successful consumption spends the entitlement; it does not prove execution occurred or guarantee exactly-once execution. Consumption and the external effect are not a single atomic transaction, and multiple required consumes are not automatically transactional. A later failure does not imply rollback of a successful consume.
 
 ### 5. Execution Preconditions
 
@@ -863,16 +863,15 @@ Implementations MUST enforce state isolation per evaluation to preserve the prot
 4. Verify decision == ALLOW and expiry is in the future.
 5. Compute requested action intent hash and compare to intent_hash.
 6. Verify policy_id and state_hash bindings for current context.
-7. Check auth_id is not consumed.
-8. Execute action.
-9. Mark auth_id as consumed.
+7. After all preceding verification checks, including boundary binding (normative step 15), atomically check and consume auth_id (normative step 16, last verification step).
+8. Execute action only after successful consumption; on failed, unavailable, or indeterminate consumption, MUST NOT execute.
 ```
 
 ### 9. Minimal Verification Flow - Delegation Path
 
 ```text
 1. Receive DelegationV1 artifact and its parent AuthorizationV1.
-2. Verify parent AuthorizationV1 (all steps in flow above, steps 1–7).
+2. Verify the parent AuthorizationV1 artifact. Parent artifact verification does not itself prescribe authoritative replay-state mutation before child verification; required consumption follows the applicable delegation replay contract.
 3. Verify parent is AuthorizationV1, not DelegationV1 (one-hop enforcement).
 4. Compute SHA-256 of canonical parent AuthorizationV1 and compare to delegation.parent_auth_hash.
 5. Verify delegation.delegator == parent.audience.
@@ -884,9 +883,8 @@ Implementations MUST enforce state isolation per evaluation to preserve the prot
 11. Resolve delegation signing key from (delegation.issuer, delegation.kid, delegation.alg).
 12. Verify delegation.signature using OXDEAI_DELEGATION_V1 domain.
 13. Verify proposed action is within the effective child scope (tools, max_amount), including inherited parent constraints.
-14. Check delegation_id is not consumed.
-15. Execute action.
-16. Mark delegation_id as consumed.
+14. After successful delegation verification, including all applicable binding and scope checks, atomically consume the replay entitlements required by the declared artifact/execution profile under docs/spec/artifacts/delegation-v1.md §4.5 and §6, including delegation_id where required.
+15. Execute action only after all required consumes succeed; on failed, unavailable, or indeterminate required consumption, MUST NOT execute.
 ```
 
 ## 11. KeySet and Key Rotation Model

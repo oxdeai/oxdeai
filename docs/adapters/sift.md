@@ -390,7 +390,7 @@ The adapter MUST reject:
 - `AuthorizationV1.auth_id` MUST be unique and single-use.
 - The adapter MUST define how the Sift `nonce` maps to `auth_id`. Sift replay semantics and OxDeAI replay semantics are not identical: Sift may apply receipt-level deduplication, while OxDeAI enforces authorization-level single-use at the PEP boundary. The adapter MUST close this gap explicitly and MUST NOT assume the two are equivalent.
 - The adapter MAY perform a pre-issuance replay precheck against a local duplicate cache to reduce obvious replay attempts. This precheck is advisory only and is not authoritative enforcement.
-- The PEP Gateway MUST perform authoritative single-use enforcement. The PEP MUST persist `auth_id` consumption atomically with execution. Adapter-side replay prechecks are insufficient by themselves and MUST NOT be treated as authoritative.
+- The PEP Gateway MUST perform authoritative single-use enforcement. The PEP MUST atomically consume `auth_id` after all preceding verification checks, including boundary binding (step 15), as the last verification step (step 16) in `docs/spec/verification/verification-v1.md` §5, and before execution. If required consumption fails, is unavailable, or its outcome is indeterminate, execution MUST NOT proceed. Adapter-side replay prechecks are insufficient by themselves and MUST NOT be treated as authoritative.
 - Reuse of the same `auth_id` at the PEP MUST result in DENY.
 - Any replay uncertainty MUST result in DENY.
 
@@ -474,10 +474,12 @@ Before executing any side effect, the PEP MUST verify, in order:
 
 If any step fails, execution MUST NOT occur.
 
-On successful verification:
-1. Execute the side effect.
-2. Persist `auth_id` as consumed — this write MUST be durable and atomic with respect to execution.
+After successful completion of all preceding verification checks:
+1. Atomically consume `auth_id` after boundary binding (step 15), as the last verification step (step 16) in `docs/spec/verification/verification-v1.md` §5 — the consumed record MUST be durable.
+2. Execute the side effect only after successful consumption.
 3. Emit audit evidence.
+
+If required consumption fails, is unavailable, or its outcome is indeterminate, execution MUST NOT proceed. Consumption does not form an atomic transaction with the protected side effect and does not prove execution occurred.
 
 ### Upstream isolation
 
